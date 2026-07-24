@@ -488,7 +488,7 @@ int main(int argc, char* argv[]) {
 
     if (argc < 2) {
         std::cerr << "\nUsage: dxf_analyzer.exe <dxf_file>" << std::endl;
-        std::cerr << "  Output: <dxf_file>.txt (analysis report)\n" << std::endl;
+        std::cerr << "  Output: result/<dxf_filename>.txt (analysis report)\n" << std::endl;
         return 1;
     }
 
@@ -508,13 +508,23 @@ int main(int argc, char* argv[]) {
 
     std::cout << "Read complete! Total entities: " << analyzer.collector.stats.total << std::endl;
 
-    // Generate output filename: replace .dxf with .txt or append .txt
-    std::string outFile = dxfFile;
-    size_t dotPos = outFile.rfind('.');
-    if (dotPos != std::string::npos) {
-        outFile = outFile.substr(0, dotPos) + ".txt";
-    } else {
-        outFile += ".txt";
+    // Generate output filename in the result/ directory
+    std::string outFile;
+    {
+        // Extract just the filename without path
+        std::string baseName = dxfFile;
+        size_t sepPos = baseName.find_last_of("/\\");
+        if (sepPos != std::string::npos) {
+            baseName = baseName.substr(sepPos + 1);
+        }
+        // Replace .dxf with .txt
+        size_t dotPos = baseName.rfind('.');
+        if (dotPos != std::string::npos) {
+            baseName = baseName.substr(0, dotPos) + ".txt";
+        } else {
+            baseName += ".txt";
+        }
+        outFile = "result/" + baseName;
     }
 
     analyzer.collector.writeTxt(outFile);
