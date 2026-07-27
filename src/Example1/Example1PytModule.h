@@ -26,6 +26,7 @@ public:
 	omuPrimitive* calcArea(omuArguments& args);
 	omuPrimitive* createLine(omuArguments& args);
 	omuPrimitive* importDxf(omuArguments& args);
+	
 private:
 
 	Example1PytModule(const Example1PytModule&);
