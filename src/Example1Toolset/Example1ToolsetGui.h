@@ -56,7 +56,7 @@ private:
 	
     
 private slots:
-	void Example1Ui();
+	void ImportDxfUi();
 };
 
 #endif

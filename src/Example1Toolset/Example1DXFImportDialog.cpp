@@ -1,0 +1,119 @@
+#include <Example1DXFImportDialog.h>
+#include <Example1Form.h>
+
+#include <QValidator>
+#include <QLabel>
+#include <QLineEdit>
+#include <QPushButton>
+#include <QGroupBox>
+#include <QFormLayout>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QFileDialog>
+#include <QMessageBox>
+#include <QDir>
+#include <QFileInfo>
+
+#include <omuArguments.h>
+#include <omuMethodCall.h>
+#include <cmdGCommandDeliveryRole.h>
+
+
+
+Example1DXFImportDialog::Example1DXFImportDialog(Example1Form* form)
+	:SAMDataDialog(form, tr("DXF Import"), OK | CANCEL)
+{
+	setMinimumSize(470, 200);
+
+	/*************************DXF Path*************************************/
+	QGroupBox* dxfGroup = new QGroupBox(tr("DXF File"), this);
+
+	m_dxfPathEdit = new QLineEdit(dxfGroup);
+	m_dxfPathEdit->setPlaceholderText(tr("Enter or paste DXF file path"));
+
+	m_browseButton = new QPushButton(tr("Browse..."), dxfGroup);
+	connect(m_browseButton, SIGNAL(clicked()), this, SLOT(onBrowse()));
+
+	QHBoxLayout* pathLayout = new QHBoxLayout;
+	pathLayout->addWidget(m_dxfPathEdit);
+	pathLayout->addWidget(m_browseButton);
+
+	QVBoxLayout* groupLayout = new QVBoxLayout(dxfGroup);
+	groupLayout->addLayout(pathLayout);
+
+	QVBoxLayout* paramLayout = new QVBoxLayout;
+	paramLayout->addWidget(dxfGroup);
+
+	QHBoxLayout* contentLayout = new QHBoxLayout(contentArea);
+	contentLayout->addLayout(paramLayout);
+
+}
+
+
+/// Destructor.
+Example1DXFImportDialog::~Example1DXFImportDialog()
+{
+
+}
+
+
+void Example1DXFImportDialog::onBrowse()
+{
+	QString filePath = QFileDialog::getOpenFileName(
+		this,
+		tr("Select DXF File"),
+		QString(),
+		tr("DXF Files (*.dxf);;All Files (*.*)")
+	);
+
+	if (!filePath.isEmpty()) {
+		m_dxfPathEdit->setText(QDir::toNativeSeparators(filePath));
+	}
+}
+
+
+void Example1DXFImportDialog::onCmdOk(int id)
+{
+	QString path = m_dxfPathEdit->text().trimmed();
+
+	// validate
+	if (path.isEmpty()) {
+		QMessageBox::warning(
+			this,
+			tr("Warning"),
+			tr("Please enter or select a DXF file path.")
+		);
+		return;
+	}
+
+	if (!QFileInfo::exists(path)) {
+		QMessageBox::warning(
+			this,
+			tr("Warning"),
+			tr("File does not exist:\n%1").arg(path)
+		);
+		return;
+	}
+
+	if (QFileInfo(path).suffix().compare("dxf", Qt::CaseInsensitive) != 0) {
+		QMessageBox::warning(
+			this,
+			tr("Warning"),
+			tr("Please select a DXF file.")
+		);
+		return;
+	}
+
+// call importDxf
+	omuArguments args(1);
+	args.Put(path);
+	omuMethodCall mc("Example1", "importDxf", args);
+
+	QString cmd;
+	cmd.append(mc);
+	cmdGCommandDeliveryRole::Instance().SendCommand("import Example1");
+	cmdGCommandDeliveryRole::Instance().SendCommand(cmd);
+
+	// close dialog
+	SAMDataDialog::onCmdOk(id);
+}

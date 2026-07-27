@@ -20,8 +20,8 @@ void DxfReader::addLWPolyline(const DRW_LWPolyline& data)
 	if (numVerts < 2) return;
 	const bool isClosed = (data.flags & 1) != 0;
 	for (int i = 0; i < numVerts - 1; ++i) {
-		const DRW_Vertex2D& v1 = data.vertlist[i];
-		const DRW_Vertex2D& v2 = data.vertlist[i + 1];
+		const DRW_Vertex2D& v1 = *data.vertlist[i];
+		const DRW_Vertex2D& v2 = *data.vertlist[i + 1];
 		// 跳过弧形段（bulge != 0）
 		if (v1.bulge != 0.0 || v2.bulge != 0.0) continue;
 		DxfLine line;
@@ -31,8 +31,8 @@ void DxfReader::addLWPolyline(const DRW_LWPolyline& data)
 	}
 	// 闭合多段线：连接首尾
 	if (isClosed) {
-		const DRW_Vertex2D& vFirst = data.vertlist.front();
-		const DRW_Vertex2D& vLast  = data.vertlist.back();
+		const DRW_Vertex2D& vFirst = *data.vertlist.front();
+		const DRW_Vertex2D& vLast  = *data.vertlist.back();
 		if (vFirst.bulge == 0.0 && vLast.bulge == 0.0) {
 			DxfLine line;
 			line.start = Point3D(vLast.x, vLast.y, 0.0);
