@@ -20,9 +20,6 @@ __pycache__/
 *.pyc
 *.pyo
 
-# 根目录 CMakeLists（本地配置，不跟踪）
-/CMakeLists.txt
-
 # 其他
 .DS_Store
 .vscode/
