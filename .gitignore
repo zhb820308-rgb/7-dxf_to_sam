@@ -1,0 +1,25 @@
+# 编译产物
+bin/
+build/
+lib/
+
+# Visual Studio
+*.user
+*.suo
+*.sln.docstates
+*.sdf
+*.opensdf
+*.vcxproj.user
+*.vcxproj.filters.user
+Debug/
+Release/
+x64/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# 其他
+.DS_Store
+.vscode/
