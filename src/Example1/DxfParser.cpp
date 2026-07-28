@@ -18,7 +18,7 @@ void DxfReader::addCircle(const DRW_Circle& data)
 
 void DxfReader::addLWPolyline(const DRW_LWPolyline& data)
 {
-	// 将轻量多段线的相邻顶点分解为多条线段
+	// 将轻量多段线的相邻顶点分解为带 bulge 的线段
 	const int numVerts = data.vertexnum;
 	qDebug() << "[DxfReader] addLWPolyline vertexnum=" << numVerts
 	         << "flags=" << data.flags << "vertlist=" << (int)data.vertlist.size();
@@ -27,19 +27,21 @@ void DxfReader::addLWPolyline(const DRW_LWPolyline& data)
 	for (int i = 0; i < numVerts - 1; ++i) {
 		const DRW_Vertex2D& v1 = *data.vertlist[i];
 		const DRW_Vertex2D& v2 = *data.vertlist[i + 1];
-		// 跳过弧形段（bulge != 0）
-		if (v1.bulge != 0.0 || v2.bulge != 0.0) continue;
-		DxfLine line(DxfPoint(v1.x, v1.y, 0.0), DxfPoint(v2.x, v2.y, 0.0));
-		m_data.addLine(line);
+		DxfPolylineSegment seg;
+		seg.start = DxfPoint(v1.x, v1.y, 0.0);
+		seg.end   = DxfPoint(v2.x, v2.y, 0.0);
+		seg.bulge = v1.bulge;  // v1.bulge 描述 v1→v2 这段
+		m_data.addPolylineSegment(seg);
 	}
 	// 闭合多段线：连接首尾
 	if (isClosed) {
 		const DRW_Vertex2D& vFirst = *data.vertlist.front();
 		const DRW_Vertex2D& vLast  = *data.vertlist.back();
-		if (vFirst.bulge == 0.0 && vLast.bulge == 0.0) {
-			DxfLine line(DxfPoint(vLast.x, vLast.y, 0.0), DxfPoint(vFirst.x, vFirst.y, 0.0));
-			m_data.addLine(line);
-		}
+		DxfPolylineSegment seg;
+		seg.start = DxfPoint(vLast.x, vLast.y, 0.0);
+		seg.end   = DxfPoint(vFirst.x, vFirst.y, 0.0);
+		seg.bulge = vLast.bulge;  // vLast.bulge 描述最后一段
+		m_data.addPolylineSegment(seg);
 	}
 }
 
@@ -63,11 +65,12 @@ bool DxfParser::parseFile(const QString& filePath, DxfData& outData) {
 	outData.setValid(true);
 	qDebug() << "[DxfParser] read ok:"
 	         << "lines=" << outData.lines().size()
-	         << "circles=" << outData.circles().size();
-	if (outData.lines().empty())
+	         << "circles=" << outData.circles().size()
+	         << "polySegs=" << outData.polylineSegments().size();
+	if (outData.lines().empty() && outData.circles().empty() && outData.polylineSegments().empty())
 	{
 		outData.setErrorMessage(
-			QStringLiteral("DXF was read successfully, but no LINE entities were found."));
+			QStringLiteral("DXF was read successfully, but no supported entities were found."));
 		return false;
 	}
 	return true;

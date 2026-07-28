@@ -86,6 +86,20 @@ private:
     double m_radius = 0.0;
 };
 
+// ---- DxfPolylineSegment ----
+// 多段线的单段：start→end，bulge=0 为直线段，非0 为圆弧段
+// 这是一个解析中间产物，不继承 DxfEntity
+
+struct DxfPolylineSegment {
+    DxfPoint start;
+    DxfPoint end;
+    double bulge = 0.0;
+
+    DxfPolylineSegment() = default;
+    DxfPolylineSegment(const DxfPoint& s, const DxfPoint& e, double b)
+        : start(s), end(e), bulge(b) {}
+};
+
 // ---- DxfData (container) ----
 
 class DxfData {
@@ -96,14 +110,18 @@ public:
     void addPoint(const DxfPoint& pt);
     void addLine(const DxfLine& line);
     void addCircle(const DxfCircle& circle);
+    void addPolylineSegment(const DxfPolylineSegment& seg);
     void clear();
 
     // --- accessors ---
-    const std::vector<DxfPoint>&  points()  const { return m_points; }
-    const std::vector<DxfLine>&   lines()   const { return m_lines; }
-    const std::vector<DxfCircle>& circles() const { return m_circles; }
+    const std::vector<DxfPoint>&             points()            const { return m_points; }
+    const std::vector<DxfLine>&              lines()             const { return m_lines; }
+    const std::vector<DxfCircle>&            circles()           const { return m_circles; }
+    const std::vector<DxfPolylineSegment>&   polylineSegments()  const { return m_polylineSegments; }
 
-    int entityCount() const { return static_cast<int>(m_lines.size() + m_circles.size()); }
+    int entityCount() const {
+        return static_cast<int>(m_lines.size() + m_circles.size() + m_polylineSegments.size());
+    }
 
     // --- error / validity ---
     QString errorMessage() const { return m_errorMessage; }
@@ -113,9 +131,10 @@ public:
     void setValid(bool v) { m_isValid = v; }
 
 private:
-    std::vector<DxfPoint>  m_points;
-    std::vector<DxfLine>   m_lines;
-    std::vector<DxfCircle> m_circles;
+    std::vector<DxfPoint>             m_points;
+    std::vector<DxfLine>              m_lines;
+    std::vector<DxfCircle>            m_circles;
+    std::vector<DxfPolylineSegment>   m_polylineSegments;
     QString m_errorMessage;
     bool m_isValid = false;
 };

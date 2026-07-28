@@ -7,6 +7,7 @@
 // Geometry conversion engine.
 //   - filters invalid entities (zero-length lines, zero-radius circles, ...)
 //   - translates all coordinates by the user-specified base point
+//   - discretizes polyline bulge arcs into line segments
 //   - output SamData is ready for skcGeomFactory
 class ConversionEngine {
 public:
@@ -16,9 +17,16 @@ public:
                  double baseX, double baseY, double baseZ,
                  SamData& outData);
 
+    static double defaultBulgeTolerance() { return 0.01; }
+
 private:
     static DxfPoint translate(const DxfPoint& pt,
                               double bx, double by, double bz);
+
+    // 将 bulge 圆弧段离散为采样点列表（首尾包含原始端点）
+    static std::vector<DxfPoint> tessellateBulgeArc(
+        const DxfPoint& p0, const DxfPoint& p1,
+        double bulge, double tolerance);
 };
 
 #endif

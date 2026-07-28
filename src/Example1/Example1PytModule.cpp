@@ -1,4 +1,4 @@
-﻿#include <omuArguments.h>
+#include <omuArguments.h>
 #include <omuPrimNumber.h>
 #include <omuPrimType.h>
 
@@ -167,12 +167,19 @@ omuPrimitive* Example1PytModule::createLine(omuArguments& args)
 
 omuPrimitive* Example1PytModule::importDxf(omuArguments& args) {
 	QString filePath;
+	double baseX = 0.0;
+	double baseY = 0.0;
+	double baseZ = 0.0;
 	args.Begin();
 	args.Get(filePath);
+	args.Get(baseX);
+	args.Get(baseY);
+	args.Get(baseZ);
 	args.End();
 
 	qDebug() << "[importDxf] ====== DXF 导入开始 ======";
 	qDebug() << "[importDxf] 文件路径:" << filePath;
+	qDebug() << "[importDxf] 基点:" << baseX << baseY << baseZ;
 
 	// ---- 1. 解析 ----
 	DxfData dxfData;
@@ -185,7 +192,7 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args) {
 	// ---- 2. 转换 ----
 	SamData samData;
 	ConversionEngine engine;
-	if (!engine.convert(dxfData, 0.0, 0.0, 0.0, samData)) {
+	if (!engine.convert(dxfData, baseX, baseY, baseZ, samData)) {
 		qDebug() << "[importDxf] 没有有效的图元可导入";
 		return new omuPrimNumber(0);
 	}

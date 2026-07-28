@@ -91,6 +91,7 @@ void DxfData::clear()
     m_points.clear();
     m_lines.clear();
     m_circles.clear();
+    m_polylineSegments.clear();
     m_errorMessage.clear();
     m_isValid = false;
 }
@@ -108,4 +109,9 @@ void DxfData::addLine(const DxfLine& line)
 void DxfData::addCircle(const DxfCircle& circle)
 {
     m_circles.push_back(circle);
+}
+
+void DxfData::addPolylineSegment(const DxfPolylineSegment& seg)
+{
+    m_polylineSegments.push_back(seg);
 }

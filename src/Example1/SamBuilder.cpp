@@ -143,10 +143,19 @@ int SamBuilder::createCircles(const std::vector<DxfCircle>& circles) {
     if (!m_active || !m_factory) return 0;
     int count = 0;
     for (const DxfCircle& circle : circles) {
-        // TODO: skcGeomFactory::CreateCircle interface TBC
+        const DxfPoint& c = circle.center();
+        double r = circle.radius();
+        gslPoint ptCenter(c.x(), c.y(), c.z());
+        gslPoint ptOnCircle(c.x() + r, c.y(), c.z());
+        if (count < 3)
+            qDebug() << "[SamBuilder] CreateCircle center" << c.x() << c.y() << "r=" << r;
+        m_factory->CreateCircle(ptCenter, ptOnCircle, skc_FOREGROUND, false);
+        extendBounds(c.x() + r, c.y() + r);
+        extendBounds(c.x() - r, c.y() - r);
         ++count;
     }
     m_createdCount += count;
+    qDebug() << "[SamBuilder] circles:" << count;
     return count;
 }
 
