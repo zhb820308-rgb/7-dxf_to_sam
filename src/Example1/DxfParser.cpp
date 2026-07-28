@@ -1,20 +1,9 @@
 #include "DxfParser.h"
+#include "ConversionEngine.h"
+#include "GeometryUtils.h"
 
 #include <QDebug>
 #include <cmath>
-
-int calculateSegmentCount(double radius, double sweep, double tolerance) {
-    if (sweep <= 0.0 || radius <= 0.0) return 1;
-    if (tolerance <= 0.0) tolerance = 1e-6;
-    if (tolerance >= radius) return 2;
-    double halfAngle = acos(1.0 - tolerance / radius);
-    double anglePerSegment = 2.0 * halfAngle;
-    const double maxAngle = M_PI / 4.0;
-    if (anglePerSegment > maxAngle) anglePerSegment = maxAngle;
-    int segments = static_cast<int>(ceil(sweep / anglePerSegment));
-    if (segments < 2) segments = 2;
-    return segments;
-}
 void DxfReader::addLine(const DRW_Line& data) {
 	DxfPoint start(data.basePoint.x, data.basePoint.y, data.basePoint.z);
 	DxfPoint end(data.secPoint.x, data.secPoint.y, data.secPoint.z);
@@ -81,30 +70,30 @@ void DxfReader::addEllipse(const DRW_Ellipse& data) {
 }
 void DxfReader::addLWPolyline(const DRW_LWPolyline& data)
 {
-	// 将轻量多段线的相邻顶点分解为带 bulge 的线段
 	const int numVerts = data.vertexnum;
 	qDebug() << "[DxfReader] addLWPolyline vertexnum=" << numVerts
 	         << "flags=" << data.flags << "vertlist=" << (int)data.vertlist.size();
 	if (numVerts < 2) return;
 	const bool isClosed = (data.flags & 1) != 0;
+
+	const double tol = ConversionEngine::defaultBulgeTolerance();
+
+	auto tessellateSegment = [&](const DRW_Vertex2D& v1, const DRW_Vertex2D& v2) {
+		DxfPoint p0(v1.x, v1.y, 0.0);
+		DxfPoint p1(v2.x, v2.y, 0.0);
+		std::vector<DxfPoint> pts =
+			GeometryUtils::tessellateBulgeArc(p0, p1, v1.bulge, tol);
+		for (size_t i = 1; i < pts.size(); ++i) {
+			m_data.addPolylineSegment(
+				DxfPolylineSegment(pts[i - 1], pts[i], 0.0));
+		}
+	};
+
 	for (int i = 0; i < numVerts - 1; ++i) {
-		const DRW_Vertex2D& v1 = *data.vertlist[i];
-		const DRW_Vertex2D& v2 = *data.vertlist[i + 1];
-		DxfPolylineSegment seg;
-		seg.start = DxfPoint(v1.x, v1.y, 0.0);
-		seg.end   = DxfPoint(v2.x, v2.y, 0.0);
-		seg.bulge = v1.bulge;  // v1.bulge 描述 v1→v2 这段
-		m_data.addPolylineSegment(seg);
+		tessellateSegment(*data.vertlist[i], *data.vertlist[i + 1]);
 	}
-	// 闭合多段线：连接首尾
 	if (isClosed) {
-		const DRW_Vertex2D& vFirst = *data.vertlist.front();
-		const DRW_Vertex2D& vLast  = *data.vertlist.back();
-		DxfPolylineSegment seg;
-		seg.start = DxfPoint(vLast.x, vLast.y, 0.0);
-		seg.end   = DxfPoint(vFirst.x, vFirst.y, 0.0);
-		seg.bulge = vLast.bulge;  // vLast.bulge 描述最后一段
-		m_data.addPolylineSegment(seg);
+		tessellateSegment(*data.vertlist.back(), *data.vertlist.front());
 	}
 }
 
@@ -112,39 +101,52 @@ void DxfReader::addArc(const DRW_Arc& data) {
 	const DRW_Coord center = data.basePoint;
 	const double radius = data.radious;
 
-	if (!std::isfinite(radius) || radius <= 0.0) return;
+	if (!std::isfinite(center.x) || !std::isfinite(center.y) || !std::isfinite(center.z)) {
+		qDebug() << "[DxfReader] addArc skipped: invalid center";
+		return;
+	}
+	if (!std::isfinite(radius) || radius <= 0.0) {
+		qDebug() << "[DxfReader] addArc skipped: invalid radius" << radius;
+		return;
+	}
 
 	double start = data.staangle;
 	double end = data.endangle;
 
 	double sweep = end - start;
-	if (data.isccw) {
-		while (sweep <= 0.0) { sweep += 2.0 * M_PI; }
-	} else {
-		while (sweep >= 0.0) { sweep -= 2.0 * M_PI; }
+	if (!std::isfinite(sweep)) {
+		qDebug() << "[DxfReader] addArc skipped: NaN sweep";
+		return;
 	}
 
-	const int segments = calculateSegmentCount(
-		radius, std::abs(sweep), 0.01);
+	// Normalize sweep to [-2pi, 2pi]
+	if (data.isccw) {
+		while (sweep <= 0.0)   { sweep += 2.0 * M_PI; }
+		while (sweep > 2.0 * M_PI) { sweep -= 2.0 * M_PI; }
+	} else {
+		while (sweep >= 0.0)   { sweep -= 2.0 * M_PI; }
+		while (sweep < -2.0 * M_PI) { sweep += 2.0 * M_PI; }
+	}
 
-	auto pointAt = [&](double angle) -> DxfPoint {
-		return DxfPoint(
-			center.x + radius * std::cos(angle),
-			center.y + radius * std::sin(angle),
-			center.z);
-	};
+	// Compute arc endpoints from center + radius + angles
+	DxfPoint p0(center.x + radius * std::cos(start),
+	            center.y + radius * std::sin(start),
+	            center.z);
+	DxfPoint p1(center.x + radius * std::cos(end),
+	            center.y + radius * std::sin(end),
+	            center.z);
 
-	DxfPoint previous = pointAt(start);
-	for (int i = 1; i <= segments; ++i) {
-		double angle = start + sweep * static_cast<double>(i)
-		               / static_cast<double>(segments);
-		DxfPoint current = pointAt(angle);
-		DxfPolylineSegment seg;
-		seg.start = previous;
-		seg.end = current;
-		seg.bulge = 0.0;
-		m_data.addPolylineSegment(seg);
-		previous = current;
+	// Convert ARC to bulge representation: bulge = tan(sweep / 4)
+	double bulge = std::tan(sweep * 0.25);
+
+	// Delegate to shared tessellation
+	std::vector<DxfPoint> pts =
+	    GeometryUtils::tessellateBulgeArc(p0, p1, bulge,
+	        ConversionEngine::defaultBulgeTolerance());
+
+	for (size_t i = 1; i < pts.size(); ++i) {
+		m_data.addPolylineSegment(
+		    DxfPolylineSegment(pts[i - 1], pts[i], 0.0));
 	}
 }
 bool DxfParser::parseFile(const QString& filePath, DxfData& outData) {
