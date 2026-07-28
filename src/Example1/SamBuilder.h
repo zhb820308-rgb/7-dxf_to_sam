@@ -27,6 +27,7 @@ public:
 
 private:
     void buildSketchPath();
+    void extendBounds(double x, double y);
 
     QString m_modelName;
     QString m_sketchName;
@@ -37,6 +38,11 @@ private:
     skcGeomFactory* m_factory = nullptr;
     int m_createdCount = 0;
     bool m_active = false;
+
+    // bounding box of imported geometry (for sheet size)
+    bool   m_hasBounds = false;
+    double m_minX = 0.0, m_minY = 0.0;
+    double m_maxX = 0.0, m_maxY = 0.0;
 };
 
 #endif

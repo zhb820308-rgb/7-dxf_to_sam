@@ -16,6 +16,7 @@
 #include <skcKReposUtils.h>
 #include <skcKToolset.h>
 #include <skcKUtils.h>
+#include <skcUtils.h>
 #include <skcPDO.h>
 #include <skcUndoRedoStack.h>
 
@@ -38,6 +39,19 @@ static gcuScene* currentScene(bool force) {
     return static_cast<gcuScene*>(gdyScene::GetCurrentScene(force));
 }
 
+void SamBuilder::extendBounds(double x, double y) {
+    if (!m_hasBounds) {
+        m_minX = m_maxX = x;
+        m_minY = m_maxY = y;
+        m_hasBounds = true;
+        return;
+    }
+    if (x < m_minX) m_minX = x;
+    if (x > m_maxX) m_maxX = x;
+    if (y < m_minY) m_minY = y;
+    if (y > m_maxY) m_maxY = y;
+}
+
 // ========================================================================
 //  Constructor / Destructor
 // ========================================================================
@@ -58,6 +72,8 @@ bool SamBuilder::beginImport(const QString& modelName) {
     m_lastError.clear();
 
     qDebug() << "[SamBuilder] sketch:" << m_sketchName;
+
+    m_hasBounds = false;
 
     basMdb mdb = basBasis::Instance()->Fetch();
     gmlSketchRepository& sketches = skcKGetSketchRepos(mdb, m_modelName);
@@ -106,7 +122,12 @@ int SamBuilder::createLines(const std::vector<DxfLine>& lines) {
     for (const DxfLine& line : lines) {
         gslPoint p1(line.start().x(), line.start().y(), line.start().z());
         gslPoint p2(line.end().x(),   line.end().y(),   line.end().z());
+        if (count < 3)
+            qDebug() << "[SamBuilder] CreateLine" << p1.GetX() << p1.GetY() << p1.GetZ()
+                     << "->" << p2.GetX() << p2.GetY() << p2.GetZ();
         m_factory->CreateLine(p1, p2, skc_FOREGROUND, false);
+        extendBounds(p1.GetX(), p1.GetY());
+        extendBounds(p2.GetX(), p2.GetY());
         ++count;
     }
     m_createdCount += count;
@@ -141,6 +162,18 @@ bool SamBuilder::commit() {
 
     // 1. Insert sketch into repository
     {
+        // Fit sheet size to the imported geometry so it is not outside
+        // the (origin-centered) sheet. Sheet must cover the farthest point.
+        if (m_hasBounds) {
+            const double maxAbs = qMax(qMax(qAbs(m_minX), qAbs(m_maxX)),
+                                       qMax(qAbs(m_minY), qAbs(m_maxY)));
+            double extent = maxAbs * 2.4;
+            if (extent < 200.0) extent = 200.0;
+            m_sketch->DisplayOptions().SetSheetSize(extent);
+            qDebug() << "[SamBuilder] bounds" << m_minX << m_minY << "-" << m_maxX << m_maxY
+                     << "sheetSize" << extent;
+        }
+
         basMdb mdb = basBasis::Instance()->Fetch();
         gmlSketchRepository& sketches = skcKGetSketchRepos(mdb, m_modelName);
 

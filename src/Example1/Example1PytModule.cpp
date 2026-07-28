@@ -178,7 +178,7 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args) {
 	DxfData dxfData;
 	DxfParser parser;
 	if (!parser.parseFile(filePath, dxfData)) {
-		qDebug() << "[importDxf] 错误: DXF 文件解析失败!";
+		qDebug() << "[importDxf] 错误: DXF 文件解析失败!" << dxfData.errorMessage();
 		return nullptr;
 	}
 

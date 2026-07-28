@@ -1,9 +1,13 @@
 #include "DxfParser.h"
 
+#include <QDebug>
+
 void DxfReader::addLine(const DRW_Line& data) {
 	DxfPoint start(data.basePoint.x, data.basePoint.y, data.basePoint.z);
 	DxfPoint end(data.secPoint.x, data.secPoint.y, data.secPoint.z);
 	m_data.addLine(DxfLine(start, end));
+	if (m_data.lines().size() <= 3)
+		qDebug() << "[DxfReader] addLine" << start.x() << start.y() << "->" << end.x() << end.y();
 }
 
 void DxfReader::addCircle(const DRW_Circle& data)
@@ -16,6 +20,8 @@ void DxfReader::addLWPolyline(const DRW_LWPolyline& data)
 {
 	// 将轻量多段线的相邻顶点分解为多条线段
 	const int numVerts = data.vertexnum;
+	qDebug() << "[DxfReader] addLWPolyline vertexnum=" << numVerts
+	         << "flags=" << data.flags << "vertlist=" << (int)data.vertlist.size();
 	if (numVerts < 2) return;
 	const bool isClosed = (data.flags & 1) != 0;
 	for (int i = 0; i < numVerts - 1; ++i) {
@@ -55,6 +61,9 @@ bool DxfParser::parseFile(const QString& filePath, DxfData& outData) {
 	}
 	outData = reader.m_data;
 	outData.setValid(true);
+	qDebug() << "[DxfParser] read ok:"
+	         << "lines=" << outData.lines().size()
+	         << "circles=" << outData.circles().size();
 	if (outData.lines().empty())
 	{
 		outData.setErrorMessage(
