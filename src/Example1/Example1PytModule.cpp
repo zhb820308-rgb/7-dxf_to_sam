@@ -44,6 +44,75 @@ static gcuScene* gcuGetCurrentScene(bool force = true)
 	return static_cast<gcuScene*>(gdyScene::GetCurrentScene(force));
 }
 
+// 将 bulge 圆弧段离散为采样点列表（首尾包含原始端点）
+static std::vector<Point3D> tessellateBulgeArc(
+	const Point3D& p0, const Point3D& p1,
+	double bulge, double tolerance)
+{
+	std::vector<Point3D> result;
+	result.push_back(p0);
+
+	// bulge 约等于 0  → 直线，仅返回两端点
+	if (std::abs(bulge) < 1e-12) {
+		result.push_back(p1);
+		return result;
+	}
+
+	double dx = p1.x - p0.x;
+	double dy = p1.y - p0.y;
+	double chord = std::sqrt(dx * dx + dy * dy);
+	if (chord < 1e-12) {
+		result.push_back(p1);
+		return result;
+	}
+
+	double theta = 4.0 * std::atan(bulge);          // 有符号圆心角
+	double radius = chord * (1.0 + bulge * bulge)
+	                / (4.0 * std::abs(bulge));
+
+	double midX = (p0.x + p1.x) * 0.5;
+	double midY = (p0.y + p1.y) * 0.5;
+	double nx = -dy / chord;
+	double ny =  dx / chord;
+	double centerDist = chord * (1.0 - bulge * bulge)
+	                    / (4.0 * bulge);
+
+	double cx = midX + nx * centerDist;
+	double cy = midY + ny * centerDist;
+
+	double startAngle = std::atan2(p0.y - cy, p0.x - cx);
+
+	// 根据容差计算分段数
+	if (tolerance <= 0.0) tolerance = 0.01;
+	int segmentCount = 1;
+	if (radius > tolerance) {
+		double maxAngle = 2.0 * std::acos(
+			std::max(-1.0, std::min(1.0,
+				1.0 - tolerance / radius)));
+		segmentCount = static_cast<int>(
+			std::ceil(std::abs(theta) / maxAngle));
+	}
+	segmentCount = std::max(1, std::min(segmentCount, 10000));
+
+	for (int i = 1; i < segmentCount; ++i) {
+		double angle = startAngle
+		               + theta * static_cast<double>(i)
+		                 / static_cast<double>(segmentCount);
+		result.push_back(Point3D(
+			cx + radius * std::cos(angle),
+			cy + radius * std::sin(angle),
+			p0.z + (p1.z - p0.z)
+			       * static_cast<double>(i)
+			       / static_cast<double>(segmentCount)));
+	}
+	result.push_back(p1);
+
+	// 强制首尾点等于原始端点，避免浮点累积误差
+	result.front() = p0;
+	result.back() = p1;
+	return result;
+}
+
 static omuInterfaceObj::methodTable Example1PytModuleMethods[] =
 {
 	{"calcArea", (omuInterfaceObj::methodFunc)&Example1PytModule::calcArea},
@@ -207,7 +276,7 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args) {
 			continue;
 		gslPoint pt1(start.x-baseX, start.y-baseY, start.z-baseZ);
 		gslPoint pt2(end.x-baseX, end.y-baseY, end.z-baseZ);
-		geometryFactory.CreateLine(pt1, pt2, skc_FOREGROUND, false);
+		geometryFactory.CreateLine(pt1, pt2, skc_CONSTRUCTION, false);
 		++validCount;
 	}
 	for (const DxfCircle& circle : data.circles) {
@@ -222,8 +291,25 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args) {
 		gslPoint ptCenter(center.x-baseX, center.y-baseY, center.z-baseZ);
 		gslPoint ptOnCircle(center.x - baseX + radius, center.y - baseY, center.z - baseZ);
 
-		geometryFactory.CreateCircle(ptCenter, ptOnCircle, skc_FOREGROUND, false);
+		geometryFactory.CreateCircle(ptCenter, ptOnCircle, skc_CONSTRUCTION, false);
 		++validCount;
+	}
+	// 阶段 2.3: 离散化 bulge 段（LWPOLYLINE 圆弧段 → 直线段）
+	const double bulgeTolerance = 0.01; // 默认容差，后续可从 GUI 传入
+	for (const DxfPolylineSegment& seg : data.polylineSegments) {
+		const Point3D& start = seg.start;
+		const Point3D& end = seg.end;
+		if (!std::isfinite(start.x) || !std::isfinite(start.y) || !std::isfinite(start.z) ||
+		    !std::isfinite(end.x)   || !std::isfinite(end.y)   || !std::isfinite(end.z))
+			continue;
+		std::vector<Point3D> pts =
+			tessellateBulgeArc(start, end, seg.bulge, bulgeTolerance);
+		for (size_t i = 1; i < pts.size(); ++i) {
+			gslPoint pt1(pts[i - 1].x - baseX, pts[i - 1].y - baseY, pts[i - 1].z - baseZ);
+			gslPoint pt2(pts[i].x - baseX,     pts[i].y - baseY,     pts[i].z - baseZ);
+			geometryFactory.CreateLine(pt1, pt2, skc_CONSTRUCTION, false);
+			++validCount;
+		}
 	}
 	if (validCount == 0) {
 		return new omuPrimNumber(0); 

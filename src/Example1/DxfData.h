@@ -10,24 +10,32 @@ struct Point3D {
 	double z = 0.0;
 
 	Point3D() = default;
-	Point3D(double ix, double iy, double iz):x(ix), y(iy), z(iz) {}//xyzÄ¬ÈÏÎª0
+	Point3D(double ix, double iy, double iz):x(ix), y(iy), z(iz) {}//xyzé»˜è®¤ä¸º0
 
 };
 struct DxfLine {
 	Point3D start;
-	Point3D end;//ÏßÊı¾İÀàĞÍ
+	Point3D end;//çº¿æ•°æ®ç±»å‹
 };
 struct DxfCircle {
 	Point3D center;
-	double radius = 0.0;//Ô°
+	double radius = 0.0;//å›­
 };
-struct DxfData {//dxf½âÎöÒªÓÃµÄÊı¾İ½á¹¹£¬ÏÈĞ´ÏßºÍÔ°
+struct DxfPolylineSegment {
+	Point3D start;
+	Point3D end;
+	double bulge = 0.0;// 0 = ç›´çº¿ï¼Œé0 = åœ†å¼§æ®µ
+};
+struct DxfData {//dxfè§£æè¦ç”¨çš„æ•°æ®ç»“æ„ï¼Œå…ˆå†™çº¿å’Œå›­
 	std::vector<DxfLine>lines;
 	std::vector<DxfCircle>circles;
+	std::vector<DxfPolylineSegment>polylineSegments;
 	QString errorMessage;
 	bool isvaild = false;
 
-	int entityCount()const { return (int)lines.size() + (int)circles.size(); };
+	int entityCount()const {
+		return (int)lines.size() + (int)circles.size() + (int)polylineSegments.size();
+	}
 
 
 };

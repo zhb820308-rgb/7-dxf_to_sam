@@ -56,7 +56,7 @@ private:
 	
     
 private slots:
-	void ImportDxfUi();
+	void onImportDxf();
 };
 
 #endif

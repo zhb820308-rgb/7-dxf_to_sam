@@ -18,30 +18,28 @@ void DxfReader::addCircle(const DRW_Circle& data)
 
 void DxfReader::addLWPolyline(const DRW_LWPolyline& data)
 {
-	// 将轻量多段线的相邻顶点分解为多条线段
+	// 将轻量多段线的相邻顶点分解为带 bulge 的线段
 	const int numVerts = data.vertexnum;
 	if (numVerts < 2) return;
 	const bool isClosed = (data.flags & 1) != 0;
 	for (int i = 0; i < numVerts - 1; ++i) {
 		const DRW_Vertex2D& v1 = *data.vertlist[i];
 		const DRW_Vertex2D& v2 = *data.vertlist[i + 1];
-		// 跳过弧形段（bulge != 0）
-		if (v1.bulge != 0.0 || v2.bulge != 0.0) continue;
-		DxfLine line;
-		line.start = Point3D(v1.x, v1.y, 0.0);
-		line.end   = Point3D(v2.x, v2.y, 0.0);
-		m_data.lines.push_back(line);
+		DxfPolylineSegment seg;
+		seg.start = Point3D(v1.x, v1.y, 0.0);
+		seg.end   = Point3D(v2.x, v2.y, 0.0);
+		seg.bulge = v1.bulge;  // v1.bulge 描述 v1→v2 这段
+		m_data.polylineSegments.push_back(seg);
 	}
 	// 闭合多段线：连接首尾
 	if (isClosed) {
 		const DRW_Vertex2D& vFirst = *data.vertlist.front();
 		const DRW_Vertex2D& vLast  = *data.vertlist.back();
-		if (vFirst.bulge == 0.0 && vLast.bulge == 0.0) {
-			DxfLine line;
-			line.start = Point3D(vLast.x, vLast.y, 0.0);
-			line.end   = Point3D(vFirst.x, vFirst.y, 0.0);
-			m_data.lines.push_back(line);
-		}
+		DxfPolylineSegment seg;
+		seg.start = Point3D(vLast.x, vLast.y, 0.0);
+		seg.end   = Point3D(vFirst.x, vFirst.y, 0.0);
+		seg.bulge = vLast.bulge;  // vLast.bulge 描述最后一段
+		m_data.polylineSegments.push_back(seg);
 	}
 }
 
@@ -63,10 +61,10 @@ bool DxfParser::parseFile(const QString& filePath, DxfData& outData) {
 	}
 	outData = reader.m_data;
 	outData.isvaild = true;
-	if (outData.lines.empty() && outData.circles.empty())
+	if (outData.lines.empty() && outData.circles.empty() && outData.polylineSegments.empty())
 	{
 		outData.errorMessage =
-			QStringLiteral("DXF was read successfully, but no LINE or CIRCLE entities were found.");
+			QStringLiteral("DXF was read successfully, but no supported entities were found.");
 		return false;
 	}
 	return true;
