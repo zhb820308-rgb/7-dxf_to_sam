@@ -29,7 +29,7 @@ public:
     void addRay(const DRW_Ray& data) override {}
     void addXline(const DRW_Xline& data) override {}
     void addArc(const DRW_Arc& data) override;
-    void addEllipse(const DRW_Ellipse& data) override {}
+    void addEllipse(const DRW_Ellipse& data) override;
     void addLWPolyline(const DRW_LWPolyline& data) override;
     void addPolyline(const DRW_Polyline& data) override {}
     void addSpline(const DRW_Spline* data) override {}

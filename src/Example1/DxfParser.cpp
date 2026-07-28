@@ -29,6 +29,56 @@ void DxfReader::addCircle(const DRW_Circle& data)
 	m_data.addCircle(DxfCircle(center, data.radious));
 }
 
+void DxfReader::addEllipse(const DRW_Ellipse& data) {
+	// ---- 基础量计算 ----
+	const DRW_Coord center = data.basePoint;
+	const double majorX = data.secPoint.x;
+	const double majorY = data.secPoint.y;
+	const double majorLen = std::sqrt(majorX * majorX + majorY * majorY);
+
+	if (majorLen <= 0.0) return;
+	if (!std::isfinite(data.ratio) || data.ratio <= 0.0) return;
+
+	// 次轴向量（垂直于长轴，长度 = 长轴长度 × ratio）
+	const double minorX = -majorY * data.ratio;
+	const double minorY =  majorX * data.ratio;
+
+	// ---- 参数范围处理 ----
+	double startParam = data.staparam;
+	double endParam   = data.endparam;
+
+	double sweep = endParam - startParam;
+	if (data.isccw) {
+		while (sweep <= 0.0) { sweep += 2.0 * M_PI; }
+	} else {
+		while (sweep >= 0.0) { sweep -= 2.0 * M_PI; }
+	}
+
+	// ---- 分段数计算（基于更大的半轴长度） ----
+	const double maxRadius = (majorLen > majorLen * data.ratio)
+		? majorLen : majorLen * data.ratio;
+	const int segments = calculateSegmentCount(
+		maxRadius, std::abs(sweep), 0.01);
+
+	// ---- 采样函数（参数方程） ----
+	auto pointAt = [&](double t) -> DxfPoint {
+		return DxfPoint(
+			center.x + majorX * std::cos(t) + minorX * std::sin(t),
+			center.y + majorY * std::cos(t) + minorY * std::sin(t),
+			center.z);
+	};
+
+	// ---- 采样并输出折线段 ----
+	DxfPoint previous = pointAt(startParam);
+	for (int i = 1; i <= segments; ++i) {
+		double t = startParam + sweep * static_cast<double>(i)
+		           / static_cast<double>(segments);
+		DxfPoint current = pointAt(t);
+		DxfPolylineSegment seg(previous, current, 0.0);
+		m_data.addPolylineSegment(seg);
+		previous = current;
+	}
+}
 void DxfReader::addLWPolyline(const DRW_LWPolyline& data)
 {
 	// 将轻量多段线的相邻顶点分解为带 bulge 的线段
