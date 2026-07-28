@@ -2,7 +2,6 @@
 
 #include <QDateTime>
 #include <QDebug>
-#include <QString>
 
 #include <gslPoint.h>
 #include <gslMatrix.h>
@@ -35,7 +34,7 @@ static QString bracket(const QString& name) {
     return QString("[%1]").arg(name);
 }
 
-static gcuScene* currentScene(bool force = true) {
+static gcuScene* currentScene(bool force) {
     return static_cast<gcuScene*>(gdyScene::GetCurrentScene(force));
 }
 
@@ -45,12 +44,10 @@ static gcuScene* currentScene(bool force = true) {
 
 SamBuilder::SamBuilder() {}
 
-SamBuilder::~SamBuilder() {
-    // 如果未 commit 也未 rollback，清理
-}
+SamBuilder::~SamBuilder() {}
 
 // ========================================================================
-//  beginImport — 创建草图 + 几何工厂
+//  beginImport
 // ========================================================================
 
 bool SamBuilder::beginImport(const QString& modelName) {
@@ -60,19 +57,15 @@ bool SamBuilder::beginImport(const QString& modelName) {
     m_createdCount = 0;
     m_lastError.clear();
 
-    qDebug() << "[SamBuilder] 创建草图:" << m_sketchName;
+    qDebug() << "[SamBuilder] sketch:" << m_sketchName;
 
-    // 1. 获取 MDB
     basMdb mdb = basBasis::Instance()->Fetch();
     gmlSketchRepository& sketches = skcKGetSketchRepos(mdb, m_modelName);
-    m_repos = &sketches;
 
-    // 2. 创建草图
     gslMatrix transform;
     skcSketch* sketch = skcCreateSketchWithXYAxis(&transform);
     if (!sketch) {
-        m_lastError = "创建草图失败";
-        qDebug() << "[SamBuilder] 错误:" << m_lastError;
+        m_lastError = "failed to create sketch";
         return false;
     }
 
@@ -84,7 +77,7 @@ bool SamBuilder::beginImport(const QString& modelName) {
     m_factory = new skcGeomFactory(sketch);
     m_active = true;
 
-    qDebug() << "[SamBuilder] 草图创建成功, ID:" << sketchId;
+    qDebug() << "[SamBuilder] sketch created, ID:" << sketchId;
     return true;
 }
 
@@ -96,11 +89,8 @@ int SamBuilder::createPoints(const std::vector<DxfPoint>& points) {
     if (!m_active || !m_factory) return 0;
     int count = 0;
     for (const DxfPoint& pt : points) {
-        // skcGeomFactory::CreatePoint 接口待确认
-        // m_factory->CreatePoint(gslPoint(pt.x(), pt.y(), pt.z()));
+        // TODO: skcGeomFactory::CreatePoint interface TBC
         ++count;
-        qDebug() << "[SamBuilder] 创建点:"
-                 << pt.x() << pt.y() << pt.z();
     }
     m_createdCount += count;
     return count;
@@ -120,7 +110,7 @@ int SamBuilder::createLines(const std::vector<DxfLine>& lines) {
         ++count;
     }
     m_createdCount += count;
-    qDebug() << "[SamBuilder] 创建直线:" << count;
+    qDebug() << "[SamBuilder] lines:" << count;
     return count;
 }
 
@@ -132,10 +122,7 @@ int SamBuilder::createCircles(const std::vector<DxfCircle>& circles) {
     if (!m_active || !m_factory) return 0;
     int count = 0;
     for (const DxfCircle& circle : circles) {
-        // skcGeomFactory::CreateCircle 接口待确认
-        qDebug() << "[SamBuilder] 创建圆: 圆心="
-                 << circle.center().x() << circle.center().y() << circle.center().z()
-                 << "半径=" << circle.radius();
+        // TODO: skcGeomFactory::CreateCircle interface TBC
         ++count;
     }
     m_createdCount += count;
@@ -143,26 +130,27 @@ int SamBuilder::createCircles(const std::vector<DxfCircle>& circles) {
 }
 
 // ========================================================================
-//  commit — 提交 DB + 刷新场景
+//  commit
 // ========================================================================
 
 bool SamBuilder::commit() {
     if (!m_active || !m_sketch) {
-        m_lastError = "没有活动的导入上下文";
+        m_lastError = "no active import context";
         return false;
     }
 
-    qDebug() << "[SamBuilder] 提交到数据库...";
-
-    // 1. 插入草图仓库
+    // 1. Insert sketch into repository
     {
+        basMdb mdb = basBasis::Instance()->Fetch();
+        gmlSketchRepository& sketches = skcKGetSketchRepos(mdb, m_modelName);
+
         gmlSketchWrapper wrapper(m_sketch);
-        m_repos->Insert(m_sketchName, wrapper);
-        basBasis::Instance()->Replace(basBasis::Instance()->Fetch());
+        sketches.Insert(m_sketchName, wrapper);
+        basBasis::Instance()->Replace(mdb);
     }
     skcUndoRedoStack::Instance().ClearUndoStates();
 
-    // 2. 场景展示
+    // 2. Scene display
     smgSceneManagerRole& role = smgSceneManagerRole::TheSceneManagerRole();
     const int viewport = role.GetCurrentViewport();
     const omuPrimType sceneType = role.GetSceneManagerName(viewport);
@@ -180,14 +168,13 @@ bool SamBuilder::commit() {
             sketchPdo->Rebuild();
             skcKToolset::Instance().ShowFrontView();
 
-            // 构建路径
             buildSketchPath();
             sesKSessionState::Instance()->SetPrimaryObjectPath(m_sketchPath);
         }
     }
 
     m_active = false;
-    qDebug() << "[SamBuilder] 提交完成, 共" << m_createdCount << "个图元";
+    qDebug() << "[SamBuilder] commit done, total:" << m_createdCount;
     return true;
 }
 
@@ -196,12 +183,7 @@ bool SamBuilder::commit() {
 // ========================================================================
 
 void SamBuilder::rollback() {
-    qDebug() << "[SamBuilder] 回滚导入...";
-    // 删除草图（TODO: 确认 SAM 的回滚接口）
-    // 如果 m_sketch && m_repos，从仓库中删除
-    if (m_sketch && m_repos) {
-        // m_repos->Remove(m_sketchName);  // 接口待确认
-    }
+    qDebug() << "[SamBuilder] rollback...";
     m_active = false;
     m_createdCount = 0;
     m_lastError.clear();
