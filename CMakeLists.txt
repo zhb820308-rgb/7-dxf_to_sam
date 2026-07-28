@@ -42,6 +42,11 @@ endif()
 add_compile_definitions(NEW_GUI_FRAME)
 add_compile_definitions(NEW_RENDER_FRAME)
 
+# MSVC: treat source files as UTF-8 (no BOM required)
+if(MSVC)
+    add_compile_options("/utf-8")
+endif()
+
 set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} ${LIBS_QT5_ROOT}/lib/cmake/Qt5)
 set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} ${LIBS_QT5_ROOT}/lib/cmake/Qt5Widgets)
 set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} ${LIBS_QT5_ROOT}/lib/cmake/Qt5Core)
