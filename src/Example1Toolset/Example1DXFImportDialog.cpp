@@ -44,6 +44,34 @@ Example1DXFImportDialog::Example1DXFImportDialog(Example1Form* form)
 	QVBoxLayout* paramLayout = new QVBoxLayout;
 	paramLayout->addWidget(dxfGroup);
 
+	/*************************Base Point*************************************/
+	QGroupBox* baseGroup = new QGroupBox(tr("Base Point (DXF)"), this);
+
+	m_doubleValidator = new QDoubleValidator(baseGroup);
+	m_doubleValidator->setNotation(QDoubleValidator::StandardNotation);
+
+	m_baseXEdit = new QLineEdit(baseGroup);
+	m_baseXEdit->setText("0.0");
+	m_baseXEdit->setValidator(m_doubleValidator);
+	m_baseXEdit->setPlaceholderText("0.0");
+
+	m_baseYEdit = new QLineEdit(baseGroup);
+	m_baseYEdit->setText("0.0");
+	m_baseYEdit->setValidator(m_doubleValidator);
+	m_baseYEdit->setPlaceholderText("0.0");
+
+	m_baseZEdit = new QLineEdit(baseGroup);
+	m_baseZEdit->setText("0.0");
+	m_baseZEdit->setValidator(m_doubleValidator);
+	m_baseZEdit->setPlaceholderText("0.0");
+
+	QFormLayout* baseLayout = new QFormLayout(baseGroup);
+	baseLayout->addRow(tr("X:"), m_baseXEdit);
+	baseLayout->addRow(tr("Y:"), m_baseYEdit);
+	baseLayout->addRow(tr("Z:"), m_baseZEdit);
+
+	paramLayout->addWidget(baseGroup);
+
 	QHBoxLayout* contentLayout = new QHBoxLayout(contentArea);
 	contentLayout->addLayout(paramLayout);
 
@@ -104,9 +132,27 @@ void Example1DXFImportDialog::onCmdOk(int id)
 		return;
 	}
 
-// call importDxf
-	omuArguments args(1);
+	// validate base point
+	bool baseOkX = false, baseOkY = false, baseOkZ = false;
+	double baseX = m_baseXEdit->text().toDouble(&baseOkX);
+	double baseY = m_baseYEdit->text().toDouble(&baseOkY);
+	double baseZ = m_baseZEdit->text().toDouble(&baseOkZ);
+
+	if (!baseOkX || !baseOkY || !baseOkZ) {
+		QMessageBox::warning(
+			this,
+			tr("Warning"),
+			tr("Please enter valid numeric values for Base Point X, Y, Z.")
+		);
+		return;
+	}
+
+	// call importDxf
+	omuArguments args(4);
 	args.Put(path);
+	args.Put(baseX);
+	args.Put(baseY);
+	args.Put(baseZ);
 	omuMethodCall mc("Example1", "importDxf", args);
 
 	QString cmd;

@@ -10,7 +10,10 @@ void DxfReader::addLine(const DRW_Line& data) {
 }
 void DxfReader::addCircle(const DRW_Circle& data)
 {
-	(void)data;
+	DxfCircle circle;
+	circle.center= Point3D(data.basePoint.x, data.basePoint.y, data.basePoint.z);
+	circle.radius = data.radious;
+	m_data.circles.push_back(circle);
 }
 
 void DxfReader::addLWPolyline(const DRW_LWPolyline& data)
@@ -60,10 +63,10 @@ bool DxfParser::parseFile(const QString& filePath, DxfData& outData) {
 	}
 	outData = reader.m_data;
 	outData.isvaild = true;
-	if (outData.lines.empty())
+	if (outData.lines.empty() && outData.circles.empty())
 	{
 		outData.errorMessage =
-			QStringLiteral("DXF was read successfully, but no LINE entities were found.");
+			QStringLiteral("DXF was read successfully, but no LINE or CIRCLE entities were found.");
 		return false;
 	}
 	return true;

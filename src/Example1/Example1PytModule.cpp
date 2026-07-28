@@ -162,8 +162,14 @@ omuPrimitive* Example1PytModule::createLine(omuArguments& args)
 
 omuPrimitive* Example1PytModule::importDxf(omuArguments& args) {
 	QString filePath;
+	double baseX;
+	double baseY;
+	double baseZ;
 	args.Begin();
 	args.Get(filePath);
+	args.Get(baseX);
+	args.Get(baseY);
+	args.Get(baseZ);
 	args.End();
 
 	// ---- 阶段 1: DXF 解析 ----
@@ -199,13 +205,28 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args) {
 			continue;
 		if (start.x == end.x && start.y == end.y && start.z == end.z)
 			continue;
-		gslPoint pt1(start.x, start.y, start.z);
-		gslPoint pt2(end.x, end.y, end.z);
+		gslPoint pt1(start.x-baseX, start.y-baseY, start.z-baseZ);
+		gslPoint pt2(end.x-baseX, end.y-baseY, end.z-baseZ);
 		geometryFactory.CreateLine(pt1, pt2, skc_FOREGROUND, false);
 		++validCount;
 	}
+	for (const DxfCircle& circle : data.circles) {
+		const Point3D& center = circle.center;
+		double radius = circle.radius;
+
+		if (!std::isfinite(center.x) || !std::isfinite(center.y) || !std::isfinite(center.z))
+			continue;
+		if (!std::isfinite(radius) || radius <= 0.0)
+			continue;
+
+		gslPoint ptCenter(center.x-baseX, center.y-baseY, center.z-baseZ);
+		gslPoint ptOnCircle(center.x - baseX + radius, center.y - baseY, center.z - baseZ);
+
+		geometryFactory.CreateCircle(ptCenter, ptOnCircle, skc_FOREGROUND, false);
+		++validCount;
+	}
 	if (validCount == 0) {
-		return new omuPrimNumber(0); // 没有有效线段，返回 0
+		return new omuPrimNumber(0); 
 	}
 
 	// ---- 阶段 3: 将草图提交到数据库 ----
