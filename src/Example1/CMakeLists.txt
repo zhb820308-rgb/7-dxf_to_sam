@@ -5,6 +5,7 @@ set(CMAKE_INCLUDE_CURRENT_DIR ON)
 include_directories(
     ${LIBS_QT5_ROOT}/include
     ${LIBS_QT5_ROOT}/include/QtCore
+    ${LIBS_QT5_ROOT}/include/QtWidgets
     ${LIBS_PYTHON_ROOT}/include
     ${LIBS_OC_ROOT}/include
     ${LIBS_SAMSDK_ROOT}/include
@@ -70,6 +71,7 @@ set_target_properties(Example1 PROPERTIES
 
 target_link_libraries(Example1
     Qt5Core
+    Qt5Widgets
 	OrientBasicContainers
     OrientBasicUtilities
     OrientBasicCoreUtilities

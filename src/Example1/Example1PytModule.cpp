@@ -33,6 +33,8 @@
 
 #include <sesKSessionState.h>
 
+#include <QMessageBox>
+
 #include <cmdCWIP.h>
 #include <Example1PytModule.h>
 

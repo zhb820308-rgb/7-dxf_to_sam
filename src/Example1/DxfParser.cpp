@@ -1,7 +1,20 @@
 #include "DxfParser.h"
 
 #include <QDebug>
+#include <cmath>
 
+int calculateSegmentCount(double radius, double sweep, double tolerance) {
+    if (sweep <= 0.0 || radius <= 0.0) return 1;
+    if (tolerance <= 0.0) tolerance = 1e-6;
+    if (tolerance >= radius) return 2;
+    double halfAngle = acos(1.0 - tolerance / radius);
+    double anglePerSegment = 2.0 * halfAngle;
+    const double maxAngle = M_PI / 4.0;
+    if (anglePerSegment > maxAngle) anglePerSegment = maxAngle;
+    int segments = static_cast<int>(ceil(sweep / anglePerSegment));
+    if (segments < 2) segments = 2;
+    return segments;
+}
 void DxfReader::addLine(const DRW_Line& data) {
 	DxfPoint start(data.basePoint.x, data.basePoint.y, data.basePoint.z);
 	DxfPoint end(data.secPoint.x, data.secPoint.y, data.secPoint.z);
@@ -45,7 +58,45 @@ void DxfReader::addLWPolyline(const DRW_LWPolyline& data)
 	}
 }
 
+void DxfReader::addArc(const DRW_Arc& data) {
+	const DRW_Coord center = data.basePoint;
+	const double radius = data.radious;
 
+	if (!std::isfinite(radius) || radius <= 0.0) return;
+
+	double start = data.staangle;
+	double end = data.endangle;
+
+	double sweep = end - start;
+	if (data.isccw) {
+		while (sweep <= 0.0) { sweep += 2.0 * M_PI; }
+	} else {
+		while (sweep >= 0.0) { sweep -= 2.0 * M_PI; }
+	}
+
+	const int segments = calculateSegmentCount(
+		radius, std::abs(sweep), 0.01);
+
+	auto pointAt = [&](double angle) -> DxfPoint {
+		return DxfPoint(
+			center.x + radius * std::cos(angle),
+			center.y + radius * std::sin(angle),
+			center.z);
+	};
+
+	DxfPoint previous = pointAt(start);
+	for (int i = 1; i <= segments; ++i) {
+		double angle = start + sweep * static_cast<double>(i)
+		               / static_cast<double>(segments);
+		DxfPoint current = pointAt(angle);
+		DxfPolylineSegment seg;
+		seg.start = previous;
+		seg.end = current;
+		seg.bulge = 0.0;
+		m_data.addPolylineSegment(seg);
+		previous = current;
+	}
+}
 bool DxfParser::parseFile(const QString& filePath, DxfData& outData) {
 	outData = DxfData();
 	if (filePath.isEmpty()) {
