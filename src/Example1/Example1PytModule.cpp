@@ -25,6 +25,7 @@
 #include <DxfParser.h>
 #include <ConversionEngine.h>
 #include <SamData.h>
+#include <SamBuilder.h>
 #include <smgSceneManagerRole.h>
 
 #include <gcuScene.h>
@@ -173,112 +174,40 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args) {
 	qDebug() << "[importDxf] ====== DXF 导入开始 ======";
 	qDebug() << "[importDxf] 文件路径:" << filePath;
 
-	// ---- 阶段 1: DXF 解析 ----
+	// ---- 1. 解析 ----
 	DxfData dxfData;
 	DxfParser parser;
 	if (!parser.parseFile(filePath, dxfData)) {
 		qDebug() << "[importDxf] 错误: DXF 文件解析失败!";
 		return nullptr;
 	}
-	qDebug() << "[importDxf] DXF 解析成功:"
-			 << "points=" << dxfData.points().size()
-			 << "lines="  << dxfData.lines().size()
-			 << "circles="<< dxfData.circles().size();
 
-	// ---- 阶段 2: 转换引擎（基点平移 + 过滤无效图元）----
+	// ---- 2. 转换 ----
 	SamData samData;
 	ConversionEngine engine;
 	if (!engine.convert(dxfData, 0.0, 0.0, 0.0, samData)) {
-		qDebug() << "[importDxf] 错误: 没有有效的图元可导入!";
+		qDebug() << "[importDxf] 没有有效的图元可导入";
 		return new omuPrimNumber(0);
 	}
-	qDebug() << "[importDxf] 转换完成:"
-			 << "points=" << samData.points().size()
-			 << "lines="  << samData.lines().size()
-			 << "circles="<< samData.circles().size();
 
-	// ---- 阶段 3: 创建草图 ----
-	const QString modelName("Model-1");
-	const QString sketchName =
-		QString("DxfImport_%1")
-		.arg(QDateTime::currentMSecsSinceEpoch());
-	qDebug() << "[importDxf] 草图名称:" << sketchName;
-
-	basMdb mdb = basBasis::Instance()->Fetch();
-	gmlSketchRepository& sketches = skcKGetSketchRepos(mdb, modelName);
-
-	gslMatrix transform;
-	skcSketch* sketch = skcCreateSketchWithXYAxis(&transform);
-	if (!sketch) {
-		qDebug() << "[importDxf] 错误: 创建草图失败!";
+	// ---- 3. SAM对接 ----
+	SamBuilder builder;
+	if (!builder.beginImport()) {
+		qDebug() << "[importDxf] 创建草图失败";
 		return nullptr;
 	}
-	const uint sketchId = sketches.Size() + 1;
-	sketch->SetID(sketchId);
-	sketch->DisplayOptions().SetSheetSize(200.0);
 
-	// ---- 阶段 4: 在草图中创建几何图元 ----
-	skcGeomFactory geometryFactory(sketch);
-	int createdCount = 0;
+	int created = 0;
+	created += builder.createPoints(samData.points());
+	created += builder.createLines(samData.lines());
+	created += builder.createCircles(samData.circles());
 
-	// 4a. 创建点
-	for (const DxfPoint& pt : samData.points()) {
-		// skcGeomFactory::CreatePoint 接口待确认
-		// geometryFactory.CreatePoint(gslPoint(pt.x(), pt.y(), pt.z()));
-		++createdCount;
-		qDebug() << "[importDxf] 创建点:"
-				 << pt.x() << pt.y() << pt.z();
+	if (!builder.commit()) {
+		qDebug() << "[importDxf] 提交失败，回滚中...";
+		builder.rollback();
+		return new omuPrimNumber(0);
 	}
 
-	// 4b. 创建直线
-	for (const DxfLine& line : samData.lines()) {
-		gslPoint p1(line.start().x(), line.start().y(), line.start().z());
-		gslPoint p2(line.end().x(),   line.end().y(),   line.end().z());
-		geometryFactory.CreateLine(p1, p2, skc_FOREGROUND, false);
-		++createdCount;
-	}
-
-	// 4c. 创建圆
-	for (const DxfCircle& circle : samData.circles()) {
-		// skcGeomFactory::CreateCircle 接口待确认
-		qDebug() << "[importDxf] 创建圆: 圆心="
-				 << circle.center().x() << circle.center().y() << circle.center().z()
-				 << "半径=" << circle.radius();
-		++createdCount;
-	}
-
-	qDebug() << "[importDxf] 几何创建完成, 共" << createdCount << "个图元";
-
-	// ---- 阶段 5: 提交到数据库 ----
-	gmlSketchWrapper wrapper(sketch);
-	sketches.Insert(sketchName, wrapper);
-	basBasis::Instance()->Replace(mdb);
-	skcUndoRedoStack::Instance().ClearUndoStates();
-
-	// ---- 阶段 6: 场景展示 ----
-	smgSceneManagerRole& role = smgSceneManagerRole::TheSceneManagerRole();
-	const int viewport = role.GetCurrentViewport();
-	const omuPrimType sceneType = role.GetSceneManagerName(viewport);
-	if (sceneType.DisplayType() != omu_PART)
-		role.Map(omu_PART, viewport);
-
-	gcuScene* scene = gcuGetCurrentScene(false);
-	if (scene) {
-		scene = gcuGetCurrentScene(true);
-		scene->ClearScene();
-		skcPDO* sketchPdo = skcKUtils::GetCurrentSketchPDO();
-		if (sketchPdo) {
-			sketchPdo->SetSketch(sketch);
-			sketchPdo->Rebuild();
-			skcKToolset::Instance().ShowFrontView();
-			QString sketchPath("mdb.models");
-			sketchPath.append(omuSquareBracket(modelName));
-			sketchPath.append(".sketches");
-			sketchPath.append(omuSquareBracket(sketchName));
-			sesKSessionState::Instance()->SetPrimaryObjectPath(sketchPath);
-		}
-	}
-
-	qDebug() << "[importDxf] ====== 导入完成, 共创建" << createdCount << "个图元 ======";
-	return new omuPrimNumber(createdCount);
+	qDebug() << "[importDxf] ====== 导入完成, 共" << created << "个图元 ======";
+	return new omuPrimNumber(created);
 }
