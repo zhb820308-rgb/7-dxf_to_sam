@@ -1,5 +1,21 @@
 #include "DxfParser.h"
 
+
+int calculateSegmentCount(double radius, double sweep, double tolerance) {
+	if (sweep <= 0.0 || radius <= 0.0) return 1; // 无效或零扫描，至少1段
+	if (tolerance <= 0.0) tolerance = 1e-6;
+	// 防止 tolerance 过大导致计算错误
+	if (tolerance >= radius) return 2; // 至少分两段画一条劣弧
+	double halfAngle = acos(1.0 - tolerance / radius);
+	double anglePerSegment = 2.0 * halfAngle;
+	// 限制最大角度，避免 sweep 非常大时出现过长的线段（可选）
+	const double maxAngle = M_PI / 4.0; // 45度
+	if (anglePerSegment > maxAngle) anglePerSegment = maxAngle;
+	int segments = static_cast<int>(ceil(sweep / anglePerSegment));
+	// 确保至少2段，因为至少需要两个点构成弧线
+	if (segments < 2) segments = 2;
+	return segments;
+}
 void DxfReader::addLine(const DRW_Line& data) {
 	DxfLine line;
 	line.start = Point3D(data.basePoint.x,data.basePoint.y,data.basePoint.z);
@@ -43,7 +59,45 @@ void DxfReader::addLWPolyline(const DRW_LWPolyline& data)
 	}
 }
 
+void DxfReader::addArc(const DRW_Arc& data) {
+	const DRW_Coord center = data.basePoint;
+	const double radius = data.radious;
 
+	if (!std::isfinite(radius) || radius <= 0.0) return;
+
+	double start = data.staangle;
+	double end = data.endangle;
+
+	double sweep = end - start;
+	if (data.isccw) {
+		while (sweep <= 0.0) { sweep += 2.0 * M_PI; }
+	} else {
+		while (sweep >= 0.0) { sweep -= 2.0 * M_PI; }
+	}
+
+	const int segments = calculateSegmentCount(
+		radius, std::abs(sweep), 0.01);
+
+	auto pointAt = [&](double angle) -> Point3D {
+		return Point3D(
+			center.x + radius * std::cos(angle),
+			center.y + radius * std::sin(angle),
+			center.z);
+	};
+
+	Point3D previous = pointAt(start);
+	for (int i = 1; i <= segments; ++i) {
+		double angle = start + sweep * static_cast<double>(i)
+		               / static_cast<double>(segments);
+		Point3D current = pointAt(angle);
+		DxfPolylineSegment seg;
+		seg.start = previous;
+		seg.end = current;
+		seg.bulge = 0.0;
+		m_data.polylineSegments.push_back(seg);
+		previous = current;
+	}
+}
 bool DxfParser::parseFile(const QString& filePath, DxfData& outData) {
 	outData = DxfData();
 	if (filePath.isEmpty()) {

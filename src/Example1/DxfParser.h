@@ -28,7 +28,7 @@ public:
     void addPoint(const DRW_Point& data) override {}
     void addRay(const DRW_Ray& data) override {}
     void addXline(const DRW_Xline& data) override {}
-    void addArc(const DRW_Arc& data) override {}
+    void addArc(const DRW_Arc& data) override;
     void addEllipse(const DRW_Ellipse& data) override {}
     void addLWPolyline(const DRW_LWPolyline& data) override;
     void addPolyline(const DRW_Polyline& data) override {}
@@ -70,5 +70,8 @@ public:
 class DxfParser {
 public :
     bool parseFile(const QString& filePath, DxfData& outData);
+    const std::string& lastError() const { return m_lastError; }
+private:
+    std::string m_lastError;
 };
 #endif

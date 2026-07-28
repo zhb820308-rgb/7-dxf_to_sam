@@ -29,6 +29,8 @@
 
 #include <sesKSessionState.h>
 
+#include <QMessageBox>
+
 #include <cmdCWIP.h>
 #include <Example1PytModule.h>
 
@@ -245,7 +247,11 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args) {
 	DxfData data;
 	DxfParser parser;
 	if (!parser.parseFile(filePath, data)) {
-		return nullptr; // 解析失败，返回 nullptr
+		QMessageBox::warning(
+			nullptr,
+			QStringLiteral("DXF Import Failed"),
+			data.errorMessage);
+		return new omuPrimNumber(0);
 	}
 	int validCount = 0;
 

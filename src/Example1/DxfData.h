@@ -21,7 +21,7 @@ struct DxfCircle {
 	Point3D center;
 	double radius = 0.0;//园
 };
-struct DxfPolylineSegment {
+struct DxfPolylineSegment {//pline and arc
 	Point3D start;
 	Point3D end;
 	double bulge = 0.0;// 0 = 直线，非0 = 圆弧段
