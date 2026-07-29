@@ -79,4 +79,6 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_INSTALL_PREFIX}/lib)
 
 add_subdirectory(src/Example1)
 add_subdirectory(src/Example1Toolset)
+enable_testing()
+add_subdirectory(test)
 

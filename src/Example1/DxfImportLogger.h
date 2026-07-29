@@ -3,10 +3,12 @@
 #include <memory>
 #include <string>
 
+#include <QString>
 #include <spdlog/spdlog.h>
 
 class DxfData;
 class SamData;
+class omuPrimitive;
 
 // ============================================================================
 // Logger factory functions
@@ -48,3 +50,18 @@ void reportImportError(
 	const std::string& stage,
 	const std::string& detail,
 	long long elapsedMs);
+
+// ============================================================================
+// Fail-import helper — convenience wrapper that chains report + qWarning +
+// drop + return nullptr into a single call site. Use inside importDxf only.
+// ============================================================================
+
+omuPrimitive* failImport(
+	const std::shared_ptr<spdlog::logger>& logger,
+	const std::shared_ptr<spdlog::logger>& errorLogger,
+	const std::string& importId,
+	const std::string& pathText,
+	const std::string& stage,
+	const std::string& detail,
+	long long elapsedMs,
+	const QString& qWarningMsg);

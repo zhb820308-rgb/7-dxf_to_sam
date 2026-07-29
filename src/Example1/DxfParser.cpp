@@ -1,7 +1,75 @@
 #include "DxfParser.h"
 
+#include "libdxfrw.h"
 #include <QDebug>
 #include <cmath>
+
+// ========================================================================
+//  DxfReader — DRW_Interface implementation (internal, only used here)
+// ========================================================================
+
+namespace {
+
+class DxfReader : public DRW_Interface {
+public:
+	DxfData m_data;
+
+	// Implemented entity callbacks
+	void addLine(const DRW_Line& data) override;
+	void addCircle(const DRW_Circle& data) override;
+	void addArc(const DRW_Arc& data) override;
+	void addEllipse(const DRW_Ellipse& data) override;
+	void addLWPolyline(const DRW_LWPolyline& data) override;
+
+	// Stub callbacks (no-op)
+	void addHeader(const DRW_Header* data) override {}
+	void addLType(const DRW_LType& data) override {}
+	void addLayer(const DRW_Layer& data) override {}
+	void addDimStyle(const DRW_Dimstyle& data) override {}
+	void addVport(const DRW_Vport& data) override {}
+	void addTextStyle(const DRW_Textstyle& data) override {}
+	void addAppId(const DRW_AppId& data) override {}
+	void addBlock(const DRW_Block& data) override {}
+	void setBlock(const int handle) override {}
+	void endBlock() override {}
+	void addPoint(const DRW_Point& data) override {}
+	void addRay(const DRW_Ray& data) override {}
+	void addXline(const DRW_Xline& data) override {}
+	void addPolyline(const DRW_Polyline& data) override {}
+	void addSpline(const DRW_Spline* data) override {}
+	void addKnot(const DRW_Entity& data) override {}
+	void addInsert(const DRW_Insert& data) override {}
+	void addTrace(const DRW_Trace& data) override {}
+	void add3dFace(const DRW_3Dface& data) override {}
+	void addSolid(const DRW_Solid& data) override {}
+	void addMText(const DRW_MText& data) override {}
+	void addText(const DRW_Text& data) override {}
+	void addDimAlign(const DRW_DimAligned* data) override {}
+	void addDimLinear(const DRW_DimLinear* data) override {}
+	void addDimRadial(const DRW_DimRadial* data) override {}
+	void addDimDiametric(const DRW_DimDiametric* data) override {}
+	void addDimAngular(const DRW_DimAngular* data) override {}
+	void addDimAngular3P(const DRW_DimAngular3p* data) override {}
+	void addDimOrdinate(const DRW_DimOrdinate* data) override {}
+	void addLeader(const DRW_Leader* data) override {}
+	void addHatch(const DRW_Hatch* data) override {}
+	void addViewport(const DRW_Viewport& data) override {}
+	void addImage(const DRW_Image* data) override {}
+	void linkImage(const DRW_ImageDef* data) override {}
+	void addComment(const char* comment) override {}
+	void addPlotSettings(const DRW_PlotSettings* data) override {}
+	void writeHeader(DRW_Header& data) override {}
+	void writeBlocks() override {}
+	void writeBlockRecords() override {}
+	void writeEntities() override {}
+	void writeLTypes() override {}
+	void writeLayers() override {}
+	void writeTextstyles() override {}
+	void writeVports() override {}
+	void writeDimstyles() override {}
+	void writeObjects() override {}
+	void writeAppId() override {}
+};
 
 void DxfReader::addLine(const DRW_Line& data) {
 	DxfPoint start(data.basePoint.x, data.basePoint.y, data.basePoint.z);
@@ -15,6 +83,31 @@ void DxfReader::addCircle(const DRW_Circle& data)
 {
 	DxfPoint center(data.basePoint.x, data.basePoint.y, data.basePoint.z);
 	m_data.addCircle(DxfCircle(center, data.radious));
+}
+
+void DxfReader::addArc(const DRW_Arc& data) {
+	const DRW_Coord center = data.basePoint;
+	const double radius = data.radious;
+
+	if (!std::isfinite(center.x) || !std::isfinite(center.y) || !std::isfinite(center.z)) {
+		qDebug() << "[DxfReader] addArc skipped: invalid center";
+		return;
+	}
+	if (!std::isfinite(radius) || radius <= 0.0) {
+		qDebug() << "[DxfReader] addArc skipped: invalid radius" << radius;
+		return;
+	}
+
+	double start = data.staangle;
+	double end = data.endangle;
+
+	if (!std::isfinite(start) || !std::isfinite(end)) {
+		qDebug() << "[DxfReader] addArc skipped: NaN angles";
+		return;
+	}
+
+	DxfPoint c(center.x, center.y, center.z);
+	m_data.addArc(DxfArc(c, radius, start, end, data.isccw));
 }
 
 void DxfReader::addEllipse(const DRW_Ellipse& data) {
@@ -67,30 +160,11 @@ void DxfReader::addLWPolyline(const DRW_LWPolyline& data)
 	m_data.addLWPolyline(DxfLWPolyline(vertices, bulges, isClosed, 0.0));
 }
 
-void DxfReader::addArc(const DRW_Arc& data) {
-	const DRW_Coord center = data.basePoint;
-	const double radius = data.radious;
+}  // namespace (anonymous)
 
-	if (!std::isfinite(center.x) || !std::isfinite(center.y) || !std::isfinite(center.z)) {
-		qDebug() << "[DxfReader] addArc skipped: invalid center";
-		return;
-	}
-	if (!std::isfinite(radius) || radius <= 0.0) {
-		qDebug() << "[DxfReader] addArc skipped: invalid radius" << radius;
-		return;
-	}
-
-	double start = data.staangle;
-	double end = data.endangle;
-
-	if (!std::isfinite(start) || !std::isfinite(end)) {
-		qDebug() << "[DxfReader] addArc skipped: NaN angles";
-		return;
-	}
-
-	DxfPoint c(center.x, center.y, center.z);
-	m_data.addArc(DxfArc(c, radius, start, end, data.isccw));
-}
+// ========================================================================
+//  DxfParser::parseFile
+// ========================================================================
 
 bool DxfParser::parseFile(const QString& filePath, DxfData& outData) {
 	outData = DxfData();

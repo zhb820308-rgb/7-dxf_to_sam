@@ -1,10 +1,7 @@
 #include <kefKLine.h>
-#include <kefKSymbolFactory.h>
 
 #include <sesKSessionState.h>
 
-
-#include <gslMatrix.h>
 
 #include <kefCEngineeringFeatures.h>
 
@@ -21,15 +18,12 @@
 
 #include <ftrFeature.h>
 #include <ftrEvaluatedRep.h>
-#include <ftrPrimaryObject.h>
 
 #include <nexDynamicCast.h>
 
 
 kefKLine::kefKLine()
 	: gdyNonPageGeomEditor(),
-	showEOs(false),
-	staleSymbolListMap(false),
 	timeStamp(0.0),
 	type_atom("kefKLine"),
 	_geomVertexXYZs(cowList<cowList<g3dVector>>()),
@@ -79,47 +73,6 @@ void kefKLine::Highlight(gdrRenderer& r) const
 	// todo
 }
 
-void kefKLine::SetHighlightedInertia(const QString& springName)
-{
-	if (!springName.isEmpty())
-		highlightedInertias.Append(springName);
-}
-
-void kefKLine::HighlightInertia(const QString& springName)
-{
-	// todo
-}
-
-void kefKLine::UnhighlightAll()
-{
-	// todo
-}
-
-void kefKLine::UpdateDisplayOptions(const sesCDisplayOptions& options)
-{
-
-}
-
-void kefKLine::setObject(const cowList<cowList<g3dVector>>& vertexXYZ)
-{
-	for (int i = 0; i < vertexXYZ.Length(); i++)
-	{
-		_geomVertexXYZs.Append(vertexXYZ[i]);
-		_segID.Append(_maxSegID++);
-	}
-
-}
-
-void kefKLine::addObject(const cowList<cowList<g3dVector>>& vertexXYZ)
-{
-	for (int i = 0; i < vertexXYZ.Length(); i++)
-	{
-		_geomVertexXYZs.Append(vertexXYZ[i]);
-		_segID.Append(_maxSegID++);
-	}
-
-}
-
 int kefKLine::findObject(int segID) const
 {
 	if (_segID.IsEmpty())
@@ -143,23 +96,6 @@ void kefKLine::createOneObject(int & segID, const cowList<g3dVector>& vertexXYZ)
 		segID = _maxSegID++;
 		_segID.Append(segID);
 	}
-}
-
-void kefKLine::deleteOneObject(const int & segID)
-{
-	const int objectIndex = findObject(segID);
-	if (objectIndex < 0)
-		return;
-
-	_geomVertexXYZs.RemoveIndex(objectIndex);
-	_segID.RemoveIndex(objectIndex);
-}
-
-
-
-void kefKLine::RebuildSymbolListMap()
-{
-
 }
 
 void kefKLine::Draw(gdrRenderer& drafter, bool paintMode) const
@@ -192,16 +128,6 @@ void kefKLine::Draw(gdrRenderer& drafter, bool paintMode) const
 
 		drafter.End();
 	}
-
-}
-
-void kefKLine::CreateSymbols(
-	bool repopulate,
-	const ftrPrimaryObject* po,
-	const QString& instanceName,
-	const gslMatrix& transform
-)
-{
 
 }
 

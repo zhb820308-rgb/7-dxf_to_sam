@@ -4,6 +4,11 @@
  * 覆盖: parseFile() / 实体计数 / 错误路径 / 完整 parse→convert 管道
  */
 #include <gtest/gtest.h>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 #include <QFile>
 #include <QDebug>
 #include <cmath>

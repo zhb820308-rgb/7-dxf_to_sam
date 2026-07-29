@@ -334,3 +334,23 @@ void reportImportError(
 			importId, stage, pathText, detail, elapsedMs);
 	}
 }
+
+// ============================================================================
+// Fail-import helper
+// ============================================================================
+
+omuPrimitive* failImport(
+	const std::shared_ptr<spdlog::logger>& logger,
+	const std::shared_ptr<spdlog::logger>& errorLogger,
+	const std::string& importId,
+	const std::string& pathText,
+	const std::string& stage,
+	const std::string& detail,
+	long long elapsedMs,
+	const QString& qWarningMsg)
+{
+	reportImportError(logger, errorLogger, importId, pathText, stage, detail, elapsedMs);
+	qWarning() << qWarningMsg;
+	dropDxfImportLogger(importId);
+	return nullptr;
+}

@@ -3,7 +3,6 @@
 #define Example1PytModule_h
 
 // Forward declarations
-namespace spdlog { class logger; }
 class DxfData;
 class SamData;
 class SamBuilder;
@@ -11,9 +10,6 @@ class SamBuilder;
 // Includes
 
 // Begin local includes
-
-#include <memory>
-#include <string>
 
 #include <ptsKPartFragment.h>
 #include <pyoModule.h>
@@ -30,8 +26,6 @@ public:
 	virtual void DefineConstants();
 
 public:
-	omuPrimitive* calcArea(omuArguments& args);
-	omuPrimitive* createLine(omuArguments& args);
 	omuPrimitive* importDxf(omuArguments& args);
 
 private:
@@ -40,17 +34,6 @@ private:
 	Example1PytModule& operator=(const Example1PytModule&);
 
 	// === DXF import helpers ===
-
-	// Unified failure exit: report + qWarning + drop + return nullptr
-	omuPrimitive* failImport(
-		const std::shared_ptr<spdlog::logger>& logger,
-		const std::shared_ptr<spdlog::logger>& errorLogger,
-		const std::string& importId,
-		const std::string& pathText,
-		const std::string& stage,
-		const std::string& detail,
-		long long elapsedMs,
-		const QString& qWarningMsg);
 
 	// Stage 1: parse DXF file, returns false on failure
 	bool parseDxfFile(const QString& filePath, DxfData& outData);
