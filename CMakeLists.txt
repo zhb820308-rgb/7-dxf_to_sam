@@ -27,6 +27,12 @@ set(LIBDXFRW_INCLUDE_DIR "${LIBDXFRW_ROOT}/src")
 set(LIBDXFRW_LIBRARY "${LIBDXFRW_ROOT}/build/Release/dxfrw.lib")
 set(LIBDXFRW_RUNTIME "${LIBDXFRW_ROOT}/build/Release/dxfrw.dll")
 
+# OCCT provided by SAM team (matching SAM runtime)
+set(SAM_OCCT_ROOT "D:/shixi_CAE/example/example/OCCT")
+set(SAM_OCCT_INCLUDE_DIR "${SAM_OCCT_ROOT}/inc")
+set(SAM_OCCT_LIB_DIR "${SAM_OCCT_ROOT}/win64/vc14/lib")
+set(SAM_OCCT_BIN_DIR "${SAM_OCCT_ROOT}/win64/vc14/bin")
+
 # check libdxfrw files
 if(NOT EXISTS "${LIBDXFRW_INCLUDE_DIR}/libdxfrw.h")
     message(FATAL_ERROR "libdxfrw.h not found: ${LIBDXFRW_INCLUDE_DIR}/libdxfrw.h")

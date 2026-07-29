@@ -11,16 +11,17 @@ include_directories(
     ${LIBS_SAMSDK_ROOT}/include
     ${LIBS_SAMSDK_ROOT}/include/guiProject
     ${LIBDXFRW_INCLUDE_DIR}
-    
+    ${SAM_OCCT_INCLUDE_DIR}
 )
   
 link_directories(
     ${LIBS_QT5_ROOT}/lib
     ${LIBS_PYTHON_ROOT}/libs
     ${LIBS_OC_ROOT}/lib
-	${LIBS_SAMSDK_ROOT}/libs
-	${PROJECT_SOURCE_DIR}/lib
+    ${LIBS_SAMSDK_ROOT}/libs
+    ${PROJECT_SOURCE_DIR}/lib
     ${CMAKE_ARCHIVE_OUTPUT_DIRECTORY}
+    ${SAM_OCCT_LIB_DIR}
 )
 
 # source list
@@ -76,7 +77,7 @@ set_target_properties(Example1 PROPERTIES
 target_link_libraries(Example1
     Qt5Core
     Qt5Widgets
-	OrientBasicContainers
+    OrientBasicContainers
     OrientBasicUtilities
     OrientBasicCoreUtilities
     OrientBasicPrimtives
@@ -130,6 +131,12 @@ target_link_libraries(Example1
     customKernel
     textReprInternal
     "${LIBDXFRW_LIBRARY}"
+    TKernel
+    TKMath
+    TKG2d
+    TKG3d
+    TKGeomBase
+    TKGeomAlgo
 )
 
 # Copy dxfrw.dll to output directory after build
