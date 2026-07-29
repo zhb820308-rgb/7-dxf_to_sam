@@ -7,7 +7,7 @@
 // Geometry conversion engine.
 //   - filters invalid entities (zero-length lines, zero-radius circles, ...)
 //   - translates all coordinates by the user-specified base point
-//   - discretizes polyline bulge arcs into line segments via GeometryUtils
+//   - discretizes arc / polyline bulge / ellipse into line segments via GeometryUtils
 //   - output SamData is ready for skcGeomFactory
 class ConversionEngine {
 public:
@@ -22,6 +22,14 @@ public:
 private:
     static DxfPoint translate(const DxfPoint& pt,
                               double bx, double by, double bz);
+
+    // 将曲线实体离散化为线段列表（未平移）
+    static std::vector<DxfLine> tessellateArc(const DxfArc& arc,
+                                              double tolerance);
+    static std::vector<DxfLine> tessellateLWPolyline(const DxfLWPolyline& poly,
+                                                     double tolerance);
+    static std::vector<DxfLine> tessellateEllipse(const DxfEllipse& ellipse,
+                                                  double tolerance);
 };
 
 #endif

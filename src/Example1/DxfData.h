@@ -9,7 +9,10 @@
 enum class EntityType {
     Point,
     Line,
-    Circle
+    Circle,
+    Arc,
+    LWPolyline,
+    Ellipse,
 };
 
 // ---- DxfEntity (abstract base) ----
@@ -86,18 +89,81 @@ private:
     double m_radius = 0.0;
 };
 
-// ---- DxfPolylineSegment ----
-// 多段线的单段：start→end，bulge=0 为直线段，非0 为圆弧段
-// 这是一个解析中间产物，不继承 DxfEntity
+// ---- DxfArc ----
+// 圆弧：圆心、半径、起止角度（弧度）、方向
 
-struct DxfPolylineSegment {
-    DxfPoint start;
-    DxfPoint end;
-    double bulge = 0.0;
+class DxfArc : public DxfEntity {
+public:
+    DxfArc();
+    DxfArc(const DxfPoint& center, double radius,
+           double startAngle, double endAngle, bool isCCW);
 
-    DxfPolylineSegment() = default;
-    DxfPolylineSegment(const DxfPoint& s, const DxfPoint& e, double b)
-        : start(s), end(e), bulge(b) {}
+    const DxfPoint& center()      const { return m_center; }
+    double radius()               const { return m_radius; }
+    double startAngle()           const { return m_startAngle; }
+    double endAngle()             const { return m_endAngle; }
+    bool   isCCW()                const { return m_isCCW; }
+
+    bool isValid() const override;
+
+private:
+    DxfPoint m_center;
+    double m_radius      = 0.0;
+    double m_startAngle  = 0.0;
+    double m_endAngle    = 0.0;
+    bool   m_isCCW       = true;
+};
+
+// ---- DxfEllipse ----
+// 椭圆弧：中心、长轴端点（相对中心）、短轴/长轴比例、参数范围、方向
+
+class DxfEllipse : public DxfEntity {
+public:
+    DxfEllipse();
+    DxfEllipse(const DxfPoint& center, const DxfPoint& majorAxisEnd,
+               double ratio, double startParam, double endParam, bool isCCW);
+
+    const DxfPoint& center()       const { return m_center; }
+    const DxfPoint& majorAxisEnd() const { return m_majorAxisEnd; }
+    double ratio()                 const { return m_ratio; }
+    double startParam()            const { return m_startParam; }
+    double endParam()              const { return m_endParam; }
+    bool   isCCW()                 const { return m_isCCW; }
+
+    bool isValid() const override;
+
+private:
+    DxfPoint m_center;
+    DxfPoint m_majorAxisEnd;  // 长轴端点（相对于中心）
+    double m_ratio       = 1.0;
+    double m_startParam  = 0.0;
+    double m_endParam    = 0.0;
+    bool   m_isCCW       = true;
+};
+
+// ---- DxfLWPolyline ----
+// 轻量多段线：顶点列表 + 每段的 bulge 值，保留原始几何信息
+
+class DxfLWPolyline : public DxfEntity {
+public:
+    DxfLWPolyline();
+    DxfLWPolyline(const std::vector<DxfPoint>& vertices,
+                  const std::vector<double>& bulges,
+                  bool closed, double constZ = 0.0);
+
+    const std::vector<DxfPoint>& vertices() const { return m_vertices; }
+    const std::vector<double>&   bulges()   const { return m_bulges; }
+    bool   isClosed() const { return m_closed; }
+    double constZ()   const { return m_constZ; }
+    int    vertexCount() const { return static_cast<int>(m_vertices.size()); }
+
+    bool isValid() const override;
+
+private:
+    std::vector<DxfPoint> m_vertices;
+    std::vector<double>   m_bulges;    // bulge[i] 描述顶点i到顶点i+1的弧段
+    bool   m_closed = false;
+    double m_constZ = 0.0;
 };
 
 // ---- DxfData (container) ----
@@ -110,17 +176,23 @@ public:
     void addPoint(const DxfPoint& pt);
     void addLine(const DxfLine& line);
     void addCircle(const DxfCircle& circle);
-    void addPolylineSegment(const DxfPolylineSegment& seg);
+    void addArc(const DxfArc& arc);
+    void addLWPolyline(const DxfLWPolyline& poly);
+    void addEllipse(const DxfEllipse& ellipse);
     void clear();
 
     // --- accessors ---
-    const std::vector<DxfPoint>&             points()            const { return m_points; }
-    const std::vector<DxfLine>&              lines()             const { return m_lines; }
-    const std::vector<DxfCircle>&            circles()           const { return m_circles; }
-    const std::vector<DxfPolylineSegment>&   polylineSegments()  const { return m_polylineSegments; }
+    const std::vector<DxfPoint>&       points()       const { return m_points; }
+    const std::vector<DxfLine>&        lines()        const { return m_lines; }
+    const std::vector<DxfCircle>&      circles()      const { return m_circles; }
+    const std::vector<DxfArc>&         arcs()         const { return m_arcs; }
+    const std::vector<DxfLWPolyline>&  lwPolylines()  const { return m_lwPolylines; }
+    const std::vector<DxfEllipse>&     ellipses()     const { return m_ellipses; }
 
     int entityCount() const {
-        return static_cast<int>(m_lines.size() + m_circles.size() + m_polylineSegments.size());
+        return static_cast<int>(
+            m_lines.size() + m_circles.size() +
+            m_arcs.size() + m_lwPolylines.size() + m_ellipses.size());
     }
 
     // --- error / validity ---
@@ -131,10 +203,12 @@ public:
     void setValid(bool v) { m_isValid = v; }
 
 private:
-    std::vector<DxfPoint>             m_points;
-    std::vector<DxfLine>              m_lines;
-    std::vector<DxfCircle>            m_circles;
-    std::vector<DxfPolylineSegment>   m_polylineSegments;
+    std::vector<DxfPoint>       m_points;
+    std::vector<DxfLine>        m_lines;
+    std::vector<DxfCircle>      m_circles;
+    std::vector<DxfArc>         m_arcs;
+    std::vector<DxfLWPolyline>  m_lwPolylines;
+    std::vector<DxfEllipse>     m_ellipses;
     QString m_errorMessage;
     bool m_isValid = false;
 };

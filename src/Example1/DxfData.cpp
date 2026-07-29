@@ -1,4 +1,4 @@
-﻿#include "DxfData.h"
+#include "DxfData.h"
 #include <cmath>
 #include <limits>
 
@@ -83,6 +83,109 @@ bool DxfCircle::isValid() const
 }
 
 // ========================================================================
+//  DxfArc
+// ========================================================================
+
+DxfArc::DxfArc()
+    : DxfEntity(EntityType::Arc)
+{
+}
+
+DxfArc::DxfArc(const DxfPoint& center, double radius,
+               double startAngle, double endAngle, bool isCCW)
+    : DxfEntity(EntityType::Arc)
+    , m_center(center)
+    , m_radius(radius)
+    , m_startAngle(startAngle)
+    , m_endAngle(endAngle)
+    , m_isCCW(isCCW)
+{
+}
+
+bool DxfArc::isValid() const
+{
+    return m_center.isValid()
+        && std::isfinite(m_radius) && m_radius > 0.0
+        && std::isfinite(m_startAngle)
+        && std::isfinite(m_endAngle)
+        && (m_startAngle != m_endAngle);
+}
+
+// ========================================================================
+//  DxfEllipse
+// ========================================================================
+
+DxfEllipse::DxfEllipse()
+    : DxfEntity(EntityType::Ellipse)
+{
+}
+
+DxfEllipse::DxfEllipse(const DxfPoint& center, const DxfPoint& majorAxisEnd,
+                       double ratio, double startParam, double endParam, bool isCCW)
+    : DxfEntity(EntityType::Ellipse)
+    , m_center(center)
+    , m_majorAxisEnd(majorAxisEnd)
+    , m_ratio(ratio)
+    , m_startParam(startParam)
+    , m_endParam(endParam)
+    , m_isCCW(isCCW)
+{
+}
+
+bool DxfEllipse::isValid() const
+{
+    double majorLen = std::sqrt(m_majorAxisEnd.x() * m_majorAxisEnd.x()
+                              + m_majorAxisEnd.y() * m_majorAxisEnd.y());
+    return m_center.isValid()
+        && m_majorAxisEnd.isValid()
+        && std::isfinite(majorLen) && majorLen > 0.0
+        && std::isfinite(m_ratio) && m_ratio > 0.0
+        && std::isfinite(m_startParam)
+        && std::isfinite(m_endParam)
+        && (m_startParam != m_endParam);
+}
+
+// ========================================================================
+//  DxfLWPolyline
+// ========================================================================
+
+DxfLWPolyline::DxfLWPolyline()
+    : DxfEntity(EntityType::LWPolyline)
+{
+}
+
+DxfLWPolyline::DxfLWPolyline(const std::vector<DxfPoint>& vertices,
+                             const std::vector<double>& bulges,
+                             bool closed, double constZ)
+    : DxfEntity(EntityType::LWPolyline)
+    , m_vertices(vertices)
+    , m_bulges(bulges)
+    , m_closed(closed)
+    , m_constZ(constZ)
+{
+}
+
+bool DxfLWPolyline::isValid() const
+{
+    if (m_vertices.size() < 2) return false;
+    for (const DxfPoint& v : m_vertices) {
+        if (!v.isValid()) return false;
+    }
+    // bulges size should match vertex count (last bulge for closing segment if closed)
+    if (m_closed) {
+        if (static_cast<int>(m_bulges.size()) != static_cast<int>(m_vertices.size()))
+            return false;
+    } else {
+        if (static_cast<int>(m_bulges.size()) != static_cast<int>(m_vertices.size()) - 1)
+            return false;
+    }
+    for (double b : m_bulges) {
+        if (!std::isfinite(b)) return false;
+    }
+    return std::isfinite(m_constZ);
+}
+
+// ========================================================================
 //  DxfData
 // ========================================================================
 
@@ -91,7 +194,9 @@ void DxfData::clear()
     m_points.clear();
     m_lines.clear();
     m_circles.clear();
-    m_polylineSegments.clear();
+    m_arcs.clear();
+    m_lwPolylines.clear();
+    m_ellipses.clear();
     m_errorMessage.clear();
     m_isValid = false;
 }
@@ -111,7 +216,17 @@ void DxfData::addCircle(const DxfCircle& circle)
     m_circles.push_back(circle);
 }
 
-void DxfData::addPolylineSegment(const DxfPolylineSegment& seg)
+void DxfData::addArc(const DxfArc& arc)
 {
-    m_polylineSegments.push_back(seg);
+    m_arcs.push_back(arc);
+}
+
+void DxfData::addLWPolyline(const DxfLWPolyline& poly)
+{
+    m_lwPolylines.push_back(poly);
+}
+
+void DxfData::addEllipse(const DxfEllipse& ellipse)
+{
+    m_ellipses.push_back(ellipse);
 }

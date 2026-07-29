@@ -1,7 +1,32 @@
 #include "GeometryUtils.h"
 #include <cmath>
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 namespace GeometryUtils {
+
+int calculateArcSegmentCount(double radius, double sweep, double tolerance)
+{
+    if (radius <= 0.0 || sweep <= 0.0)
+        return 1;
+    if (tolerance <= 0.0)
+        tolerance = 1e-6;
+    if (tolerance >= radius)
+        return 2;
+
+    double maxAngle = 2.0 * std::acos(
+        std::max(-1.0, std::min(1.0, 1.0 - tolerance / radius)));
+
+    // 每段角度上限 45°，保证视觉质量
+    const double minAngle = M_PI / 4.0;
+    if (maxAngle > minAngle)
+        maxAngle = minAngle;
+
+    int segments = static_cast<int>(std::ceil(sweep / maxAngle));
+    return std::max(2, std::min(segments, 10000));
+}
 
 std::vector<DxfPoint> tessellateBulgeArc(
     const DxfPoint& p0, const DxfPoint& p1,
@@ -40,17 +65,9 @@ std::vector<DxfPoint> tessellateBulgeArc(
 
     double startAngle = std::atan2(p0.y() - cy, p0.x() - cx);
 
-    // Calculate segment count based on tolerance
+    // Calculate segment count via shared utility
     if (tolerance <= 0.0) tolerance = 0.01;
-    int segmentCount = 1;
-    if (radius > tolerance) {
-        double maxAngle = 2.0 * std::acos(
-            std::max(-1.0, std::min(1.0,
-                1.0 - tolerance / radius)));
-        segmentCount = static_cast<int>(
-            std::ceil(std::abs(theta) / maxAngle));
-    }
-    segmentCount = std::max(1, std::min(segmentCount, 10000));
+    int segmentCount = calculateArcSegmentCount(radius, std::abs(theta), tolerance);
 
     for (int i = 1; i < segmentCount; ++i) {
         double angle = startAngle
