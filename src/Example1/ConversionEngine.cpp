@@ -9,11 +9,17 @@
 
 bool ConversionEngine::convert(const DxfData& dxfData,
                                double baseX, double baseY, double baseZ,
+                               double tolerance,
                                SamData& outData)
 {
     outData.clear();
 
-    const double tol = defaultBulgeTolerance();
+    if (!std::isfinite(tolerance) || tolerance <= 0.0) {
+        qWarning() << "[ConversionEngine] invalid curve tolerance:" << tolerance;
+        return false;
+    }
+
+    const double tol = tolerance;
 
     // --- points ---
     for (const DxfPoint& pt : dxfData.points()) {
