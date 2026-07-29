@@ -24,7 +24,7 @@ TEST(Convert, empty_dxfdata_returns_false) {
     DxfData dxf;
     dxf.setValid(true);
     SamData out;
-    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, out);
+    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, ConversionEngine::defaultBulgeTolerance(), out);
     EXPECT_FALSE(ok);
     EXPECT_EQ(out.lines().size(), 0u);
     EXPECT_EQ(out.circles().size(), 0u);
@@ -42,7 +42,7 @@ TEST(Convert, only_invalid_entities_returns_false) {
     dxf.addArc(DxfArc(DxfPoint(0, 0, 0), 10.0, 1.0, 1.0, true));
 
     SamData out;
-    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, out);
+    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, ConversionEngine::defaultBulgeTolerance(), out);
     EXPECT_FALSE(ok);
 }
 
@@ -56,7 +56,7 @@ TEST(Convert, single_line_passes_through) {
     dxf.addLine(DxfLine(DxfPoint(0, 0, 0), DxfPoint(10, 0, 0)));
 
     SamData out;
-    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, out);
+    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, ConversionEngine::defaultBulgeTolerance(), out);
     EXPECT_TRUE(ok);
     ASSERT_EQ(out.lines().size(), 1u);
     EXPECT_DOUBLE_EQ(out.lines()[0].start().x(), 0.0);
@@ -69,7 +69,7 @@ TEST(Convert, single_circle) {
     dxf.addCircle(DxfCircle(DxfPoint(0, 0, 0), 5.0));
 
     SamData out;
-    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, out);
+    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, ConversionEngine::defaultBulgeTolerance(), out);
     EXPECT_TRUE(ok);
     ASSERT_EQ(out.circles().size(), 1u);
     EXPECT_DOUBLE_EQ(out.circles()[0].radius(), 5.0);
@@ -81,7 +81,7 @@ TEST(Convert, single_arc_produces_lines) {
     dxf.addArc(DxfArc(DxfPoint(0, 0, 0), 100.0, 0.0, M_PI / 2.0, true));
 
     SamData out;
-    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, out);
+    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, ConversionEngine::defaultBulgeTolerance(), out);
     EXPECT_TRUE(ok);
     // Arc → tessellated into multiple lines, zero circles
     EXPECT_GE(out.lines().size(), 2u);
@@ -98,7 +98,7 @@ TEST(Convert, single_lwpolyline_produces_lines) {
     dxf.addLWPolyline(DxfLWPolyline(verts, bulges, false));
 
     SamData out;
-    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, out);
+    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, ConversionEngine::defaultBulgeTolerance(), out);
     EXPECT_TRUE(ok);
     EXPECT_EQ(out.lines().size(), 2u);
 }
@@ -110,7 +110,7 @@ TEST(Convert, single_ellipse_produces_lines) {
                               0.5, 0.0, M_PI, true));
 
     SamData out;
-    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, out);
+    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, ConversionEngine::defaultBulgeTolerance(), out);
     EXPECT_TRUE(ok);
     EXPECT_GE(out.lines().size(), 2u);
     EXPECT_EQ(out.circles().size(), 0u);
@@ -126,7 +126,7 @@ TEST(Convert, translation_applied_to_lines) {
     dxf.addLine(DxfLine(DxfPoint(1, 2, 3), DxfPoint(4, 5, 6)));
 
     SamData out;
-    ConversionEngine().convert(dxf, 10, 20, 30, out);
+    ConversionEngine().convert(dxf, 10, 20, 30, ConversionEngine::defaultBulgeTolerance(), out);
     ASSERT_EQ(out.lines().size(), 1u);
     EXPECT_DOUBLE_EQ(out.lines()[0].start().x(), 11.0);
     EXPECT_DOUBLE_EQ(out.lines()[0].start().y(), 22.0);
@@ -142,7 +142,7 @@ TEST(Convert, translation_applied_to_circles) {
     dxf.addCircle(DxfCircle(DxfPoint(5, 5, 5), 10.0));
 
     SamData out;
-    ConversionEngine().convert(dxf, -5, -5, -5, out);
+    ConversionEngine().convert(dxf, -5, -5, -5, ConversionEngine::defaultBulgeTolerance(), out);
     ASSERT_EQ(out.circles().size(), 1u);
     EXPECT_DOUBLE_EQ(out.circles()[0].center().x(), 0.0);
     EXPECT_DOUBLE_EQ(out.circles()[0].center().y(), 0.0);
@@ -156,7 +156,7 @@ TEST(Convert, translation_applied_to_arc_output) {
     dxf.addArc(DxfArc(DxfPoint(0, 0, 0), 100.0, 0.0, M_PI, true));
 
     SamData out;
-    ConversionEngine().convert(dxf, 100, 200, 50, out);
+    ConversionEngine().convert(dxf, 100, 200, 50, ConversionEngine::defaultBulgeTolerance(), out);
     ASSERT_GE(out.lines().size(), 2u);
     // All output lines should be shifted
     for (const auto& line : out.lines()) {
@@ -177,7 +177,7 @@ TEST(Convert, mixed_entities_all_processed) {
     dxf.addArc(DxfArc(DxfPoint(0, 0, 0), 10.0, 0.0, M_PI / 2.0, true));
 
     SamData out;
-    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, out);
+    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, ConversionEngine::defaultBulgeTolerance(), out);
     EXPECT_TRUE(ok);
     // Lines: 1 direct + N from arc tessellation (no direct lines from arcs → all lines come from tessellation)
     EXPECT_GE(out.lines().size(), 3u);  // 1 original + at least 2 from arc
@@ -197,7 +197,7 @@ TEST(Convert, mixed_valid_and_invalid) {
     dxf.addCircle(DxfCircle(DxfPoint(0, 0, 0), 0.0));
 
     SamData out;
-    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, out);
+    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, ConversionEngine::defaultBulgeTolerance(), out);
     EXPECT_TRUE(ok);
     EXPECT_EQ(out.lines().size(), 1u);   // only the valid line
     EXPECT_EQ(out.circles().size(), 1u); // only the valid circle
@@ -232,7 +232,7 @@ TEST(Convert, full_curve_suite) {
                               0.5, 0.0, M_PI, true));
 
     SamData out;
-    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, out);
+    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, ConversionEngine::defaultBulgeTolerance(), out);
     EXPECT_TRUE(ok);
 
     // At minimum: 1 line + 2 arc segments + 2 poly segments + 2 ellipse segments + 1 circle
@@ -251,7 +251,7 @@ TEST(Convert, points_pass_through) {
     dxf.addPoint(DxfPoint(4, 5, 6));
 
     SamData out;
-    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, out);
+    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, ConversionEngine::defaultBulgeTolerance(), out);
     // Points alone don't make convert() return true (entityCount=0)
     // but they should still appear in output
     EXPECT_EQ(out.points().size(), 2u);
@@ -272,7 +272,7 @@ TEST(Convert, many_arcs) {
     }
 
     SamData out;
-    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, out);
+    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, ConversionEngine::defaultBulgeTolerance(), out);
     EXPECT_TRUE(ok);
     // Each arc produces at least 2 segments
     EXPECT_GE(out.lines().size(), 200u);
@@ -292,7 +292,7 @@ TEST(Convert, many_polylines) {
     }
 
     SamData out;
-    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, out);
+    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, ConversionEngine::defaultBulgeTolerance(), out);
     EXPECT_TRUE(ok);
     EXPECT_EQ(out.lines().size(), 100u);  // 50 polys × 2 segments each
 }
@@ -308,7 +308,7 @@ TEST(Convert, dfxdata_not_valid_still_converts) {
     dxf.addLine(DxfLine(DxfPoint(0, 0, 0), DxfPoint(10, 0, 0)));
 
     SamData out;
-    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, out);
+    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, ConversionEngine::defaultBulgeTolerance(), out);
     // Should still convert — isValid is just a parser flag
     EXPECT_TRUE(ok);
     EXPECT_EQ(out.lines().size(), 1u);

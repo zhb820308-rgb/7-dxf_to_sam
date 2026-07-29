@@ -1,8 +1,6 @@
 #include <kefKLine.h>
 #include <kefKSymbolFactory.h>
 
-#include <QColor>
-
 #include <sesKSessionState.h>
 
 
@@ -35,7 +33,6 @@ kefKLine::kefKLine()
 	timeStamp(0.0),
 	type_atom("kefKLine"),
 	_geomVertexXYZs(cowList<cowList<g3dVector>>()),
-	_colors(cowListString()),
 	_segID(cowListInt()),
 	_maxSegID(0)
 {
@@ -103,32 +100,24 @@ void kefKLine::UpdateDisplayOptions(const sesCDisplayOptions& options)
 
 }
 
-void kefKLine::setObject(const cowList<cowList<g3dVector>>& vertexXYZ, const cowListString& color)
+void kefKLine::setObject(const cowList<cowList<g3dVector>>& vertexXYZ)
 {
-	if (vertexXYZ.Length() != color.Length())
-		return ;
-
 	for (int i = 0; i < vertexXYZ.Length(); i++)
 	{
 		_geomVertexXYZs.Append(vertexXYZ[i]);
-		_colors.Append(color[i]);
 		_segID.Append(_maxSegID++);
 	}
 
 }
 
-void kefKLine::addObject(const cowList<cowList<g3dVector>>& vertexXYZ, const cowListString & color)
+void kefKLine::addObject(const cowList<cowList<g3dVector>>& vertexXYZ)
 {
-	if (vertexXYZ.Length() != color.Length())
-		return;
-
 	for (int i = 0; i < vertexXYZ.Length(); i++)
 	{
 		_geomVertexXYZs.Append(vertexXYZ[i]);
-		_colors.Append(color[i]);
 		_segID.Append(_maxSegID++);
 	}
-	
+
 }
 
 int kefKLine::findObject(int segID) const
@@ -138,7 +127,7 @@ int kefKLine::findObject(int segID) const
 	return _segID.FindMember(segID);
 }
 
-void kefKLine::createOneObject(int & segID, const cowList<g3dVector>& vertexXYZ, const QString & color)
+void kefKLine::createOneObject(int & segID, const cowList<g3dVector>& vertexXYZ)
 {
 	const int objectIndex = findObject(segID);
 
@@ -146,13 +135,11 @@ void kefKLine::createOneObject(int & segID, const cowList<g3dVector>& vertexXYZ,
 	if (objectIndex >= 0)
 	{
 		_geomVertexXYZs.Get(objectIndex) = vertexXYZ;
-		_colors.Get(objectIndex) = color;
 	}
 	// create a new object
 	else
 	{
 		_geomVertexXYZs.Append(vertexXYZ);
-		_colors.Append(color);
 		segID = _maxSegID++;
 		_segID.Append(segID);
 	}
@@ -165,7 +152,6 @@ void kefKLine::deleteOneObject(const int & segID)
 		return;
 
 	_geomVertexXYZs.RemoveIndex(objectIndex);
-	_colors.RemoveIndex(objectIndex);
 	_segID.RemoveIndex(objectIndex);
 }
 
@@ -186,13 +172,6 @@ void kefKLine::Draw(gdrRenderer& drafter, bool paintMode) const
 
 	for (int i = 0; i < _geomVertexXYZs.Length(); i++)
 	{
-		// 使用当前段存储的颜色
-		if (i < _colors.Length()) {
-			QColor qc(_colors[i]);
-			drafter.Color(g3dColor(qc.redF(), qc.greenF(), qc.blueF(), 1.0f));
-		} else {
-			drafter.Color(g3dColor(1.0, 0.0, 0.0, 1.0));
-		}
 
 		if (_geomVertexXYZs[i].Length() == 1)
 			drafter.Begin(g3d_Points);

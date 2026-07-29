@@ -170,7 +170,9 @@ omuPrimitive* Example1PytModule::createLine(omuArguments& args)
 	return new omuPrimNumber(lineId);
 }
 
-omuPrimitive* Example1PytModule::importDxf(omuArguments& args) {
+omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
+{
+	// ① 参数解析
 	QString filePath;
 	double baseX = 0.0;
 	double baseY = 0.0;
@@ -185,6 +187,7 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args) {
 	args.Get(curveTolerance, "curveTolerance");
 	args.End();
 
+	// ② 日志初始化
 	const std::string importId = QDateTime::currentDateTimeUtc()
 		.toString("yyyyMMdd_HHmmss_zzz")
 		.toStdString();
@@ -201,6 +204,11 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args) {
 			"[import={}] import_log_initialization_failed file=\"{}\"",
 			importId, pathText);
 	}
+	if (!logger && !errorLogger)
+	{
+		qWarning() << "[importDxf] ERROR: log system unavailable for import"
+			<< QString::fromStdString(importId);
+	}
 
 	if (logger)
 	{
@@ -214,21 +222,19 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args) {
 	qDebug() << "[importDxf] 基点:" << baseX << baseY << baseZ;
 	qDebug() << "[importDxf] 曲线离散容差:" << curveTolerance;
 
-	// ---- 1. 解析 ----
+	// ③ 阶段1：解析 DXF 文件
 	QElapsedTimer stageTimer;
 	stageTimer.start();
 	DxfData dxfData;
-	DxfParser parser;
-	if (!parser.parseFile(filePath, dxfData)) {
+	if (!parseDxfFile(filePath, dxfData))
+	{
 		std::string detail = " error=\"" + dxfData.errorMessage().toLocal8Bit().toStdString() + "\"";
-		reportImportError(logger, errorLogger, importId, pathText,
-			"parse", detail, totalTimer.elapsed());
-		qWarning() << "[importDxf] ERROR: DXF parse failed —" << dxfData.errorMessage();
-		dropDxfImportLogger(importId);
-		return nullptr;
+		return failImport(logger, errorLogger, importId, pathText,
+			"parse", detail, totalTimer.elapsed(),
+			QString("[importDxf] ERROR: DXF parse failed — %1").arg(dxfData.errorMessage()));
 	}
 
-	// ---- 2. 转换 ----
+	// ④ 解析完成日志
 	if (logger)
 	{
 		logger->info(
@@ -244,19 +250,17 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args) {
 	}
 	logRawDxfData(logger, importId, dxfData);
 
+	// ⑤ 阶段2：坐标转换（含离散化）
 	stageTimer.restart();
 	SamData samData;
-	ConversionEngine engine;
-	if (!engine.convert(
-			dxfData, baseX, baseY, baseZ, curveTolerance, samData)) {
-		reportImportError(logger, errorLogger, importId, pathText,
-			"conversion", "", totalTimer.elapsed());
-		qWarning() << "[importDxf] WARNING: no valid entities to import";
-		dropDxfImportLogger(importId);
-		return new omuPrimNumber(0);
+	if (!convertToSamData(dxfData, baseX, baseY, baseZ, curveTolerance, samData))
+	{
+		return failImport(logger, errorLogger, importId, pathText,
+			"conversion", "", totalTimer.elapsed(),
+			QString("[importDxf] WARNING: no valid entities to import"));
 	}
 
-	// ---- 3. SAM对接 ----
+	// ⑥ 转换完成日志
 	if (logger)
 	{
 		logger->info(
@@ -270,34 +274,30 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args) {
 	}
 	logConvertedSamData(logger, importId, samData);
 
+	// ⑦ 阶段3：构建 SAM 草图并提交
 	stageTimer.restart();
 	SamBuilder builder;
-	if (!builder.beginImport()) {
+	int created = buildSamSketch(samData, builder);
+	if (created < 0)
+	{
+		bool isBeginImport = (builder.lastError() == QString("failed to create sketch"));
+		std::string stage = isBeginImport ? "begin_import" : "commit";
 		std::string detail = " error=\"" + builder.lastError().toLocal8Bit().toStdString() + "\"";
-		reportImportError(logger, errorLogger, importId, pathText,
-			"begin_import", detail, totalTimer.elapsed());
-		qWarning() << "[importDxf] ERROR: failed to create sketch —" << builder.lastError();
-		dropDxfImportLogger(importId);
-		return nullptr;
+		QString qWarningMsg;
+		if (isBeginImport)
+		{
+			qWarningMsg = QString("[importDxf] ERROR: failed to create sketch — %1").arg(builder.lastError());
+		}
+		else
+		{
+			detail = " sketch=\"" + builder.sketchName().toLocal8Bit().toStdString() + "\"" + detail;
+			qWarningMsg = QString("[importDxf] ERROR: commit failed, rolling back — %1").arg(builder.lastError());
+		}
+		return failImport(logger, errorLogger, importId, pathText,
+			stage, detail, totalTimer.elapsed(), qWarningMsg);
 	}
 
-	int created = 0;
-	created += builder.createPoints(samData.points());
-	created += builder.createLines(samData.lines());
-	created += builder.createCircles(samData.circles());
-
-	if (!builder.commit()) {
-		std::string detail = " sketch=\"" + builder.sketchName().toLocal8Bit().toStdString()
-			+ "\" submitted=" + std::to_string(created)
-			+ " error=\"" + builder.lastError().toLocal8Bit().toStdString() + "\"";
-		reportImportError(logger, errorLogger, importId, pathText,
-			"commit", detail, totalTimer.elapsed());
-		qWarning() << "[importDxf] ERROR: commit failed, rolling back —" << builder.lastError();
-		builder.rollback();
-		dropDxfImportLogger(importId);
-		return new omuPrimNumber(0);
-	}
-
+	// ⑧ 成功
 	qDebug() << "[importDxf] ====== 导入完成, 共" << created << "个图元 =====";
 	if (logger)
 	{
@@ -312,4 +312,58 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args) {
 	}
 	dropDxfImportLogger(importId);
 	return new omuPrimNumber(created);
+}
+
+// ========================================================================
+//  DXF import helpers
+// ========================================================================
+
+omuPrimitive* Example1PytModule::failImport(
+	const std::shared_ptr<spdlog::logger>& logger,
+	const std::shared_ptr<spdlog::logger>& errorLogger,
+	const std::string& importId,
+	const std::string& pathText,
+	const std::string& stage,
+	const std::string& detail,
+	long long elapsedMs,
+	const QString& qWarningMsg)
+{
+	reportImportError(logger, errorLogger, importId, pathText, stage, detail, elapsedMs);
+	qWarning() << qWarningMsg;
+	dropDxfImportLogger(importId);
+	return nullptr;
+}
+
+bool Example1PytModule::parseDxfFile(const QString& filePath, DxfData& outData)
+{
+	DxfParser parser;
+	return parser.parseFile(filePath, outData);
+}
+
+bool Example1PytModule::convertToSamData(const DxfData& dxfData, double baseX, double baseY,
+                                          double baseZ, double tolerance, SamData& outData)
+{
+	ConversionEngine engine;
+	return engine.convert(dxfData, baseX, baseY, baseZ, tolerance, outData);
+}
+
+int Example1PytModule::buildSamSketch(const SamData& samData, SamBuilder& builder)
+{
+	if (!builder.beginImport())
+	{
+		return -1;
+	}
+
+	int created = 0;
+	created += builder.createPoints(samData.points());
+	created += builder.createLines(samData.lines());
+	created += builder.createCircles(samData.circles());
+
+	if (!builder.commit())
+	{
+		builder.rollback();
+		return -1;
+	}
+
+	return created;
 }

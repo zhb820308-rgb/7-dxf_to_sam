@@ -10,7 +10,7 @@
 bool ConversionEngine::convert(const DxfData& dxfData,
                                double baseX, double baseY, double baseZ,
                                double tolerance,
-                               SamData& outData)
+                               SamData& outData) const
 {
     outData.clear();
 
@@ -18,8 +18,6 @@ bool ConversionEngine::convert(const DxfData& dxfData,
         qWarning() << "[ConversionEngine] invalid curve tolerance:" << tolerance;
         return false;
     }
-
-    const double tol = tolerance;
 
     // --- points ---
     for (const DxfPoint& pt : dxfData.points()) {
@@ -58,19 +56,19 @@ bool ConversionEngine::convert(const DxfData& dxfData,
     // --- arcs (离散化 + 平移) ---
     for (const DxfArc& arc : dxfData.arcs()) {
         if (!arc.isValid()) continue;
-        addSegments(GeometryUtils::tessellateArc(arc, tol));
+        addSegments(GeometryUtils::tessellateArc(arc, tolerance));
     }
 
     // --- lwPolylines (离散化 + 平移) ---
     for (const DxfLWPolyline& poly : dxfData.lwPolylines()) {
         if (!poly.isValid()) continue;
-        addSegments(GeometryUtils::tessellateLWPolyline(poly, tol));
+        addSegments(GeometryUtils::tessellateLWPolyline(poly, tolerance));
     }
 
     // --- ellipses (离散化 + 平移) ---
     for (const DxfEllipse& ellipse : dxfData.ellipses()) {
         if (!ellipse.isValid()) continue;
-        addSegments(GeometryUtils::tessellateEllipse(ellipse, tol));
+        addSegments(GeometryUtils::tessellateEllipse(ellipse, tolerance));
     }
 
     bool ok = !outData.points().empty() ||

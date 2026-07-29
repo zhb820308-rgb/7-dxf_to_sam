@@ -177,7 +177,7 @@ TEST(Pipeline, line1_parse_then_convert) {
 
     SamData out;
     ConversionEngine engine;
-    bool ok = engine.convert(data, 0, 0, 0, out);
+    bool ok = engine.convert(data, 0, 0, 0, ConversionEngine::defaultBulgeTolerance(), out);
     EXPECT_TRUE(ok);
     EXPECT_GE(out.lines().size(), 1u);
 }
@@ -189,7 +189,7 @@ TEST(Pipeline, circle_parse_then_convert) {
 
     SamData out;
     ConversionEngine engine;
-    bool ok = engine.convert(data, 0, 0, 0, out);
+    bool ok = engine.convert(data, 0, 0, 0, ConversionEngine::defaultBulgeTolerance(), out);
     EXPECT_TRUE(ok);
 }
 
@@ -200,7 +200,7 @@ TEST(Pipeline, half_circle_parse_then_convert) {
 
     SamData out;
     ConversionEngine engine;
-    bool ok = engine.convert(data, 0, 0, 0, out);
+    bool ok = engine.convert(data, 0, 0, 0, ConversionEngine::defaultBulgeTolerance(), out);
     EXPECT_TRUE(ok);
     // Arc tessellation produces lines
     EXPECT_GE(out.lines().size(), 2u);
@@ -213,7 +213,7 @@ TEST(Pipeline, elipse_parse_then_convert) {
 
     SamData out;
     ConversionEngine engine;
-    bool ok = engine.convert(data, 0, 0, 0, out);
+    bool ok = engine.convert(data, 0, 0, 0, ConversionEngine::defaultBulgeTolerance(), out);
     EXPECT_TRUE(ok);
     // Ellipse tessellation produces lines
     EXPECT_GE(out.lines().size(), 2u);
@@ -226,7 +226,7 @@ TEST(Pipeline, pline_half_circle_parse_then_convert) {
 
     SamData out;
     ConversionEngine engine;
-    bool ok = engine.convert(data, 0, 0, 0, out);
+    bool ok = engine.convert(data, 0, 0, 0, ConversionEngine::defaultBulgeTolerance(), out);
     EXPECT_TRUE(ok);
     EXPECT_GE(out.lines().size(), 1u);
 }
@@ -255,7 +255,7 @@ TEST(Regression, elipse_dxf_full_ellipse_not_lost) {
     // the parse+convert pipeline should succeed without data loss
     SamData out;
     ConversionEngine engine;
-    bool ok = engine.convert(data, 0, 0, 0, out);
+    bool ok = engine.convert(data, 0, 0, 0, ConversionEngine::defaultBulgeTolerance(), out);
     EXPECT_TRUE(ok);
 
     // Each ellipse should produce at least 2 line segments
@@ -277,7 +277,7 @@ TEST(Regression, half_circle_arcs_produce_lines) {
 
     SamData out;
     ConversionEngine engine;
-    bool ok = engine.convert(data, 0, 0, 0, out);
+    bool ok = engine.convert(data, 0, 0, 0, ConversionEngine::defaultBulgeTolerance(), out);
     EXPECT_TRUE(ok);
     // Even a single half-circle arc should produce multiple line segments
     if (data.arcs().size() > 0) {
@@ -315,7 +315,7 @@ TEST(Pipeline, all_example_files_parse_and_convert) {
 
         SamData out;
         ConversionEngine engine;
-        bool converted = engine.convert(data, 0, 0, 0, out);
+        bool converted = engine.convert(data, 0, 0, 0, ConversionEngine::defaultBulgeTolerance(), out);
         EXPECT_TRUE(converted) << "Failed to convert: " << filenames[i];
 
         // Every file should produce some output

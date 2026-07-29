@@ -107,3 +107,23 @@ endif()
 set_tests_properties(GeometryUtils DxfData ConversionEngine Convert Parser PROPERTIES
     ENVIRONMENT "PATH=$<TARGET_FILE_DIR:Qt5::Core>\\;${LIBDXFRW_ROOT}/build/Release\\;$ENV{PATH}"
 )
+
+# Test 6: DxfImportLogger (needs QCoreApplication + spdlog, custom main)
+add_executable(test_dxf_import_logger
+    test_dxf_import_logger.cpp
+    ${CMAKE_SOURCE_DIR}/src/Example1/DxfImportLogger.cpp
+    ${CMAKE_SOURCE_DIR}/src/Example1/DxfData.cpp
+)
+target_include_directories(test_dxf_import_logger PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Example1
+)
+target_link_libraries(test_dxf_import_logger PRIVATE
+    GTest::gtest
+    Qt5::Core
+    spdlog::spdlog
+)
+add_test(NAME DxfImportLogger COMMAND test_dxf_import_logger)
+
+set_tests_properties(DxfImportLogger PROPERTIES
+    ENVIRONMENT "PATH=$<TARGET_FILE_DIR:Qt5::Core>\\;$ENV{PATH}"
+)

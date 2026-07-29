@@ -47,8 +47,8 @@ public:
     void HighlightInertia(const QString& inertiaName);
     void UnhighlightAll();
     void UpdateDisplayOptions(const sesCDisplayOptions&);
-	void setObject(const cowList<cowList<g3dVector>>& vertexXYZ, const cowListString& color);
-	void addObject(const cowList<cowList<g3dVector>>& vertexXYZ, const cowListString& color);
+	void setObject(const cowList<cowList<g3dVector>>& vertexXYZ);
+	void addObject(const cowList<cowList<g3dVector>>& vertexXYZ);
 
 	// Find the index of an object by its segment ID; returns -1 if not found
 	int findObject(int segID) const;
@@ -56,7 +56,7 @@ public:
 	// Create a new object or modify an existing one.
 	// segID: [in/out] — if found in existing objects, the entry is updated;
 	//         otherwise a new object is created and segID receives the new ID.
-	void createOneObject(int& segID, const cowList<g3dVector>& vertexXYZ = cowList<g3dVector>(), const QString& color = "");
+	void createOneObject(int& segID, const cowList<g3dVector>& vertexXYZ = cowList<g3dVector>());
 	void deleteOneObject(const int& segID);
 
 private:
@@ -83,7 +83,6 @@ private:
     omuAtom type_atom; // 144
     
 	cowList<cowList<g3dVector>> _geomVertexXYZs;
-	cowListString _colors;
 	cowListInt _segID;
 	int _maxSegID;
 

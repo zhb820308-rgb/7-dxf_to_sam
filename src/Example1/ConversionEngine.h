@@ -16,7 +16,7 @@ public:
     bool convert(const DxfData& dxfData,
                  double baseX, double baseY, double baseZ,
                  double tolerance,
-                 SamData& outData);
+                 SamData& outData) const;
 
     static double defaultBulgeTolerance() { return 0.01; }
     static DxfPoint translate(const DxfPoint& pt,

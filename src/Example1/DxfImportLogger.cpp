@@ -19,9 +19,11 @@
 // Internal helpers
 // ============================================================================
 
+static const int kMaxImportLogs = 50;
+
 static QString dxfLogRootDirectory()
 {
-	return QCoreApplication::applicationDirPath() + "/logs";
+	return QDir(QCoreApplication::applicationDirPath()).filePath("logs");
 }
 
 static void retainRecentImportLogs(
@@ -49,7 +51,7 @@ static void retainRecentImportLogs(
 		if (it->absoluteFilePath() == currentAbsolutePath)
 			continue;
 
-		if (retainedCount < 50)
+		if (retainedCount < kMaxImportLogs)
 		{
 			++retainedCount;
 			continue;
@@ -159,8 +161,25 @@ void dropDxfImportLogger(const std::string& importId)
 }
 
 // ============================================================================
-// Data-logging helpers
+// Data-logging helpers (template eliminates ~125 lines of duplicate loops)
 // ============================================================================
+
+template <typename Entity, typename LogFunc>
+static void logEntities(
+	const std::shared_ptr<spdlog::logger>& logger,
+	const std::string& importId,
+	const std::string& tag,
+	const std::vector<Entity>& entities,
+	LogFunc formatter)
+{
+	if (!logger)
+		return;
+
+	for (size_t i = 0; i < entities.size(); ++i)
+	{
+		formatter(logger, importId, tag, i, entities[i]);
+	}
+}
 
 void logRawDxfData(
 	const std::shared_ptr<spdlog::logger>& logger,
@@ -170,44 +189,44 @@ void logRawDxfData(
 	if (!logger)
 		return;
 
-	for (size_t i = 0; i < data.points().size(); ++i)
-	{
-		const DxfPoint& point = data.points()[i];
-		logger->trace(
-			"[import={}] raw POINT id={} position=({}, {}, {})",
-			importId, point.getId(), point.x(), point.y(), point.z());
-	}
+	logEntities(logger, importId, "raw", data.points(),
+		[](const std::shared_ptr<spdlog::logger>& log, const std::string& id,
+		   const std::string& tag, size_t, const DxfPoint& pt) {
+			log->trace(
+				"[import={}] {} POINT id={} position=({}, {}, {})",
+				id, tag, pt.getId(), pt.x(), pt.y(), pt.z());
+		});
 
-	for (size_t i = 0; i < data.lines().size(); ++i)
-	{
-		const DxfLine& line = data.lines()[i];
-		logger->trace(
-			"[import={}] raw LINE id={} start=({}, {}, {}) end=({}, {}, {})",
-			importId, line.getId(),
-			line.start().x(), line.start().y(), line.start().z(),
-			line.end().x(), line.end().y(), line.end().z());
-	}
+	logEntities(logger, importId, "raw", data.lines(),
+		[](const std::shared_ptr<spdlog::logger>& log, const std::string& id,
+		   const std::string& tag, size_t, const DxfLine& line) {
+			log->trace(
+				"[import={}] {} LINE id={} start=({}, {}, {}) end=({}, {}, {})",
+				id, tag, line.getId(),
+				line.start().x(), line.start().y(), line.start().z(),
+				line.end().x(), line.end().y(), line.end().z());
+		});
 
-	for (size_t i = 0; i < data.circles().size(); ++i)
-	{
-		const DxfCircle& circle = data.circles()[i];
-		logger->trace(
-			"[import={}] raw CIRCLE id={} center=({}, {}, {}) radius={}",
-			importId, circle.getId(),
-			circle.center().x(), circle.center().y(), circle.center().z(),
-			circle.radius());
-	}
+	logEntities(logger, importId, "raw", data.circles(),
+		[](const std::shared_ptr<spdlog::logger>& log, const std::string& id,
+		   const std::string& tag, size_t, const DxfCircle& circle) {
+			log->trace(
+				"[import={}] {} CIRCLE id={} center=({}, {}, {}) radius={}",
+				id, tag, circle.getId(),
+				circle.center().x(), circle.center().y(), circle.center().z(),
+				circle.radius());
+		});
 
-	for (size_t i = 0; i < data.arcs().size(); ++i)
-	{
-		const DxfArc& arc = data.arcs()[i];
-		logger->trace(
-			"[import={}] raw ARC id={} center=({}, {}, {}) radius={}"
-			" start_angle={} end_angle={} ccw={}",
-			importId, arc.getId(),
-			arc.center().x(), arc.center().y(), arc.center().z(),
-			arc.radius(), arc.startAngle(), arc.endAngle(), arc.isCCW());
-	}
+	logEntities(logger, importId, "raw", data.arcs(),
+		[](const std::shared_ptr<spdlog::logger>& log, const std::string& id,
+		   const std::string& tag, size_t, const DxfArc& arc) {
+			log->trace(
+				"[import={}] {} ARC id={} center=({}, {}, {}) radius={}"
+				" start_angle={} end_angle={} ccw={}",
+				id, tag, arc.getId(),
+				arc.center().x(), arc.center().y(), arc.center().z(),
+				arc.radius(), arc.startAngle(), arc.endAngle(), arc.isCCW());
+		});
 
 	for (size_t i = 0; i < data.lwPolylines().size(); ++i)
 	{
@@ -237,18 +256,18 @@ void logRawDxfData(
 		}
 	}
 
-	for (size_t i = 0; i < data.ellipses().size(); ++i)
-	{
-		const DxfEllipse& ellipse = data.ellipses()[i];
-		logger->trace(
-			"[import={}] raw ELLIPSE id={} center=({}, {}, {})"
-			" major_axis=({}, {}, {}) ratio={} start_param={} end_param={} ccw={}",
-			importId, ellipse.getId(),
-			ellipse.center().x(), ellipse.center().y(), ellipse.center().z(),
-			ellipse.majorAxisEnd().x(), ellipse.majorAxisEnd().y(),
-			ellipse.majorAxisEnd().z(), ellipse.ratio(),
-			ellipse.startParam(), ellipse.endParam(), ellipse.isCCW());
-	}
+	logEntities(logger, importId, "raw", data.ellipses(),
+		[](const std::shared_ptr<spdlog::logger>& log, const std::string& id,
+		   const std::string& tag, size_t, const DxfEllipse& ellipse) {
+			log->trace(
+				"[import={}] {} ELLIPSE id={} center=({}, {}, {})"
+				" major_axis=({}, {}, {}) ratio={} start_param={} end_param={} ccw={}",
+				id, tag, ellipse.getId(),
+				ellipse.center().x(), ellipse.center().y(), ellipse.center().z(),
+				ellipse.majorAxisEnd().x(), ellipse.majorAxisEnd().y(),
+				ellipse.majorAxisEnd().z(), ellipse.ratio(),
+				ellipse.startParam(), ellipse.endParam(), ellipse.isCCW());
+		});
 }
 
 void logConvertedSamData(
@@ -259,33 +278,33 @@ void logConvertedSamData(
 	if (!logger)
 		return;
 
-	for (size_t i = 0; i < data.points().size(); ++i)
-	{
-		const DxfPoint& point = data.points()[i];
-		logger->trace(
-			"[import={}] converted POINT id={} position=({}, {}, {})",
-			importId, point.getId(), point.x(), point.y(), point.z());
-	}
+	logEntities(logger, importId, "converted", data.points(),
+		[](const std::shared_ptr<spdlog::logger>& log, const std::string& id,
+		   const std::string& tag, size_t, const DxfPoint& pt) {
+			log->trace(
+				"[import={}] {} POINT id={} position=({}, {}, {})",
+				id, tag, pt.getId(), pt.x(), pt.y(), pt.z());
+		});
 
-	for (size_t i = 0; i < data.lines().size(); ++i)
-	{
-		const DxfLine& line = data.lines()[i];
-		logger->trace(
-			"[import={}] converted LINE id={} start=({}, {}, {}) end=({}, {}, {})",
-			importId, line.getId(),
-			line.start().x(), line.start().y(), line.start().z(),
-			line.end().x(), line.end().y(), line.end().z());
-	}
+	logEntities(logger, importId, "converted", data.lines(),
+		[](const std::shared_ptr<spdlog::logger>& log, const std::string& id,
+		   const std::string& tag, size_t, const DxfLine& line) {
+			log->trace(
+				"[import={}] {} LINE id={} start=({}, {}, {}) end=({}, {}, {})",
+				id, tag, line.getId(),
+				line.start().x(), line.start().y(), line.start().z(),
+				line.end().x(), line.end().y(), line.end().z());
+		});
 
-	for (size_t i = 0; i < data.circles().size(); ++i)
-	{
-		const DxfCircle& circle = data.circles()[i];
-		logger->trace(
-			"[import={}] converted CIRCLE id={} center=({}, {}, {}) radius={}",
-			importId, circle.getId(),
-			circle.center().x(), circle.center().y(), circle.center().z(),
-			circle.radius());
-	}
+	logEntities(logger, importId, "converted", data.circles(),
+		[](const std::shared_ptr<spdlog::logger>& log, const std::string& id,
+		   const std::string& tag, size_t, const DxfCircle& circle) {
+			log->trace(
+				"[import={}] {} CIRCLE id={} center=({}, {}, {}) radius={}",
+				id, tag, circle.getId(),
+				circle.center().x(), circle.center().y(), circle.center().z(),
+				circle.radius());
+		});
 }
 
 // ============================================================================

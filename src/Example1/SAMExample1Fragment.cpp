@@ -137,7 +137,6 @@ omuPrimitive* SAMExample1Fragment::drawExample(omuArguments& args)
 void SAMExample1Fragment::DrawLine(int& segID, g3dVector startPoint, g3dVector endPoint)
 {
 	cowList<g3dVector> vertexXYZ;
-	QString color("red");
 	vertexXYZ.Clear();
 	vertexXYZ.Append(startPoint);
 	vertexXYZ.Append(endPoint);
@@ -151,7 +150,7 @@ void SAMExample1Fragment::DrawLine(int& segID, g3dVector startPoint, g3dVector e
 		drawLine = static_cast<kefKLine*>(edit->GetGeomEditorByType("kefKLine"));
 	}
 	
-	drawLine->createOneObject(segID, vertexXYZ, color);
+	drawLine->createOneObject(segID, vertexXYZ);
 	scn->ExposeVP();// updata
 
 }
