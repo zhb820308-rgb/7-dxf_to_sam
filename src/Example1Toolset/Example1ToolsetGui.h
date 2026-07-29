@@ -57,6 +57,7 @@ private:
     
 private slots:
 	void onImportDxf();
+	void onViewDxfLogs();
 };
 
 #endif

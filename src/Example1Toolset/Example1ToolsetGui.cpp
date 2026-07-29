@@ -15,6 +15,7 @@
 #include <omuPrimExpr.h>
 
 #include <Example1Form.h>
+#include <DxfLogViewerDialog.h>
 #include <cmdGCommandDeliveryRole.h>
 
 
@@ -84,6 +85,21 @@ void Example1ToolsetGui::createMenuItems()
 
 	SAMMainWindow* mainWindow = SAMApp::getSAMApp()->getSAMMainWindow();
 	QMenuBar* menuBar = mainWindow ? mainWindow->getMenubar() : nullptr;
+	QMenu* toolsMenu = menuBar
+		? findMenu(menuBar->actions(), QStringLiteral("Tools"), QStringLiteral("\u5de5\u5177"))
+		: nullptr;
+	if (toolsMenu)
+	{
+		SAMMenuCommand* viewLogsCmd =
+			new SAMMenuCommand(this, toolsMenu, tr("DXFimport log"));
+		toolsMenu->addAction(viewLogsCmd);
+		connect(viewLogsCmd, SIGNAL(triggered(bool)), this, SLOT(onViewDxfLogs()));
+	}
+	else
+	{
+		qWarning("Example1Toolset: Tools menu was not found");
+	}
+
 	QMenu* fileMenu = menuBar
 		? findMenu(menuBar->actions(), QStringLiteral("File"), QStringLiteral("\u6587\u4ef6"))
 		: nullptr;
@@ -111,4 +127,11 @@ void Example1ToolsetGui::onImportDxf()
 {
 	Example1Form* aExample1Form = new Example1Form(this);
 	aExample1Form->onCmdActivate(this, 0, 0);
+}
+
+void Example1ToolsetGui::onViewDxfLogs()
+{
+	SAMMainWindow* mainWindow = SAMApp::getSAMApp()->getSAMMainWindow();
+	DxfLogViewerDialog dialog(mainWindow);
+	dialog.exec();
 }
