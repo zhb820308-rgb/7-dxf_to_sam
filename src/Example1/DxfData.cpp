@@ -1,4 +1,5 @@
 #include "DxfData.h"
+#include <atomic>
 #include <cmath>
 #include <limits>
 
@@ -6,7 +7,7 @@
 //  DxfEntity
 // ========================================================================
 
-static int s_nextId = 1;
+static std::atomic<int> s_nextId{1};
 
 DxfEntity::DxfEntity(EntityType entityType)
     : id(s_nextId++)

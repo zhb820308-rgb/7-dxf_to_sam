@@ -1,10 +1,6 @@
 #include "GeometryUtils.h"
 #include <cmath>
 
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
-#endif
-
 namespace GeometryUtils {
 
 int calculateArcSegmentCount(double radius, double sweep, double tolerance)
@@ -85,6 +81,121 @@ std::vector<DxfPoint> tessellateBulgeArc(
     // Snap endpoints to original points to avoid floating-point drift
     result.front() = p0;
     result.back()  = p1;
+    return result;
+}
+
+double normalizeSweep(double sweep, bool isCCW)
+{
+    if (isCCW) {
+        while (sweep <= 0.0) { sweep += 2.0 * M_PI; }
+    } else {
+        while (sweep >= 0.0) { sweep -= 2.0 * M_PI; }
+    }
+    return sweep;
+}
+
+std::vector<DxfLine> tessellateArc(const DxfArc& arc, double tolerance)
+{
+    std::vector<DxfLine> result;
+
+    double cx = arc.center().x();
+    double cy = arc.center().y();
+    double cz = arc.center().z();
+    double r  = arc.radius();
+    double a0 = arc.startAngle();
+    double sweep = normalizeSweep(arc.endAngle() - a0, arc.isCCW());
+
+    int segments = calculateArcSegmentCount(r, std::abs(sweep), tolerance);
+
+    auto pointAt = [&](double t) -> DxfPoint {
+        return DxfPoint(cx + r * std::cos(t), cy + r * std::sin(t), cz);
+    };
+
+    DxfPoint previous = pointAt(a0);
+    for (int i = 1; i <= segments; ++i) {
+        double t = a0 + sweep * static_cast<double>(i) / static_cast<double>(segments);
+        DxfPoint current = pointAt(t);
+        result.push_back(DxfLine(previous, current));
+        previous = current;
+    }
+
+    return result;
+}
+
+std::vector<DxfLine> tessellateLWPolyline(const DxfLWPolyline& poly,
+                                          double tolerance)
+{
+    std::vector<DxfLine> result;
+
+    const auto& vertices = poly.vertices();
+    const auto& bulges   = poly.bulges();
+    const int N = poly.vertexCount();
+
+    auto tessellateSegment = [&](int i, int j, double bulge) {
+        DxfPoint p0 = vertices[i];
+        DxfPoint p1 = vertices[j];
+        p0.setZ(poly.constZ());
+        p1.setZ(poly.constZ());
+
+        std::vector<DxfPoint> pts = tessellateBulgeArc(p0, p1, bulge, tolerance);
+
+        for (size_t k = 1; k < pts.size(); ++k) {
+            result.push_back(DxfLine(pts[k - 1], pts[k]));
+        }
+    };
+
+    for (int i = 0; i < N - 1; ++i) {
+        tessellateSegment(i, i + 1, bulges[i]);
+    }
+    if (poly.isClosed()) {
+        tessellateSegment(N - 1, 0, bulges[N - 1]);
+    }
+
+    return result;
+}
+
+std::vector<DxfLine> tessellateEllipse(const DxfEllipse& ellipse,
+                                       double tolerance)
+{
+    std::vector<DxfLine> result;
+
+    const DxfPoint& center = ellipse.center();
+    const DxfPoint& majorEnd = ellipse.majorAxisEnd();
+    double majorX = majorEnd.x();
+    double majorY = majorEnd.y();
+    double majorLen = std::sqrt(majorX * majorX + majorY * majorY);
+
+    if (majorLen <= 0.0) return result;
+
+    double ratio = ellipse.ratio();
+    double minorX = -majorY * ratio;
+    double minorY =  majorX * ratio;
+
+    double startParam = ellipse.startParam();
+    double endParam   = ellipse.endParam();
+    double sweep = normalizeSweep(endParam - startParam, ellipse.isCCW());
+
+    const double maxRadius = (majorLen > majorLen * ratio)
+        ? majorLen : majorLen * ratio;
+    const int segments = calculateArcSegmentCount(
+        maxRadius, std::abs(sweep), tolerance);
+
+    auto pointAt = [&](double t) -> DxfPoint {
+        return DxfPoint(
+            center.x() + majorX * std::cos(t) + minorX * std::sin(t),
+            center.y() + majorY * std::cos(t) + minorY * std::sin(t),
+            center.z());
+    };
+
+    DxfPoint previous = pointAt(startParam);
+    for (int i = 1; i <= segments; ++i) {
+        double t = startParam + sweep * static_cast<double>(i)
+                   / static_cast<double>(segments);
+        DxfPoint current = pointAt(t);
+        result.push_back(DxfLine(previous, current));
+        previous = current;
+    }
+
     return result;
 }
 

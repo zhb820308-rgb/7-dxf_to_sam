@@ -35,7 +35,7 @@ void DxfReader::addEllipse(const DRW_Ellipse& data) {
 
 void DxfReader::addLWPolyline(const DRW_LWPolyline& data)
 {
-	const int numVerts = data.vertexnum;
+	const int numVerts = std::min(data.vertexnum, static_cast<int>(data.vertlist.size()));
 	qDebug() << "[DxfReader] addLWPolyline vertexnum=" << numVerts
 	         << "flags=" << data.flags << "vertlist=" << (int)data.vertlist.size();
 	if (numVerts < 2) return;

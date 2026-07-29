@@ -1,8 +1,12 @@
 #ifndef GeometryUtils_h
 #define GeometryUtils_h
 
-#include "DxfData.h"  // for DxfPoint
+#include "DxfData.h"  // for DxfPoint, DxfArc, DxfLWPolyline, DxfEllipse, DxfLine
 #include <vector>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 namespace GeometryUtils {
 
@@ -22,6 +26,26 @@ std::vector<DxfPoint> tessellateBulgeArc(
     const DxfPoint& p1,
     double bulge,
     double tolerance = 0.01);
+
+/// Normalize a signed sweep angle to the canonical range.
+/// CCW: ensures sweep > 0 (adds 2π until positive).
+/// CW:  ensures sweep < 0 (subtracts 2π until negative).
+/// Does NOT clamp upper bound — full-circle sweeps (±2π) are preserved
+/// for direct angular sampling.
+double normalizeSweep(double sweep, bool isCCW);
+
+/// Discretize an arc (center + radius + angles) into line segments.
+/// Uses direct angular sampling from the known center.
+std::vector<DxfLine> tessellateArc(const DxfArc& arc, double tolerance);
+
+/// Discretize a lightweight polyline into line segments.
+/// Each segment's bulge is processed via tessellateBulgeArc.
+std::vector<DxfLine> tessellateLWPolyline(const DxfLWPolyline& poly,
+                                          double tolerance);
+
+/// Discretize an elliptical arc into line segments via parametric sampling.
+std::vector<DxfLine> tessellateEllipse(const DxfEllipse& ellipse,
+                                       double tolerance);
 
 }  // namespace GeometryUtils
 
