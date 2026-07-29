@@ -23,7 +23,7 @@
 Example1DXFImportDialog::Example1DXFImportDialog(Example1Form* form)
 	:SAMDataDialog(form, tr("DXF Import"), OK | CANCEL)
 {
-	setMinimumSize(470, 200);
+	setMinimumSize(470, 270);
 
 	/*************************DXF Path*************************************/
 	QGroupBox* dxfGroup = new QGroupBox(tr("DXF File"), this);
@@ -71,6 +71,27 @@ Example1DXFImportDialog::Example1DXFImportDialog(Example1Form* form)
 	baseLayout->addRow(tr("Z:"), m_baseZEdit);
 
 	paramLayout->addWidget(baseGroup);
+
+	/*************************Curve Discretization***************************/
+	QGroupBox* discretizationGroup =
+		new QGroupBox(tr("Curve Discretization"), this);
+
+	m_toleranceValidator =
+		new QDoubleValidator(0.000000000001, 1000.0, 12, discretizationGroup);
+	m_toleranceValidator->setNotation(QDoubleValidator::StandardNotation);
+
+	m_toleranceEdit = new QLineEdit(discretizationGroup);
+	m_toleranceEdit->setText("0.01");
+	m_toleranceEdit->setValidator(m_toleranceValidator);
+	m_toleranceEdit->setPlaceholderText("0.01");
+	m_toleranceEdit->setToolTip(
+		tr("Maximum deviation between a curve and its line segments."));
+
+	QFormLayout* discretizationLayout =
+		new QFormLayout(discretizationGroup);
+	discretizationLayout->addRow(tr("Tolerance (mm):"), m_toleranceEdit);
+
+	paramLayout->addWidget(discretizationGroup);
 
 	QHBoxLayout* contentLayout = new QHBoxLayout(contentArea);
 	contentLayout->addLayout(paramLayout);
@@ -137,6 +158,8 @@ void Example1DXFImportDialog::onCmdOk(int id)
 	double baseX = m_baseXEdit->text().toDouble(&baseOkX);
 	double baseY = m_baseYEdit->text().toDouble(&baseOkY);
 	double baseZ = m_baseZEdit->text().toDouble(&baseOkZ);
+	bool toleranceOk = false;
+	double tolerance = m_toleranceEdit->text().toDouble(&toleranceOk);
 
 	if (!baseOkX || !baseOkY || !baseOkZ) {
 		QMessageBox::warning(
@@ -147,12 +170,22 @@ void Example1DXFImportDialog::onCmdOk(int id)
 		return;
 	}
 
+	if (!toleranceOk || tolerance <= 0.0) {
+		QMessageBox::warning(
+			this,
+			tr("Warning"),
+			tr("Please enter a curve tolerance greater than zero.")
+		);
+		return;
+	}
+
 	// call importDxf
-	omuArguments args(4);
+	omuArguments args(5);
 	args.Put(path);
 	args.Put(baseX);
 	args.Put(baseY);
 	args.Put(baseZ);
+	args.Put(tolerance);
 	omuMethodCall mc("Example1", "importDxf", args);
 
 	QString cmd;

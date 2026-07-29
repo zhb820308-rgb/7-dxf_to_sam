@@ -15,6 +15,7 @@ public:
 
     bool convert(const DxfData& dxfData,
                  double baseX, double baseY, double baseZ,
+                 double tolerance,
                  SamData& outData);
 
     static double defaultBulgeTolerance() { return 0.01; }

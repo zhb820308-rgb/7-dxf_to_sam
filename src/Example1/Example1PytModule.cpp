@@ -433,11 +433,14 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args) {
 	double baseX = 0.0;
 	double baseY = 0.0;
 	double baseZ = 0.0;
+	double curveTolerance = ConversionEngine::defaultBulgeTolerance();
 	args.Begin();
 	args.Get(filePath);
 	args.Get(baseX);
 	args.Get(baseY);
 	args.Get(baseZ);
+	args.Optional();
+	args.Get(curveTolerance, "curveTolerance");
 	args.End();
 
 	const std::string importId = QDateTime::currentDateTimeUtc()
@@ -462,13 +465,14 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args) {
 	if (logger)
 	{
 		logger->info(
-			"[import={}] started file=\"{}\" base=({}, {}, {})",
-			importId, pathText, baseX, baseY, baseZ);
+			"[import={}] started file=\"{}\" base=({}, {}, {}) curve_tolerance={}",
+			importId, pathText, baseX, baseY, baseZ, curveTolerance);
 	}
 
 	qDebug() << "[importDxf] ====== DXF 导入开始 ======";
 	qDebug() << "[importDxf] 文件路径:" << filePath;
 	qDebug() << "[importDxf] 基点:" << baseX << baseY << baseZ;
+	qDebug() << "[importDxf] 曲线离散容差:" << curveTolerance;
 
 	// ---- 1. 解析 ----
 	DxfData dxfData;
@@ -513,7 +517,8 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args) {
 	stageTimer.restart();
 	SamData samData;
 	ConversionEngine engine;
-	if (!engine.convert(dxfData, baseX, baseY, baseZ, samData)) {
+	if (!engine.convert(
+			dxfData, baseX, baseY, baseZ, curveTolerance, samData)) {
 		if (logger)
 		{
 			logger->error(
@@ -535,11 +540,12 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args) {
 	if (logger)
 	{
 		logger->info(
-			"[import={}] conversion_completed points={} lines={} circles={} duration_ms={}",
+			"[import={}] conversion_completed points={} lines={} circles={} curve_tolerance={} duration_ms={}",
 			importId,
 			samData.points().size(),
 			samData.lines().size(),
 			samData.circles().size(),
+			curveTolerance,
 			stageTimer.elapsed());
 	}
 	logConvertedSamData(logger, importId, samData);

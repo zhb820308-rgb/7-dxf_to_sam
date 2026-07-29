@@ -24,8 +24,10 @@ private:
     QLineEdit* m_baseXEdit;
     QLineEdit* m_baseYEdit;
     QLineEdit* m_baseZEdit;
+    QLineEdit* m_toleranceEdit;
     QPushButton* m_browseButton;
     QDoubleValidator* m_doubleValidator;
+    QDoubleValidator* m_toleranceValidator;
     static const int BROWSE_BUTTON_ID = 2;
 };
 
