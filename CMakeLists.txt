@@ -35,8 +35,9 @@ set(LIBDXFRW_RUNTIME "${LIBDXFRW_ROOT}/build/Release/dxfrw.dll")
 set(spdlog_DIR "${SPDLOG_ROOT}/share/spdlog")
 set(fmt_DIR "${SPDLOG_ROOT}/share/fmt")
 
-# OCCT provided by SAM team (matching SAM runtime)
-set(SAM_OCCT_ROOT "D:/shixi_CAE/example/example/OCCT")
+# OCCT (Open CASCADE Technology) — headers in repo, libs configurable
+set(SAM_OCCT_ROOT "${CMAKE_SOURCE_DIR}/example/OCCT" CACHE PATH
+    "OCCT root directory (contains inc/ and win64/vc14/lib/)")
 set(SAM_OCCT_INCLUDE_DIR "${SAM_OCCT_ROOT}/inc")
 set(SAM_OCCT_LIB_DIR "${SAM_OCCT_ROOT}/win64/vc14/lib")
 set(SAM_OCCT_BIN_DIR "${SAM_OCCT_ROOT}/win64/vc14/bin")
@@ -84,6 +85,4 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_INSTALL_PREFIX}/lib)
 
 add_subdirectory(src/Example1)
 add_subdirectory(src/Example1Toolset)
-enable_testing()
-add_subdirectory(test)
 

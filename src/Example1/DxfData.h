@@ -13,6 +13,7 @@ enum class EntityType {
     Arc,
     LWPolyline,
     Ellipse,
+    Spline,
 };
 
 // ---- DxfEntity (abstract base) ----
@@ -166,6 +167,50 @@ private:
     double m_constZ = 0.0;
 };
 
+// ---- DxfSpline ----
+// B-spline curve: control points, knots, weights, fit points.
+// flags bit 0=closed, bit 1=periodic, bit 2=rational.
+
+class DxfSpline : public DxfEntity {
+public:
+    DxfSpline();
+    DxfSpline(const std::vector<DxfPoint>& ctrlPts,
+              const std::vector<double>& knots,
+              const std::vector<double>& weights,
+              const std::vector<DxfPoint>& fitPts,
+              int degree, int flags,
+              double tgStartX, double tgStartY, double tgStartZ,
+              double tgEndX, double tgEndY, double tgEndZ);
+
+    const std::vector<DxfPoint>& controlPoints() const { return m_ctrlPts; }
+    const std::vector<double>&   knots()          const { return m_knots; }
+    const std::vector<double>&   weights()        const { return m_weights; }
+    const std::vector<DxfPoint>& fitPoints()       const { return m_fitPts; }
+    int    degree()      const { return m_degree; }
+    int    flags()        const { return m_flags; }
+    bool   isRational()  const { return (m_flags & 4) != 0; }
+    bool   isPeriodic()  const { return (m_flags & 2) != 0; }
+    bool   isClosed()    const { return (m_flags & 1) != 0; }
+    double tgStartX() const { return m_tgStartX; }
+    double tgStartY() const { return m_tgStartY; }
+    double tgStartZ() const { return m_tgStartZ; }
+    double tgEndX()   const { return m_tgEndX; }
+    double tgEndY()   const { return m_tgEndY; }
+    double tgEndZ()   const { return m_tgEndZ; }
+
+    bool isValid() const override;
+
+private:
+    std::vector<DxfPoint> m_ctrlPts;
+    std::vector<double>   m_knots;
+    std::vector<double>   m_weights;
+    std::vector<DxfPoint> m_fitPts;
+    int    m_degree    = 0;
+    int    m_flags     = 0;
+    double m_tgStartX  = 0.0, m_tgStartY  = 0.0, m_tgStartZ  = 0.0;
+    double m_tgEndX    = 0.0, m_tgEndY    = 0.0, m_tgEndZ    = 0.0;
+};
+
 // ---- DxfData (container) ----
 
 class DxfData {
@@ -179,6 +224,7 @@ public:
     void addArc(const DxfArc& arc);
     void addLWPolyline(const DxfLWPolyline& poly);
     void addEllipse(const DxfEllipse& ellipse);
+    void addSpline(const DxfSpline& spline);
     void clear();
 
     // --- accessors ---
@@ -188,11 +234,13 @@ public:
     const std::vector<DxfArc>&         arcs()         const { return m_arcs; }
     const std::vector<DxfLWPolyline>&  lwPolylines()  const { return m_lwPolylines; }
     const std::vector<DxfEllipse>&     ellipses()     const { return m_ellipses; }
+    const std::vector<DxfSpline>&      splines()      const { return m_splines; }
 
     int entityCount() const {
         return static_cast<int>(
             m_lines.size() + m_circles.size() +
-            m_arcs.size() + m_lwPolylines.size() + m_ellipses.size());
+            m_arcs.size() + m_lwPolylines.size() + m_ellipses.size() +
+            m_splines.size());
     }
 
     // --- error / validity ---
@@ -209,6 +257,7 @@ private:
     std::vector<DxfArc>         m_arcs;
     std::vector<DxfLWPolyline>  m_lwPolylines;
     std::vector<DxfEllipse>     m_ellipses;
+    std::vector<DxfSpline>      m_splines;
     QString m_errorMessage;
     bool m_isValid = false;
 };

@@ -198,6 +198,7 @@ void DxfData::clear()
     m_arcs.clear();
     m_lwPolylines.clear();
     m_ellipses.clear();
+    m_splines.clear();
     m_errorMessage.clear();
     m_isValid = false;
 }
@@ -230,4 +231,58 @@ void DxfData::addLWPolyline(const DxfLWPolyline& poly)
 void DxfData::addEllipse(const DxfEllipse& ellipse)
 {
     m_ellipses.push_back(ellipse);
+}
+
+void DxfData::addSpline(const DxfSpline& spline)
+{
+    m_splines.push_back(spline);
+}
+
+// ========================================================================
+//  DxfSpline
+// ========================================================================
+
+DxfSpline::DxfSpline()
+    : DxfEntity(EntityType::Spline)
+{
+}
+
+DxfSpline::DxfSpline(const std::vector<DxfPoint>& ctrlPts,
+                     const std::vector<double>& knots,
+                     const std::vector<double>& weights,
+                     const std::vector<DxfPoint>& fitPts,
+                     int degree, int flags,
+                     double tgStartX, double tgStartY, double tgStartZ,
+                     double tgEndX, double tgEndY, double tgEndZ)
+    : DxfEntity(EntityType::Spline)
+    , m_ctrlPts(ctrlPts)
+    , m_knots(knots)
+    , m_weights(weights)
+    , m_fitPts(fitPts)
+    , m_degree(degree)
+    , m_flags(flags)
+    , m_tgStartX(tgStartX), m_tgStartY(tgStartY), m_tgStartZ(tgStartZ)
+    , m_tgEndX(tgEndX), m_tgEndY(tgEndY), m_tgEndZ(tgEndZ)
+{
+}
+
+bool DxfSpline::isValid() const
+{
+    // Must have at least one data source
+    const bool hasCtrl = m_ctrlPts.size() >= static_cast<std::size_t>(m_degree + 1)
+                      && m_knots.size() >= static_cast<std::size_t>(m_ctrlPts.size() + m_degree + 1);
+    const bool hasFit = m_fitPts.size() >= 2;
+    if (!hasCtrl && !hasFit)
+        return false;
+
+    if (m_degree < 1)
+        return false;
+
+    // Validate tangents are finite
+    if (!std::isfinite(m_tgStartX) || !std::isfinite(m_tgStartY) || !std::isfinite(m_tgStartZ))
+        return false;
+    if (!std::isfinite(m_tgEndX) || !std::isfinite(m_tgEndY) || !std::isfinite(m_tgEndZ))
+        return false;
+
+    return true;
 }

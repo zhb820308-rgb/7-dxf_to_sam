@@ -1,7 +1,7 @@
 #ifndef GeometryUtils_h
 #define GeometryUtils_h
 
-#include "DxfData.h"  // for DxfPoint, DxfArc, DxfLWPolyline, DxfEllipse, DxfLine
+#include "DxfData.h"  // for DxfPoint, DxfArc, DxfLWPolyline, DxfEllipse, DxfLine, DxfSpline
 #include <vector>
 
 #ifndef M_PI
@@ -46,6 +46,15 @@ std::vector<DxfLine> tessellateLWPolyline(const DxfLWPolyline& poly,
 /// Discretize an elliptical arc into line segments via parametric sampling.
 std::vector<DxfLine> tessellateEllipse(const DxfEllipse& ellipse,
                                        double tolerance);
+
+/// Discretize a B-spline curve into line segments via OCCT.
+/// Uses chord-height adaptive sampling (GCPnts_TangentialDeflection)
+/// for smooth curve approximation.
+/// @param  spline    DXF spline data (control points or fit points)
+/// @param  tolerance discretization tolerance
+/// @return sampled line segments; empty on failure
+std::vector<DxfLine> tessellateSpline(const DxfSpline& spline,
+                                      double tolerance);
 
 }  // namespace GeometryUtils
 

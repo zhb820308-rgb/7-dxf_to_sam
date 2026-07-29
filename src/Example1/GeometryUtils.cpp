@@ -1,4 +1,20 @@
 #include "GeometryUtils.h"
+
+#include <Geom_BSplineCurve.hxx>
+#include <GeomAdaptor_Curve.hxx>
+#include <CPnts_AbscissaPoint.hxx>
+#include <GCPnts_TangentialDeflection.hxx>
+#include <GeomAPI_Interpolate.hxx>
+#include <TColgp_Array1OfPnt.hxx>
+#include <TColgp_HArray1OfPnt.hxx>
+#include <TColStd_Array1OfReal.hxx>
+#include <TColStd_HArray1OfReal.hxx>
+#include <TColStd_Array1OfInteger.hxx>
+#include <TColgp_Array1OfVec.hxx>
+#include <gp_Pnt.hxx>
+#include <gp_Vec.hxx>
+#include <Precision.hxx>
+
 #include <cmath>
 
 namespace GeometryUtils {
@@ -194,6 +210,247 @@ std::vector<DxfLine> tessellateEllipse(const DxfEllipse& ellipse,
         DxfPoint current = pointAt(t);
         result.push_back(DxfLine(previous, current));
         previous = current;
+    }
+
+    return result;
+}
+
+// ========================================================================
+//  Spline discretization (OCCT-based)
+// ========================================================================
+
+namespace {
+
+Handle(Geom_BSplineCurve) buildCurveFromControlData(const DxfSpline& spline)
+{
+    const int numCtrl = static_cast<int>(spline.controlPoints().size());
+    const int degree  = spline.degree();
+    const bool isRational = spline.isRational();
+    const std::vector<double>& knotsRaw = spline.knots();
+
+    // Condense unique knots and multiplicities
+    std::vector<double> uknots;
+    std::vector<int>    umults;
+    uknots.reserve(knotsRaw.size());
+    umults.reserve(knotsRaw.size());
+    for (std::size_t i = 0; i < knotsRaw.size(); ) {
+        const double val = knotsRaw[i];
+        int mult = 1;
+        while (i + mult < knotsRaw.size()
+               && std::abs(knotsRaw[i + mult] - val) <= 1.0e-12)
+            ++mult;
+        uknots.push_back(val);
+        umults.push_back(mult);
+        i += mult;
+    }
+
+    const int numUnique = static_cast<int>(uknots.size());
+    if (numUnique < 2)
+        return nullptr;
+
+    TColgp_Array1OfPnt        poles(1, numCtrl);
+    TColStd_Array1OfReal      wgts(1, numCtrl);
+    TColStd_Array1OfReal      knotsArr(1, numUnique);
+    TColStd_Array1OfInteger   multsArr(1, numUnique);
+
+    const auto& ctrlPts = spline.controlPoints();
+    const auto& weights = spline.weights();
+    for (int i = 0; i < numCtrl; ++i) {
+        const DxfPoint& pt = ctrlPts[i];
+        poles.SetValue(i + 1, gp_Pnt(pt.x(), pt.y(), pt.z()));
+        wgts.SetValue(i + 1, isRational ? weights[i] : 1.0);
+    }
+    for (int i = 0; i < numUnique; ++i) {
+        knotsArr.SetValue(i + 1, uknots[i]);
+        multsArr.SetValue(i + 1, umults[i]);
+    }
+
+    Handle(Geom_BSplineCurve) curve;
+    if (isRational) {
+        curve = new Geom_BSplineCurve(poles, wgts, knotsArr, multsArr,
+                                      degree, Standard_False);
+    } else {
+        curve = new Geom_BSplineCurve(poles, knotsArr, multsArr,
+                                      degree, Standard_False);
+    }
+
+    if (spline.isPeriodic() && curve->IsClosed()) {
+        try {
+            curve->SetPeriodic();
+        } catch (const Standard_Failure&) {
+            // Periodic conversion failed; keep non-periodic curve
+        }
+    }
+
+    return curve;
+}
+
+Handle(Geom_BSplineCurve) buildCurveFromFitPoints(const DxfSpline& spline)
+{
+    const int nfit = static_cast<int>(spline.fitPoints().size());
+    const auto& fitPts = spline.fitPoints();
+    const bool isPeriodic = spline.isPeriodic();
+
+    std::vector<gp_Pnt> uniquePts;
+    uniquePts.reserve(nfit);
+    const double tolFit = 1.0e-7;
+
+    for (int i = 0; i < nfit; ++i) {
+        const DxfPoint& sp = fitPts[i];
+        if (!sp.isValid()) continue;
+        gp_Pnt pt(sp.x(), sp.y(), sp.z());
+        if (!uniquePts.empty()) {
+            const gp_Pnt& prev = uniquePts.back();
+            if (pt.Distance(prev) <= tolFit) continue;
+        }
+        uniquePts.push_back(pt);
+    }
+
+    const int actualCount = static_cast<int>(uniquePts.size());
+    if (actualCount < 2) return nullptr;
+
+    if (isPeriodic && actualCount >= 2) {
+        if (uniquePts.back().Distance(uniquePts.front()) <= tolFit)
+            uniquePts.pop_back();
+    }
+
+    const int finalCount = static_cast<int>(uniquePts.size());
+    if (finalCount < 2) return nullptr;
+
+    try {
+        Handle(TColgp_HArray1OfPnt) points =
+            new TColgp_HArray1OfPnt(1, finalCount);
+        for (int i = 0; i < finalCount; ++i)
+            points->SetValue(i + 1, uniquePts[i]);
+
+        GeomAPI_Interpolate interpolator(
+            points,
+            isPeriodic ? Standard_True : Standard_False,
+            tolFit);
+
+        if (!isPeriodic) {
+            const gp_Vec tgStart(spline.tgStartX(), spline.tgStartY(), spline.tgStartZ());
+            const gp_Vec tgEnd(spline.tgEndX(), spline.tgEndY(), spline.tgEndZ());
+            if (tgStart.Magnitude() > Precision::Confusion()
+                && tgEnd.Magnitude() > Precision::Confusion()) {
+                interpolator.Load(tgStart, tgEnd);
+            }
+        }
+
+        interpolator.Perform();
+        if (!interpolator.IsDone()) return nullptr;
+        return interpolator.Curve();
+
+    } catch (const Standard_Failure&) {
+        return nullptr;
+    } catch (const std::exception&) {
+        return nullptr;
+    }
+    return nullptr;
+}
+
+bool discretizeByDeflection(
+    const Handle(Geom_BSplineCurve)& curve,
+    std::vector<DxfPoint>& sampledPoints)
+{
+    constexpr double linearDeflection  = 0.01;
+    constexpr double angularDeflection = 0.10;
+    constexpr int    minimumPoints = 2;
+
+    try {
+        GeomAdaptor_Curve adaptor(curve);
+        GCPnts_TangentialDeflection discretizer(
+            adaptor,
+            curve->FirstParameter(),
+            curve->LastParameter(),
+            angularDeflection,
+            linearDeflection,
+            minimumPoints,
+            1.0e-9,
+            1.0e-7);
+
+        const Standard_Integer nbPoints = discretizer.NbPoints();
+        if (nbPoints < 2) return false;
+
+        sampledPoints.reserve(static_cast<std::size_t>(nbPoints));
+        for (Standard_Integer i = 1; i <= nbPoints; ++i) {
+            const gp_Pnt p = discretizer.Value(i);
+            sampledPoints.push_back(DxfPoint(p.X(), p.Y(), p.Z()));
+        }
+        return true;
+    } catch (const Standard_Failure&) {
+        return false;
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+
+}  // namespace (anonymous)
+
+std::vector<DxfLine> tessellateSpline(const DxfSpline& spline, double /*tolerance*/)
+{
+    std::vector<DxfLine> result;
+
+    Handle(Geom_BSplineCurve) curve;
+
+    const bool hasControlData =
+        static_cast<int>(spline.controlPoints().size()) > spline.degree()
+        && static_cast<int>(spline.knots().size()) >=
+           static_cast<int>(spline.controlPoints().size()) + spline.degree() + 1;
+    const bool hasFitData = spline.fitPoints().size() >= 2;
+
+    if (hasControlData) {
+        curve = buildCurveFromControlData(spline);
+    } else if (hasFitData) {
+        curve = buildCurveFromFitPoints(spline);
+    } else {
+        return result;
+    }
+
+    if (!curve) return result;
+
+    // Verify curve length
+    try {
+        GeomAdaptor_Curve adaptor(curve);
+        const double totalLength = CPnts_AbscissaPoint::Length(adaptor);
+        if (!std::isfinite(totalLength) || totalLength <= Precision::Confusion())
+            return result;
+    } catch (...) {
+        return result;
+    }
+
+    // Chord-height adaptive discretization
+    std::vector<DxfPoint> sampledPoints;
+    if (!discretizeByDeflection(curve, sampledPoints))
+        return result;
+
+    if (sampledPoints.size() < 2)
+        return result;
+
+    // Closure: snap endpoints
+    if (sampledPoints.size() >= 2) {
+        const DxfPoint& first = sampledPoints.front();
+        const DxfPoint& last  = sampledPoints.back();
+        const double dx = last.x() - first.x();
+        const double dy = last.y() - first.y();
+        const double dz = last.z() - first.z();
+        const double gap = std::sqrt(dx * dx + dy * dy + dz * dz);
+
+        if (gap <= 1.0e-7) {
+            sampledPoints.back() = first;
+        }
+    }
+
+    // Convert to line segments
+    for (std::size_t i = 1; i < sampledPoints.size(); ++i) {
+        const DxfPoint& p0 = sampledPoints[i - 1];
+        const DxfPoint& p1 = sampledPoints[i];
+        const double dx = p1.x() - p0.x();
+        const double dy = p1.y() - p0.y();
+        const double dz = p1.z() - p0.z();
+        if (dx * dx + dy * dy + dz * dz <= 1.0e-20)
+            continue;
+        result.push_back(DxfLine(p0, p1));
     }
 
     return result;

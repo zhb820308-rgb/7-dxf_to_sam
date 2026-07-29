@@ -71,6 +71,12 @@ bool ConversionEngine::convert(const DxfData& dxfData,
         addSegments(GeometryUtils::tessellateEllipse(ellipse, tolerance));
     }
 
+    // --- splines (OCCT B-spline 构建 + 离散化 + 平移) ---
+    for (const DxfSpline& spline : dxfData.splines()) {
+        if (!spline.isValid()) continue;
+        addSegments(GeometryUtils::tessellateSpline(spline, tolerance));
+    }
+
     bool ok = !outData.points().empty() ||
               !outData.lines().empty()  ||
               !outData.circles().empty();

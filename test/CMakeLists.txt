@@ -23,6 +23,23 @@ set(TESTABLE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/Example1/ConversionEngine.cpp
 )
 
+# ---- Common test dependencies ----
+link_directories(${SAM_OCCT_LIB_DIR})
+set(TEST_COMMON_INCLUDE_DIRS
+    ${CMAKE_SOURCE_DIR}/src/Example1
+    ${SAM_OCCT_INCLUDE_DIR}
+)
+set(TEST_COMMON_LIBS
+    GTest::gtest_main
+    Qt5::Core
+    TKernel
+    TKMath
+    TKG2d
+    TKG3d
+    TKGeomBase
+    TKGeomAlgo
+)
+
 # ---- Test executables ----
 
 # Test 1: GeometryUtils (pure math)
@@ -30,13 +47,8 @@ add_executable(test_geometry_utils
     test_geometry_utils.cpp
     ${TESTABLE_SOURCES}
 )
-target_include_directories(test_geometry_utils PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/Example1
-)
-target_link_libraries(test_geometry_utils PRIVATE
-    GTest::gtest_main
-    Qt5::Core
-)
+target_include_directories(test_geometry_utils PRIVATE ${TEST_COMMON_INCLUDE_DIRS})
+target_link_libraries(test_geometry_utils PRIVATE ${TEST_COMMON_LIBS})
 add_test(NAME GeometryUtils COMMAND test_geometry_utils)
 
 # Test 2: DxfData (entity validation)
@@ -44,13 +56,8 @@ add_executable(test_dxf_data
     test_dxf_data.cpp
     ${TESTABLE_SOURCES}
 )
-target_include_directories(test_dxf_data PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/Example1
-)
-target_link_libraries(test_dxf_data PRIVATE
-    GTest::gtest_main
-    Qt5::Core
-)
+target_include_directories(test_dxf_data PRIVATE ${TEST_COMMON_INCLUDE_DIRS})
+target_link_libraries(test_dxf_data PRIVATE ${TEST_COMMON_LIBS})
 add_test(NAME DxfData COMMAND test_dxf_data)
 
 # Test 3: ConversionEngine (tessellation)
@@ -58,13 +65,8 @@ add_executable(test_conversion_engine
     test_conversion_engine.cpp
     ${TESTABLE_SOURCES}
 )
-target_include_directories(test_conversion_engine PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/Example1
-)
-target_link_libraries(test_conversion_engine PRIVATE
-    GTest::gtest_main
-    Qt5::Core
-)
+target_include_directories(test_conversion_engine PRIVATE ${TEST_COMMON_INCLUDE_DIRS})
+target_link_libraries(test_conversion_engine PRIVATE ${TEST_COMMON_LIBS})
 add_test(NAME ConversionEngine COMMAND test_conversion_engine)
 
 # Test 4: ConversionEngine::convert() integration
@@ -72,13 +74,8 @@ add_executable(test_convert
     test_convert.cpp
     ${TESTABLE_SOURCES}
 )
-target_include_directories(test_convert PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/Example1
-)
-target_link_libraries(test_convert PRIVATE
-    GTest::gtest_main
-    Qt5::Core
-)
+target_include_directories(test_convert PRIVATE ${TEST_COMMON_INCLUDE_DIRS})
+target_link_libraries(test_convert PRIVATE ${TEST_COMMON_LIBS})
 add_test(NAME Convert COMMAND test_convert)
 
 # Test 5: DxfParser integration (needs dxfrw.lib + real DXF files)
@@ -90,10 +87,10 @@ add_executable(test_parser
 target_include_directories(test_parser PRIVATE
     ${CMAKE_SOURCE_DIR}/src/Example1
     ${LIBDXFRW_INCLUDE_DIR}
+    ${SAM_OCCT_INCLUDE_DIR}
 )
 target_link_libraries(test_parser PRIVATE
-    GTest::gtest_main
-    Qt5::Core
+    ${TEST_COMMON_LIBS}
     "${LIBDXFRW_LIBRARY}"
 )
 add_test(NAME Parser COMMAND test_parser)

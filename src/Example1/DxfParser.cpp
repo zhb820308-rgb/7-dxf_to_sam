@@ -1,370 +1,10 @@
 #include "DxfParser.h"
-#include "DebugLog.h"
-
-#include <Geom_BSplineCurve.hxx>
-#include <GeomAdaptor_Curve.hxx>
-#include <CPnts_AbscissaPoint.hxx>
-#include <GCPnts_TangentialDeflection.hxx>
-#include <GeomAPI_Interpolate.hxx>
-#include <TColgp_Array1OfPnt.hxx>
-#include <TColgp_HArray1OfPnt.hxx>
-#include <TColStd_Array1OfReal.hxx>
-#include <TColStd_HArray1OfReal.hxx>
-#include <TColStd_Array1OfInteger.hxx>
-#include <TColgp_Array1OfVec.hxx>
-#include <gp_Pnt.hxx>
-#include <gp_Vec.hxx>
-#include <Precision.hxx>
 
 #include "libdxfrw.h"
 #include <QDebug>
-#include <algorithm>
 #include <cmath>
-#include <limits>
-#include <vector>
 
 namespace {
-
-// ========================================================================
-//  Spline discretization helpers (OCCT-based)
-// ========================================================================
-
-// -----------------------------------------------------------------
-//  Lightweight 3D point used as internal interchange between
-//  OCCT discretization and the rest of the pipeline.
-// -----------------------------------------------------------------
-struct SplinePoint3
-{
-	double x = 0.0;
-	double y = 0.0;
-	double z = 0.0;
-};
-
-// -----------------------------------------------------------------
-//  Chord-height adaptive discretization
-// -----------------------------------------------------------------
-bool discretizeByDeflection(
-	const Handle(Geom_BSplineCurve)& curve,
-	std::vector<SplinePoint3>& sampledPoints,
-	QDebug& log)
-{
-	constexpr double linearDeflection  = 0.01;
-	constexpr double angularDeflection = 0.10; // radians, ~5.7 degrees
-	constexpr int    minimumPoints = 2;
-
-	try {
-		GeomAdaptor_Curve adaptor(curve);
-
-		GCPnts_TangentialDeflection discretizer(
-			adaptor,
-			curve->FirstParameter(),
-			curve->LastParameter(),
-			angularDeflection,
-			linearDeflection,
-			minimumPoints,
-			1.0e-9,
-			1.0e-7);
-
-		const Standard_Integer nbPoints = discretizer.NbPoints();
-		if (nbPoints < 2) {
-			log << "[Spline/Deflection] ERROR: too few points:"
-			    << nbPoints;
-			return false;
-		}
-
-		sampledPoints.reserve(static_cast<std::size_t>(nbPoints));
-		for (Standard_Integer i = 1; i <= nbPoints; ++i) {
-			const gp_Pnt p = discretizer.Value(i);
-			sampledPoints.push_back({p.X(), p.Y(), p.Z()});
-		}
-
-		log << "[Spline/Deflection] linear=" << linearDeflection
-		    << "angular=" << angularDeflection
-		    << "points=" << nbPoints;
-
-		return true;
-	} catch (const Standard_Failure& e) {
-		log << "[Spline/Deflection] Standard_Failure:"
-		    << e.GetMessageString();
-		return false;
-	} catch (const std::exception& e) {
-		log << "[Spline/Deflection] std::exception:" << e.what();
-		return false;
-	} catch (...) {
-		log << "[Spline/Deflection] unknown exception";
-		return false;
-	}
-}
-
-// -----------------------------------------------------------------
-//  Build OCCT B-spline from control points, knots, and weights
-// -----------------------------------------------------------------
-Handle(Geom_BSplineCurve) buildCurveFromControlData(
-	const DRW_Spline* data,
-	QDebug& log)
-{
-	const int numCtrl = data->ncontrol;
-	const int degree   = data->degree;
-	const bool isRational = (data->flags & 4) != 0;
-	const std::vector<double>& knotsRaw = data->knotslist;
-
-	// Condense unique knots and multiplicities
-	std::vector<double> uknots;
-	std::vector<int>    umults;
-	uknots.reserve(knotsRaw.size());
-	umults.reserve(knotsRaw.size());
-	for (std::size_t i = 0; i < knotsRaw.size(); ) {
-		const double val = knotsRaw[i];
-		int mult = 1;
-		while (i + mult < knotsRaw.size()
-		       && std::abs(knotsRaw[i + mult] - val) <= 1.0e-12)
-			++mult;
-		uknots.push_back(val);
-		umults.push_back(mult);
-		i += mult;
-	}
-
-	const int numUnique = static_cast<int>(uknots.size());
-	if (numUnique < 2) {
-		log << "[Spline/Ctrl] ERROR: too few unique knots";
-		return nullptr;
-	}
-
-	// Fill OCCT 1-based arrays
-	TColgp_Array1OfPnt        poles(1, numCtrl);
-	TColStd_Array1OfReal      wgts(1, numCtrl);
-	TColStd_Array1OfReal      knotsArr(1, numUnique);
-	TColStd_Array1OfInteger   multsArr(1, numUnique);
-
-	for (int i = 0; i < numCtrl; ++i) {
-		const DRW_Coord& pt = *(data->controllist[i]);
-		poles.SetValue(i + 1, gp_Pnt(pt.x, pt.y, pt.z));
-		wgts.SetValue(i + 1, isRational ? data->weightlist[i] : 1.0);
-	}
-	for (int i = 0; i < numUnique; ++i) {
-		knotsArr.SetValue(i + 1, uknots[i]);
-		multsArr.SetValue(i + 1, umults[i]);
-	}
-
-	Handle(Geom_BSplineCurve) curve;
-	if (isRational) {
-		curve = new Geom_BSplineCurve(poles, wgts, knotsArr, multsArr,
-		                              degree, Standard_False);
-	} else {
-		curve = new Geom_BSplineCurve(poles, knotsArr, multsArr,
-		                              degree, Standard_False);
-	}
-
-	// Periodic conversion
-	const bool dxfPeriodic = (data->flags & 2) != 0;
-	if (dxfPeriodic) {
-		if (!curve->IsClosed()) {
-			log << "[Spline/Ctrl] WARNING: DXF periodic but curve not closed;"
-			    << " cannot set periodic";
-		} else {
-			log << "[Spline/Ctrl] attempting SetPeriodic...";
-			try {
-				curve->SetPeriodic();
-				if (curve->IsPeriodic()) {
-					log << "[Spline/Ctrl] SetPeriodic OK";
-				} else {
-					log << "[Spline/Ctrl] WARNING: SetPeriodic returned but IsPeriodic false";
-				}
-			} catch (const Standard_Failure& e) {
-				log << "[Spline/Ctrl] SetPeriodic failed:"
-				    << e.GetMessageString();
-			} catch (...) {
-				log << "[Spline/Ctrl] SetPeriodic failed (unknown)";
-			}
-		}
-	}
-
-	return curve;
-}
-
-// -----------------------------------------------------------------
-//  Build OCCT B-spline by interpolating fit points
-// -----------------------------------------------------------------
-Handle(Geom_BSplineCurve) buildCurveFromFitPoints(
-	const DRW_Spline* data,
-	QDebug& log)
-{
-	const bool isPeriodic = (data->flags & 2) != 0;
-	const int nfit        = data->nfit;
-
-	// Filter duplicate consecutive fit points
-	std::vector<gp_Pnt> uniquePts;
-	uniquePts.reserve(nfit);
-	const double tolFit = std::max(Precision::Confusion(),
-		std::isfinite(data->tolfit) && data->tolfit > 0.0
-		? data->tolfit : 1.0e-7);
-
-	for (int i = 0; i < nfit; ++i) {
-		const auto& sp = data->fitlist[i];
-		if (!sp || !std::isfinite(sp->x)
-		    || !std::isfinite(sp->y) || !std::isfinite(sp->z))
-			continue;
-		gp_Pnt pt(sp->x, sp->y, sp->z);
-		if (!uniquePts.empty()) {
-			const gp_Pnt& prev = uniquePts.back();
-			if (pt.Distance(prev) <= tolFit)
-				continue;
-		}
-		uniquePts.push_back(pt);
-	}
-
-	const int actualCount = static_cast<int>(uniquePts.size());
-	if (actualCount < 2) {
-		log << "[Spline/Fit] ERROR: too few unique fit points:"
-		    << actualCount;
-		return nullptr;
-	}
-
-	if (isPeriodic && actualCount >= 2) {
-		const gp_Pnt& first = uniquePts.front();
-		const gp_Pnt& last  = uniquePts.back();
-		if (last.Distance(first) <= tolFit) {
-			uniquePts.pop_back();
-			log << "[Spline/Fit] removed duplicate end fit point for periodic curve";
-		}
-	}
-
-	const int finalCount = static_cast<int>(uniquePts.size());
-	if (finalCount < 2) {
-		log << "[Spline/Fit] ERROR: after dedup too few points:"
-		    << finalCount;
-		return nullptr;
-	}
-
-	try {
-		Handle(TColgp_HArray1OfPnt) points =
-			new TColgp_HArray1OfPnt(1, finalCount);
-		for (int i = 0; i < finalCount; ++i)
-			points->SetValue(i + 1, uniquePts[i]);
-
-		GeomAPI_Interpolate interpolator(
-			points,
-			isPeriodic ? Standard_True : Standard_False,
-			tolFit);
-
-		if (!isPeriodic) {
-			const gp_Vec tgStart(data->tgStart.x,
-			                     data->tgStart.y,
-			                     data->tgStart.z);
-			const gp_Vec tgEnd(data->tgEnd.x,
-			                   data->tgEnd.y,
-			                   data->tgEnd.z);
-			const double magStart = tgStart.Magnitude();
-			const double magEnd   = tgEnd.Magnitude();
-			if (magStart > Precision::Confusion()
-			    && magEnd > Precision::Confusion()) {
-				interpolator.Load(tgStart, tgEnd);
-				log << "[Spline/Fit] loaded start/end tangents";
-			}
-		}
-
-		interpolator.Perform();
-		if (!interpolator.IsDone()) {
-			log << "[Spline/Fit] ERROR: interpolation failed";
-			return nullptr;
-		}
-
-		Handle(Geom_BSplineCurve) curve = interpolator.Curve();
-		log << "[Spline/Fit] interpolation OK"
-		    << "degree=" << curve->Degree()
-		    << "periodic=" << curve->IsPeriodic();
-		return curve;
-
-	} catch (const Standard_Failure& e) {
-		log << "[Spline/Fit] Standard_Failure:"
-		    << e.GetMessageString();
-	} catch (const std::exception& e) {
-		log << "[Spline/Fit] std::exception:" << e.what();
-	} catch (...) {
-		log << "[Spline/Fit] unknown exception";
-	}
-	return nullptr;
-}
-
-// -----------------------------------------------------------------
-//  Unified B-spline construction + discretization
-// -----------------------------------------------------------------
-bool buildSplineOCCT(
-	const DRW_Spline* data,
-	std::vector<SplinePoint3>& sampledPoints,
-	QDebug& log)
-{
-	Handle(Geom_BSplineCurve) curve;
-
-	const bool hasControlData =
-		data->ncontrol > data->degree
-		&& static_cast<int>(data->controllist.size()) >= data->ncontrol;
-	const bool hasFitData =
-		data->nfit >= 2
-		&& static_cast<int>(data->fitlist.size()) >= data->nfit;
-
-	if (hasControlData) {
-		curve = buildCurveFromControlData(data, log);
-		if (!curve) return false;
-	} else if (hasFitData) {
-		curve = buildCurveFromFitPoints(data, log);
-		if (!curve) return false;
-	} else {
-		log << "[Spline/OCCT] ERROR: no valid control or fit data";
-		return false;
-	}
-
-	// Verify curve length
-	try {
-		GeomAdaptor_Curve adaptor(curve);
-		const double totalLength = CPnts_AbscissaPoint::Length(adaptor);
-		if (!std::isfinite(totalLength) || totalLength <= Precision::Confusion()) {
-			log << "[Spline/OCCT] ERROR: zero or NaN curve length";
-			return false;
-		}
-	} catch (...) {
-		log << "[Spline/OCCT] ERROR: failed to compute curve length";
-		return false;
-	}
-
-	// Chord-height adaptive discretization
-	if (!discretizeByDeflection(curve, sampledPoints, log))
-		return false;
-
-	// Closure verification and endpoint snapping
-	const bool dxfClosed   = (data->flags & 1) != 0;
-	const bool dxfPeriodic = (data->flags & 2) != 0;
-	const bool occtPeriodic = curve->IsPeriodic();
-
-	const double closureTolerance =
-		std::max(Precision::Confusion(), 1.0e-7);
-
-	if (sampledPoints.size() >= 2) {
-		const SplinePoint3& first = sampledPoints.front();
-		const SplinePoint3& last  = sampledPoints.back();
-		const double dx = last.x - first.x;
-		const double dy = last.y - first.y;
-		const double dz = last.z - first.z;
-		const double gap = std::sqrt(dx * dx + dy * dy + dz * dz);
-
-		log << "[Spline/OCCT] closure:"
-		    << "dxfClosed=" << dxfClosed
-		    << "dxfPeriodic=" << dxfPeriodic
-		    << "occtClosed=" << curve->IsClosed()
-		    << "occtPeriodic=" << occtPeriodic
-		    << "gap=" << gap;
-
-		if (gap <= closureTolerance) {
-			sampledPoints.back() = first;
-		} else if (!occtPeriodic && (dxfClosed || dxfPeriodic)) {
-			log << "[Spline/OCCT] WARNING:"
-			    << "spline marked closed but endpoint gap is"
-			    << gap << "; keeping open";
-		}
-	}
-
-	return true;
-}
 
 // ========================================================================
 //  DxfReader — DRW_Interface implementation (internal, only used here)
@@ -533,7 +173,6 @@ void DxfReader::addSpline(const DRW_Spline* data)
 	const bool isPeriodic = (data->flags & 2) != 0;
 	const bool isClosed   = (data->flags & 1) != 0;
 
-	// Determine data source
 	const bool hasControlData =
 		data->ncontrol > 0
 		&& static_cast<int>(data->controllist.size()) >= data->ncontrol
@@ -566,7 +205,7 @@ void DxfReader::addSpline(const DRW_Spline* data)
 	         << "isPeriodic=" << isPeriodic
 	         << "isClosed=" << isClosed;
 
-	// Validate control data if that path will be taken
+	// --- Validate control data ---
 	if (hasControlData) {
 		const int numCtrl = data->ncontrol;
 		const int degree  = data->degree;
@@ -608,37 +247,40 @@ void DxfReader::addSpline(const DRW_Spline* data)
 		}
 	}
 
-	// --- OCCT curve construction and discretization ---
-	std::vector<SplinePoint3> sampledPoints;
-	if (!buildSplineOCCT(data, sampledPoints, qDebug())) {
-		qDebug() << "[Spline] ERROR: OCCT construction or discretization failed, skipping spline";
-		return;
-	}
-	if (sampledPoints.size() < 2) {
-		qDebug() << "[Spline] ERROR: too few sampled points (" << sampledPoints.size() << "), skipping spline";
-		return;
+	// --- Copy control points ---
+	std::vector<DxfPoint> ctrlPts;
+	for (int i = 0; i < data->ncontrol; ++i) {
+		const DRW_Coord& pt = *(data->controllist[i]);
+		ctrlPts.push_back(DxfPoint(pt.x, pt.y, pt.z));
 	}
 
-	qDebug() << "[Spline] OCCT discretization OK:"
-	         << "points=" << sampledPoints.size();
+	// --- Copy knots ---
+	std::vector<double> knots = data->knotslist;
 
-	// --- convert sampled points to line segments ---
-	std::size_t addedSegments = 0;
-	for (std::size_t i = 1; i < sampledPoints.size(); ++i) {
-		const SplinePoint3& previous = sampledPoints[i - 1];
-		const SplinePoint3& current = sampledPoints[i];
-		const double dx = current.x - previous.x;
-		const double dy = current.y - previous.y;
-		const double dz = current.z - previous.z;
-		if (dx * dx + dy * dy + dz * dz <= 1.0e-20)
-			continue;
-		m_data.addLine(DxfLine(
-			DxfPoint(previous.x, previous.y, previous.z),
-			DxfPoint(current.x, current.y, current.z)));
-		++addedSegments;
+	// --- Copy weights ---
+	std::vector<double> weights;
+	if (isRational) {
+		for (int i = 0; i < data->ncontrol; ++i)
+			weights.push_back(data->weightlist[i]);
 	}
 
-	qDebug() << "[Spline] total segments added:" << addedSegments;
+	// --- Copy fit points ---
+	std::vector<DxfPoint> fitPts;
+	for (int i = 0; i < data->nfit; ++i) {
+		const auto& sp = data->fitlist[i];
+		if (sp && std::isfinite(sp->x) && std::isfinite(sp->y) && std::isfinite(sp->z))
+			fitPts.push_back(DxfPoint(sp->x, sp->y, sp->z));
+	}
+
+	// --- Copy tangents ---
+	double tgStartX = data->tgStart.x, tgStartY = data->tgStart.y, tgStartZ = data->tgStart.z;
+	double tgEndX   = data->tgEnd.x,   tgEndY   = data->tgEnd.y,   tgEndZ   = data->tgEnd.z;
+
+	// --- Store raw data (discretization deferred to ConversionEngine) ---
+	m_data.addSpline(DxfSpline(ctrlPts, knots, weights, fitPts,
+	                            data->degree, data->flags,
+	                            tgStartX, tgStartY, tgStartZ,
+	                            tgEndX, tgEndY, tgEndZ));
 }
 
 }  // namespace
@@ -669,7 +311,8 @@ bool DxfParser::parseFile(const QString& filePath, DxfData& outData) {
 	         << "circles=" << outData.circles().size()
 	         << "arcs=" << outData.arcs().size()
 	         << "lwPolylines=" << outData.lwPolylines().size()
-	         << "ellipses=" << outData.ellipses().size();
+	         << "ellipses=" << outData.ellipses().size()
+	         << "splines=" << outData.splines().size();
 
 	// 检查是否至少有一个实体
 	const int total = outData.entityCount();
