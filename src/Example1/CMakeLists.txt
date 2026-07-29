@@ -127,11 +127,15 @@ target_link_libraries(Example1
     textReprInternal
     libtcmalloc_minimal
     "${LIBDXFRW_LIBRARY}"
+    spdlog::spdlog
 )
 
-# Copy dxfrw.dll to output directory after build
+# Copy third-party runtime DLLs beside Example1.pyd after build.
 add_custom_command(TARGET Example1 POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${LIBDXFRW_RUNTIME}"
+        "$<TARGET_FILE_DIR:Example1>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:spdlog::spdlog>"
         "$<TARGET_FILE_DIR:Example1>"
 )
