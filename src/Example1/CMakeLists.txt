@@ -12,17 +12,17 @@ include_directories(
     ${LIBS_SAMSDK_ROOT}/include
     ${LIBS_SAMSDK_ROOT}/include/guiProject
     ${LIBDXFRW_INCLUDE_DIR}
-    
+    ${SAM_OCCT_INCLUDE_DIR}
 )
   
 link_directories(
     ${LIBS_QT5_ROOT}/lib
     ${LIBS_PYTHON_ROOT}/libs
     ${LIBS_OC_ROOT}/lib
-	${LIBS_SAMSDK_ROOT}/libs
-	${PROJECT_SOURCE_DIR}/lib
-    ${LIBS_TCMALLOC_ROOT}
+    ${LIBS_SAMSDK_ROOT}/libs
+    ${PROJECT_SOURCE_DIR}/lib
     ${CMAKE_ARCHIVE_OUTPUT_DIRECTORY}
+    ${SAM_OCCT_LIB_DIR}
 )
 
 # source list
@@ -57,7 +57,12 @@ set_property(TARGET Example1
     PROPERTY COMPILE_DEFINITIONS _CRT_SECURE_NO_WARNINGS _CRT_NON_CONFORMING_SWPRINTFS
 )
 
-set_target_properties(Example1 PROPERTIES LINK_FLAGS /INCLUDE:"__tcmalloc")
+set_target_properties(Example1 PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+)
+
+# set_target_properties(Example1 PROPERTIES LINK_FLAGS /INCLUDE:"__tcmalloc")  # 暂时禁用 tcmalloc
 
 
 
@@ -74,7 +79,7 @@ target_link_libraries(Example1
     Qt5Core
     Qt5Gui
     Qt5Widgets
-	OrientBasicContainers
+    OrientBasicContainers
     OrientBasicUtilities
     OrientBasicCoreUtilities
     OrientBasicPrimtives
@@ -127,9 +132,14 @@ target_link_libraries(Example1
     AutoSet
     customKernel
     textReprInternal
-    libtcmalloc_minimal
     "${LIBDXFRW_LIBRARY}"
     spdlog::spdlog
+    TKernel
+    TKMath
+    TKG2d
+    TKG3d
+    TKGeomBase
+    TKGeomAlgo
 )
 
 # Copy third-party runtime DLLs beside Example1.pyd after build.

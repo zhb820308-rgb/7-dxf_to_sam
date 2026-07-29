@@ -1,6 +1,7 @@
 # 编译产物
 bin/
 build/
+build_new/
 lib/
 
 # Visual Studio
