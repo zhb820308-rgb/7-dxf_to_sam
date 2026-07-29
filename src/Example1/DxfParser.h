@@ -32,7 +32,7 @@ public:
     void addEllipse(const DRW_Ellipse& data) override;
     void addLWPolyline(const DRW_LWPolyline& data) override;
     void addPolyline(const DRW_Polyline& data) override {}
-    void addSpline(const DRW_Spline* data) override {}
+    void addSpline(const DRW_Spline* data) override;
     void addKnot(const DRW_Entity& data) override {}
     void addInsert(const DRW_Insert& data) override {}
     void addTrace(const DRW_Trace& data) override {}
