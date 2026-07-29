@@ -1,5 +1,5 @@
 #pragma once
-#ifndef DxfParser_h//解析dxf的类
+#ifndef DxfParser_h  // DXF file parser class
 #define DxfParser_h
 
 #include "DxfData.h"
@@ -10,11 +10,11 @@ class DxfReader : public DRW_Interface {
 public:
     DxfData m_data;
 
-    // 先用这些
+    // Implemented entity callbacks
     void addLine(const DRW_Line& data) override;
     void addCircle(const DRW_Circle& data) override;
 
-    // 以下全部空实现
+    // Stub callbacks (no-op) — arc/ellipse/polyline implemented below
     void addHeader(const DRW_Header* data) override {}
     void addLType(const DRW_LType& data) override {}
     void addLayer(const DRW_Layer& data) override {}

@@ -1,6 +1,8 @@
 #include <kefKLine.h>
 #include <kefKSymbolFactory.h>
 
+#include <QColor>
+
 #include <sesKSessionState.h>
 
 
@@ -129,13 +131,18 @@ void kefKLine::addObject(const cowList<cowList<g3dVector>>& vertexXYZ, const cow
 	
 }
 
-void kefKLine::createOneObject(int & SegID, const cowList<g3dVector>& vertexXYZ, const QString & color)
+int kefKLine::findObject(int segID) const
 {
-	int objectIndex = -1;
-	if (!_segID.IsEmpty())
-		objectIndex = _segID.FindMember(SegID);
-	
-	// modify a object
+	if (_segID.IsEmpty())
+		return -1;
+	return _segID.FindMember(segID);
+}
+
+void kefKLine::createOneObject(int & segID, const cowList<g3dVector>& vertexXYZ, const QString & color)
+{
+	const int objectIndex = findObject(segID);
+
+	// modify existing object
 	if (objectIndex >= 0)
 	{
 		_geomVertexXYZs.Get(objectIndex) = vertexXYZ;
@@ -146,23 +153,20 @@ void kefKLine::createOneObject(int & SegID, const cowList<g3dVector>& vertexXYZ,
 	{
 		_geomVertexXYZs.Append(vertexXYZ);
 		_colors.Append(color);
-		SegID = _maxSegID++;
-		_segID.Append(SegID);
+		segID = _maxSegID++;
+		_segID.Append(segID);
 	}
-	
 }
 
-void kefKLine::deleteOneObject(const int & SegID)
+void kefKLine::deleteOneObject(const int & segID)
 {
-	int objectIndex = -1;
-	objectIndex = _segID.FindMember(SegID);
+	const int objectIndex = findObject(segID);
 	if (objectIndex < 0)
 		return;
 
 	_geomVertexXYZs.RemoveIndex(objectIndex);
 	_colors.RemoveIndex(objectIndex);
 	_segID.RemoveIndex(objectIndex);
-	
 }
 
 
@@ -177,13 +181,19 @@ void kefKLine::Draw(gdrRenderer& drafter, bool paintMode) const
 	drafter.DepthTest(false);
 
 	g3dPoint pnt;
-	g3dColor sColor(1.0, 0.0, 0, 1.0);
-	g3dVector normal(1.0f, 0.0f, 1.0f);
-	drafter.Color(sColor);
+	g3dVector normal(0.0f, 0.0f, 1.0f);
 	drafter.Normal(normal);
 
 	for (int i = 0; i < _geomVertexXYZs.Length(); i++)
 	{
+		// 使用当前段存储的颜色
+		if (i < _colors.Length()) {
+			QColor qc(_colors[i]);
+			drafter.Color(g3dColor(qc.redF(), qc.greenF(), qc.blueF(), 1.0f));
+		} else {
+			drafter.Color(g3dColor(1.0, 0.0, 0.0, 1.0));
+		}
+
 		if (_geomVertexXYZs[i].Length() == 1)
 			drafter.Begin(g3d_Points);
 		else if (_geomVertexXYZs[i].Length() == 2)

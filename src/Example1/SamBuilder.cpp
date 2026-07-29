@@ -58,7 +58,10 @@ void SamBuilder::extendBounds(double x, double y) {
 
 SamBuilder::SamBuilder() {}
 
-SamBuilder::~SamBuilder() {}
+SamBuilder::~SamBuilder() {
+    delete m_factory;
+    m_factory = nullptr;
+}
 
 // ========================================================================
 //  beginImport
@@ -76,6 +79,7 @@ bool SamBuilder::beginImport(const QString& modelName) {
     m_hasBounds = false;
 
     basMdb mdb = basBasis::Instance()->Fetch();
+    m_mdb = mdb;  // 保存快照，commit 中复用
     gmlSketchRepository& sketches = skcKGetSketchRepos(mdb, m_modelName);
 
     gslMatrix transform;
@@ -183,7 +187,7 @@ bool SamBuilder::commit() {
                      << "sheetSize" << extent;
         }
 
-        basMdb mdb = basBasis::Instance()->Fetch();
+        basMdb mdb = m_mdb;  // 复用 beginImport 中获取的快照
         gmlSketchRepository& sketches = skcKGetSketchRepos(mdb, m_modelName);
 
         gmlSketchWrapper wrapper(m_sketch);
@@ -216,6 +220,8 @@ bool SamBuilder::commit() {
     }
 
     m_active = false;
+    delete m_factory;
+    m_factory = nullptr;
     qDebug() << "[SamBuilder] commit done, total:" << m_createdCount;
     return true;
 }
@@ -226,6 +232,8 @@ bool SamBuilder::commit() {
 
 void SamBuilder::rollback() {
     qDebug() << "[SamBuilder] rollback...";
+    delete m_factory;
+    m_factory = nullptr;
     m_active = false;
     m_createdCount = 0;
     m_lastError.clear();

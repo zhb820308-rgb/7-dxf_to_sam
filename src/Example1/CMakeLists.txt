@@ -5,6 +5,7 @@ set(CMAKE_INCLUDE_CURRENT_DIR ON)
 include_directories(
     ${LIBS_QT5_ROOT}/include
     ${LIBS_QT5_ROOT}/include/QtCore
+    ${LIBS_QT5_ROOT}/include/QtGui
     ${LIBS_QT5_ROOT}/include/QtWidgets
     ${LIBS_PYTHON_ROOT}/include
     ${LIBS_OC_ROOT}/include
@@ -71,6 +72,7 @@ set_target_properties(Example1 PROPERTIES
 
 target_link_libraries(Example1
     Qt5Core
+    Qt5Gui
     Qt5Widgets
 	OrientBasicContainers
     OrientBasicUtilities
@@ -137,5 +139,8 @@ add_custom_command(TARGET Example1 POST_BUILD
         "$<TARGET_FILE_DIR:Example1>"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "$<TARGET_FILE:spdlog::spdlog>"
+        "$<TARGET_FILE_DIR:Example1>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:fmt::fmt>"
         "$<TARGET_FILE_DIR:Example1>"
 )

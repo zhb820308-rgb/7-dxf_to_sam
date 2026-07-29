@@ -2,6 +2,7 @@
 #define SamBuilder_h
 
 #include "SamData.h"
+#include <basBasis.h>
 #include <QString>
 #include <vector>
 
@@ -36,6 +37,7 @@ private:
 
     skcSketch*      m_sketch  = nullptr;
     skcGeomFactory* m_factory = nullptr;
+    basMdb          m_mdb;
     int m_createdCount = 0;
     bool m_active = false;
 

@@ -15,7 +15,6 @@
 #include <cowList.T>
 #include <omiBtree.T>
 
-using namespace std;
 //
 // Forward Declarations
 //
@@ -51,9 +50,14 @@ public:
 	void setObject(const cowList<cowList<g3dVector>>& vertexXYZ, const cowListString& color);
 	void addObject(const cowList<cowList<g3dVector>>& vertexXYZ, const cowListString& color);
 
-	// create a new object or modify a object, SegID is input/output
-	void createOneObject(int& SegID, const cowList<g3dVector>& vertexXYZ = cowList<g3dVector>(), const QString& color = "");
-	void deleteOneObject(const int& SegID);
+	// Find the index of an object by its segment ID; returns -1 if not found
+	int findObject(int segID) const;
+
+	// Create a new object or modify an existing one.
+	// segID: [in/out] — if found in existing objects, the entry is updated;
+	//         otherwise a new object is created and segID receives the new ID.
+	void createOneObject(int& segID, const cowList<g3dVector>& vertexXYZ = cowList<g3dVector>(), const QString& color = "");
+	void deleteOneObject(const int& segID);
 
 private:
     void RebuildSymbolListMap();
