@@ -10,40 +10,6 @@
 namespace {
 
 // ========================================================================
-//  Block / insert structures (internal)
-// ========================================================================
-
-struct InsertInfo {
-    std::string blockName;
-    double insertX = 0.0;
-    double insertY = 0.0;
-    double insertZ = 0.0;
-    double scaleX  = 1.0;
-    double scaleY  = 1.0;
-    double scaleZ  = 1.0;
-    double angle   = 0.0;   // radians
-    int    colCount = 1;
-    int    rowCount = 1;
-    double colSpace = 0.0;
-    double rowSpace = 0.0;
-};
-
-struct BlockInfo {
-    std::string name;
-    double baseX = 0.0;
-    double baseY = 0.0;
-    double baseZ = 0.0;
-
-    std::vector<DxfPoint>       points;
-    std::vector<DxfLine>        lines;
-    std::vector<DxfCircle>      circles;
-    std::vector<DxfArc>         arcs;
-    std::vector<DxfLWPolyline>  lwPolylines;
-    std::vector<DxfEllipse>     ellipses;
-    std::vector<DxfSpline>      splines;
-};
-
-// ========================================================================
 //  DxfReader — DRW_Interface implementation (internal, only used here)
 // ========================================================================
 
@@ -52,12 +18,11 @@ public:
     DxfData m_data;                         // final flattened output
 
     // --- Parsing context ---
-    DxfData                      m_modelSpace;       // entities directly in model space
-    std::unordered_map<std::string, BlockInfo> m_blocks;
+    std::unordered_map<std::string, DxfBlock> m_blocks;
     std::vector<InsertInfo>      m_modelSpaceInserts;
 
     // current block being parsed (nullptr = model space)
-    BlockInfo* m_currentBlock = nullptr;
+    DxfBlock* m_currentBlock = nullptr;
 
     // --- Implemented entity callbacks ---
     void addLine(const DRW_Line& data) override;
@@ -171,31 +136,63 @@ static bool isScaleUniformXY(const InsertInfo& ins) {
         && std::fabs(ins.scaleX) > 1e-12;
 }
 
-/// Expand a single block instance (one INSERT, one array element).
+/// Forward declaration for recursive expansion.
 static void expandSingleBlock(DxfData& output,
-                              const BlockInfo& blk,
-                              const InsertInfo& ins)
+                              const DxfBlock& blk,
+                              const InsertInfo& ins,
+                              double tolerance,
+                              const std::unordered_map<std::string, DxfBlock>& blocks);
+
+/// Expand one INSERT with array (row × col) support.
+/// Generates all array instances and delegates each to expandSingleBlock.
+static void expandInsertArray(DxfData& output,
+                              const DxfBlock& blk,
+                              const InsertInfo& ins,
+                              double tolerance,
+                              const std::unordered_map<std::string, DxfBlock>& blocks)
 {
+    const int nCols = std::max(1, ins.colCount);
+    const int nRows = std::max(1, ins.rowCount);
+    for (int row = 0; row < nRows; ++row) {
+        for (int col = 0; col < nCols; ++col) {
+            InsertInfo insCopy = ins;
+            insCopy.insertX += col * ins.colSpace;
+            insCopy.insertY += row * ins.rowSpace;
+            expandSingleBlock(output, blk, insCopy, tolerance, blocks);
+        }
+    }
+}
+
+/// Expand a single block instance (one INSERT, one array element).
+/// @param blocks  block definitions map, needed for recursive nested INSERT expansion
+static void expandSingleBlock(DxfData& output,
+                              const DxfBlock& blk,
+                              const InsertInfo& ins,
+                              double tolerance,
+                              const std::unordered_map<std::string, DxfBlock>& blocks)
+{
+    const double bx = blk.baseX(), by = blk.baseY(), bz = blk.baseZ();
+
     // --- Points: direct transform ---
-    for (const DxfPoint& pt : blk.points) {
+    for (const DxfPoint& pt : blk.points()) {
         if (!pt.isValid()) continue;
-        output.addPoint(transformPoint(pt, ins, blk.baseX, blk.baseY, blk.baseZ));
+        output.addPoint(transformPoint(pt, ins, bx, by, bz));
     }
 
     // --- Lines: direct transform ---
-    for (const DxfLine& line : blk.lines) {
+    for (const DxfLine& line : blk.lines()) {
         if (!line.isValid()) continue;
-        DxfPoint s = transformPoint(line.start(), ins, blk.baseX, blk.baseY, blk.baseZ);
-        DxfPoint e = transformPoint(line.end(),   ins, blk.baseX, blk.baseY, blk.baseZ);
+        DxfPoint s = transformPoint(line.start(), ins, bx, by, bz);
+        DxfPoint e = transformPoint(line.end(),   ins, bx, by, bz);
         output.addLine(DxfLine(s, e));
     }
 
     // --- Circles ---
-    for (const DxfCircle& circle : blk.circles) {
+    for (const DxfCircle& circle : blk.circles()) {
         if (!circle.isValid()) continue;
         if (isScaleUniformXY(ins) && std::fabs(ins.scaleZ - ins.scaleX) < 1e-9) {
             // Uniform scale → preserve as circle
-            DxfPoint c = transformPoint(circle.center(), ins, blk.baseX, blk.baseY, blk.baseZ);
+            DxfPoint c = transformPoint(circle.center(), ins, bx, by, bz);
             double   r = circle.radius() * ins.scaleX;
             if (r > 0.0)
                 output.addCircle(DxfCircle(c, r));
@@ -203,74 +200,126 @@ static void expandSingleBlock(DxfData& output,
             // Non-uniform or negative scale → discretize to lines
             std::vector<DxfLine> segs = GeometryUtils::tessellateArc(
                 DxfArc(circle.center(), circle.radius(), 0.0, 2.0 * M_PI, true),
-                0.01);
-            addTransformedSegments(output, segs, ins, blk.baseX, blk.baseY, blk.baseZ);
+                tolerance);
+            addTransformedSegments(output, segs, ins, bx, by, bz);
         }
     }
 
-    // --- Arcs: discretize + transform ---
-    for (const DxfArc& arc : blk.arcs) {
+    // --- Arcs: uniform scale → preserve Arc; non-uniform → discretize ---
+    const bool uniformXY = isScaleUniformXY(ins);
+    for (const DxfArc& arc : blk.arcs()) {
         if (!arc.isValid()) continue;
-        addTransformedSegments(output,
-                               GeometryUtils::tessellateArc(arc, 0.01),
-                               ins, blk.baseX, blk.baseY, blk.baseZ);
+        if (uniformXY) {
+            output.addArc(DxfArc(
+                transformPoint(arc.center(), ins, bx, by, bz),
+                arc.radius() * ins.scaleX,
+                arc.startAngle(), arc.endAngle(), arc.isCCW()));
+        } else {
+            addTransformedSegments(output,
+                                   GeometryUtils::tessellateArc(arc, tolerance),
+                                   ins, bx, by, bz);
+        }
     }
 
-    // --- LWPolylines: discretize + transform ---
-    for (const DxfLWPolyline& poly : blk.lwPolylines) {
+    // --- LWPolylines: uniform scale → preserve; non-uniform → discretize ---
+    for (const DxfLWPolyline& poly : blk.lwPolylines()) {
         if (!poly.isValid()) continue;
-        addTransformedSegments(output,
-                               GeometryUtils::tessellateLWPolyline(poly, 0.01),
-                               ins, blk.baseX, blk.baseY, blk.baseZ);
+        if (uniformXY) {
+            std::vector<DxfPoint> verts;
+            for (const DxfPoint& v : poly.vertices())
+                verts.push_back(transformPoint(v, ins, bx, by, bz));
+            output.addLWPolyline(DxfLWPolyline(verts, poly.bulges(),
+                                                poly.isClosed(), poly.constZ() * ins.scaleZ));
+        } else {
+            addTransformedSegments(output,
+                                   GeometryUtils::tessellateLWPolyline(poly, tolerance),
+                                   ins, bx, by, bz);
+        }
     }
 
-    // --- Ellipses: discretize + transform ---
-    for (const DxfEllipse& ellipse : blk.ellipses) {
+    // --- Ellipses: uniform scale → preserve; non-uniform → discretize ---
+    for (const DxfEllipse& ellipse : blk.ellipses()) {
         if (!ellipse.isValid()) continue;
-        addTransformedSegments(output,
-                               GeometryUtils::tessellateEllipse(ellipse, 0.01),
-                               ins, blk.baseX, blk.baseY, blk.baseZ);
+        if (uniformXY) {
+            DxfPoint c = transformPoint(ellipse.center(), ins, bx, by, bz);
+            DxfPoint m(ellipse.majorAxisEnd().x() * ins.scaleX,
+                       ellipse.majorAxisEnd().y() * ins.scaleY,
+                       ellipse.majorAxisEnd().z() * ins.scaleZ);
+            output.addEllipse(DxfEllipse(c, m, ellipse.ratio(),
+                                          ellipse.startParam(), ellipse.endParam(), ellipse.isCCW()));
+        } else {
+            addTransformedSegments(output,
+                                   GeometryUtils::tessellateEllipse(ellipse, tolerance),
+                                   ins, bx, by, bz);
+        }
     }
 
-    // --- Splines: discretize + transform ---
-    for (const DxfSpline& spline : blk.splines) {
+    // --- Splines: uniform scale → preserve; non-uniform → discretize ---
+    for (const DxfSpline& spline : blk.splines()) {
         if (!spline.isValid()) continue;
-        addTransformedSegments(output,
-                               GeometryUtils::tessellateSpline(spline, 0.01),
-                               ins, blk.baseX, blk.baseY, blk.baseZ);
+        if (uniformXY) {
+            std::vector<DxfPoint> ctrlPts;
+            for (const DxfPoint& cp : spline.controlPoints())
+                ctrlPts.push_back(transformPoint(cp, ins, bx, by, bz));
+            std::vector<DxfPoint> fitPts;
+            for (const DxfPoint& fp : spline.fitPoints())
+                fitPts.push_back(transformPoint(fp, ins, bx, by, bz));
+            output.addSpline(DxfSpline(ctrlPts, spline.knots(), spline.weights(), fitPts,
+                                        spline.degree(), spline.flags(),
+                                        spline.tgStartX(), spline.tgStartY(), spline.tgStartZ(),
+                                        spline.tgEndX(), spline.tgEndY(), spline.tgEndZ()));
+        } else {
+            addTransformedSegments(output,
+                                   GeometryUtils::tessellateSpline(spline, tolerance),
+                                   ins, bx, by, bz);
+        }
+    }
+
+    // --- Nested INSERTs: recursive expansion ---
+    for (const InsertInfo& nested : blk.inserts()) {
+        auto it = blocks.find(nested.blockName);
+        if (it == blocks.end()) {
+            qWarning() << "[BlockExpand] nested INSERT references unknown block:"
+                       << nested.blockName.c_str() << "- skipped";
+            continue;
+        }
+        const DxfBlock& nestedBlk = it->second;
+
+        // Compose transforms: outer * inner
+        const DxfPoint nestedPos = transformPoint(
+            DxfPoint(nested.insertX, nested.insertY, nested.insertZ),
+            ins, bx, by, bz);
+
+        InsertInfo composed;
+        composed.blockName = nested.blockName;
+        composed.insertX   = nestedPos.x();
+        composed.insertY   = nestedPos.y();
+        composed.insertZ   = nestedPos.z();
+        composed.scaleX    = ins.scaleX * nested.scaleX;
+        composed.scaleY    = ins.scaleY * nested.scaleY;
+        composed.scaleZ    = ins.scaleZ * nested.scaleZ;
+        composed.angle     = ins.angle  + nested.angle;
+        composed.colCount  = nested.colCount;
+        composed.rowCount  = nested.rowCount;
+        composed.colSpace  = nested.colSpace;
+        composed.rowSpace  = nested.rowSpace;
+
+        // Generate nested array instances
+        expandInsertArray(output, nestedBlk, composed, tolerance, blocks);
     }
 }
 
 /// Expand all model-space inserts into the output DxfData.
+/// @param output  [in/out] already contains model-space entities; INSERT entities appended here
 static void expandBlocks(DxfData& output,
-                         const DxfData& modelSpace,
-                         const std::unordered_map<std::string, BlockInfo>& blocks,
-                         const std::vector<InsertInfo>& inserts)
+                         const std::unordered_map<std::string, DxfBlock>& blocks,
+                         const std::vector<InsertInfo>& inserts,
+                         double tolerance)
 {
-    // 1. Copy model-space entities directly
-    for (const DxfPoint& pt : modelSpace.points()) {
-        output.addPoint(pt);
-    }
-    for (const DxfLine& line : modelSpace.lines()) {
-        output.addLine(line);
-    }
-    for (const DxfCircle& circle : modelSpace.circles()) {
-        output.addCircle(circle);
-    }
-    for (const DxfArc& arc : modelSpace.arcs()) {
-        output.addArc(arc);
-    }
-    for (const DxfLWPolyline& poly : modelSpace.lwPolylines()) {
-        output.addLWPolyline(poly);
-    }
-    for (const DxfEllipse& ellipse : modelSpace.ellipses()) {
-        output.addEllipse(ellipse);
-    }
-    for (const DxfSpline& spline : modelSpace.splines()) {
-        output.addSpline(spline);
-    }
+    // Model-space entities are already in output (written directly during parsing).
+    // Only INSERT expansion is needed here.
 
-    // 2. Expand INSERTs
+    // Expand INSERTs
     int expandedInserts = 0;
     int skippedInserts  = 0;
 
@@ -281,22 +330,9 @@ static void expandBlocks(DxfData& output,
             ++skippedInserts;
             continue;
         }
-        const BlockInfo& blk = it->second;
-
-        // Generate array instances
-        const int nCols = std::max(1, ins.colCount);
-        const int nRows = std::max(1, ins.rowCount);
-
-        for (int row = 0; row < nRows; ++row) {
-            for (int col = 0; col < nCols; ++col) {
-                InsertInfo insCopy = ins;
-                insCopy.insertX += col * ins.colSpace;
-                insCopy.insertY += row * ins.rowSpace;
-
-                expandSingleBlock(output, blk, insCopy);
-                ++expandedInserts;
-            }
-        }
+        const DxfBlock& blk = it->second;
+        expandInsertArray(output, blk, ins, tolerance, blocks);
+        expandedInserts += std::max(1, ins.colCount) * std::max(1, ins.rowCount);
     }
 
     qDebug() << "[BlockExpand] expanded inserts:" << expandedInserts
@@ -313,9 +349,9 @@ void DxfReader::addLine(const DRW_Line& data) {
     DxfLine line(start, end);
 
     if (m_currentBlock) {
-        m_currentBlock->lines.push_back(line);
+        m_currentBlock->addLine(line);
     } else {
-        m_modelSpace.addLine(line);
+        m_data.addLine(line);
     }
 }
 
@@ -325,9 +361,9 @@ void DxfReader::addCircle(const DRW_Circle& data)
     DxfCircle circle(center, data.radious);
 
     if (m_currentBlock) {
-        m_currentBlock->circles.push_back(circle);
+        m_currentBlock->addCircle(circle);
     } else {
-        m_modelSpace.addCircle(circle);
+        m_data.addCircle(circle);
     }
 }
 
@@ -354,9 +390,9 @@ void DxfReader::addArc(const DRW_Arc& data) {
     DxfArc arc(c, radius, start, end, data.isccw);
 
     if (m_currentBlock) {
-        m_currentBlock->arcs.push_back(arc);
+        m_currentBlock->addArc(arc);
     } else {
-        m_modelSpace.addArc(arc);
+        m_data.addArc(arc);
     }
 }
 
@@ -374,9 +410,9 @@ void DxfReader::addEllipse(const DRW_Ellipse& data) {
                         data.staparam, data.endparam, data.isccw);
 
     if (m_currentBlock) {
-        m_currentBlock->ellipses.push_back(ellipse);
+        m_currentBlock->addEllipse(ellipse);
     } else {
-        m_modelSpace.addEllipse(ellipse);
+        m_data.addEllipse(ellipse);
     }
 }
 
@@ -410,9 +446,9 @@ void DxfReader::addLWPolyline(const DRW_LWPolyline& data)
     DxfLWPolyline poly(vertices, bulges, isClosed, 0.0);
 
     if (m_currentBlock) {
-        m_currentBlock->lwPolylines.push_back(poly);
+        m_currentBlock->addLWPolyline(poly);
     } else {
-        m_modelSpace.addLWPolyline(poly);
+        m_data.addLWPolyline(poly);
     }
 }
 
@@ -508,18 +544,18 @@ void DxfReader::addSpline(const DRW_Spline* data)
                       tgEndX, tgEndY, tgEndZ);
 
     if (m_currentBlock) {
-        m_currentBlock->splines.push_back(spline);
+        m_currentBlock->addSpline(spline);
     } else {
-        m_modelSpace.addSpline(spline);
+        m_data.addSpline(spline);
     }
 }
 
 void DxfReader::addPoint(const DRW_Point& data) {
     DxfPoint pt(data.basePoint.x, data.basePoint.y, data.basePoint.z);
     if (m_currentBlock) {
-        m_currentBlock->points.push_back(pt);
+        m_currentBlock->addPoint(pt);
     } else {
-        m_modelSpace.addPoint(pt);
+        m_data.addPoint(pt);
     }
 }
 
@@ -528,36 +564,34 @@ void DxfReader::addPoint(const DRW_Point& data) {
 // ========================================================================
 
 void DxfReader::addBlock(const DRW_Block& data) {
-    BlockInfo blk;
-    blk.name  = data.name;
-    blk.baseX = data.basePoint.x;
-    blk.baseY = data.basePoint.y;
-    blk.baseZ = data.basePoint.z;
+    DxfBlock blk;
+    blk.setName(data.name);
+    blk.setBase(data.basePoint.x, data.basePoint.y, data.basePoint.z);
 
-    qDebug() << "[DxfReader] addBlock:" << blk.name.c_str()
-             << "base:(" << blk.baseX << "," << blk.baseY << "," << blk.baseZ << ")"
+    qDebug() << "[DxfReader] addBlock:" << blk.name().c_str()
+             << "base:(" << blk.baseX() << "," << blk.baseY() << "," << blk.baseZ() << ")"
              << "flags:" << data.flags;
 
     // Skip layout blocks
-    if (blk.name == "*Model_Space" || blk.name == "*Paper_Space" || blk.name == "*Paper_Space0") {
-        qDebug() << "[DxfReader] skipping layout block:" << blk.name.c_str();
+    if (blk.name() == "*Model_Space" || blk.name() == "*Paper_Space" || blk.name() == "*Paper_Space0") {
+        qDebug() << "[DxfReader] skipping layout block:" << blk.name().c_str();
         m_currentBlock = nullptr;
         return;
     }
 
-    m_blocks[blk.name] = blk;
-    m_currentBlock = &m_blocks[blk.name];
+    m_blocks[blk.name()] = blk;
+    m_currentBlock = &m_blocks[blk.name()];
 }
 
 void DxfReader::endBlock() {
     if (m_currentBlock) {
-        qDebug() << "[DxfReader] endBlock:" << m_currentBlock->name.c_str()
-                 << "lines:" << m_currentBlock->lines.size()
-                 << "circles:" << m_currentBlock->circles.size()
-                 << "arcs:" << m_currentBlock->arcs.size()
-                 << "lwPolylines:" << m_currentBlock->lwPolylines.size()
-                 << "ellipses:" << m_currentBlock->ellipses.size()
-                 << "splines:" << m_currentBlock->splines.size();
+        qDebug() << "[DxfReader] endBlock:" << m_currentBlock->name().c_str()
+                 << "lines:" << m_currentBlock->lines().size()
+                 << "circles:" << m_currentBlock->circles().size()
+                 << "arcs:" << m_currentBlock->arcs().size()
+                 << "lwPolylines:" << m_currentBlock->lwPolylines().size()
+                 << "ellipses:" << m_currentBlock->ellipses().size()
+                 << "splines:" << m_currentBlock->splines().size();
     }
     m_currentBlock = nullptr;
 }
@@ -578,9 +612,10 @@ void DxfReader::addInsert(const DRW_Insert& data) {
     ins.rowSpace  = data.rowspace;
 
     if (m_currentBlock) {
-        // Nested INSERT — not yet supported
-        qDebug() << "[DxfReader] addInsert (nested, ignored):" << ins.blockName.c_str()
-                 << "inside block" << m_currentBlock->name.c_str();
+        // Nested INSERT — store in parent block for recursive expansion
+        qDebug() << "[DxfReader] addInsert (nested):" << ins.blockName.c_str()
+                 << "inside block" << m_currentBlock->name().c_str();
+        m_currentBlock->addInsert(ins);
         return;
     }
 
@@ -599,7 +634,7 @@ void DxfReader::addInsert(const DRW_Insert& data) {
 //  DxfParser::parseFile
 // ========================================================================
 
-bool DxfParser::parseFile(const QString& filePath, DxfData& outData) {
+bool DxfParser::parseFile(const QString& filePath, DxfData& outData, double curveTolerance) {
     outData = DxfData();
     if (filePath.isEmpty()) {
         outData.setErrorMessage(QStringLiteral("DXF file is empty"));
@@ -615,8 +650,11 @@ bool DxfParser::parseFile(const QString& filePath, DxfData& outData) {
         return false;
     }
 
+    // --- Move parsed entities from reader to output, then expand blocks ---
+    outData = std::move(reader.m_data);
+
     // --- Expand blocks into flat DxfData ---
-    expandBlocks(outData, reader.m_modelSpace, reader.m_blocks, reader.m_modelSpaceInserts);
+    expandBlocks(outData, reader.m_blocks, reader.m_modelSpaceInserts, curveTolerance);
 
     outData.setValid(true);
     qDebug() << "[DxfParser] read ok:"

@@ -40,19 +40,6 @@ Example1PytModule::~Example1PytModule()
 //  DXF import helpers
 // ========================================================================
 
-bool Example1PytModule::parseDxfFile(const QString& filePath, DxfData& outData)
-{
-	DxfParser parser;
-	return parser.parseFile(filePath, outData);
-}
-
-bool Example1PytModule::convertToSamData(const DxfData& dxfData, double baseX, double baseY,
-                                          double baseZ, double tolerance, SamData& outData)
-{
-	ConversionEngine engine;
-	return engine.convert(dxfData, baseX, baseY, baseZ, tolerance, outData);
-}
-
 int Example1PytModule::buildSamSketch(const SamData& samData, SamBuilder& builder)
 {
 	if (!builder.beginImport())
@@ -135,13 +122,16 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 	QElapsedTimer stageTimer;
 	stageTimer.start();
 	DxfData dxfData;
-	if (!parseDxfFile(filePath, dxfData))
 	{
+		DxfParser parser;
+		if (!parser.parseFile(filePath, dxfData, curveTolerance))
+		{
 		std::string detail = " error=\"" + dxfData.errorMessage().toLocal8Bit().toStdString() + "\"";
 		return failImport(logger, errorLogger, importId, pathText,
 			"parse", detail, totalTimer.elapsed(),
 			QString("[importDxf] ERROR: DXF parse failed — %1").arg(dxfData.errorMessage()));
 	}
+}
 
 	// ④ 解析完成日志
 	if (logger)
@@ -162,7 +152,8 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 	// ⑤ 阶段2：坐标转换（含离散化）
 	stageTimer.restart();
 	SamData samData;
-	if (!convertToSamData(dxfData, baseX, baseY, baseZ, curveTolerance, samData))
+	ConversionEngine convEngine;
+	if (!convEngine.convert(dxfData, baseX, baseY, baseZ, curveTolerance, samData))
 	{
 		return failImport(logger, errorLogger, importId, pathText,
 			"conversion", "", totalTimer.elapsed(),

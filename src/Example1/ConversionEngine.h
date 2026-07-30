@@ -19,6 +19,8 @@ public:
                  SamData& outData) const;
 
     static double defaultBulgeTolerance() { return 0.01; }
+
+private:
     static DxfPoint translate(const DxfPoint& pt,
                               double bx, double by, double bz);
 };
