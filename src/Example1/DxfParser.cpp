@@ -4,6 +4,7 @@
 #include "libdxfrw.h"
 #include <QDebug>
 #include <cmath>
+#include <set>
 #include <unordered_map>
 #include <vector>
 
@@ -24,6 +25,18 @@ public:
     // current block being parsed (nullptr = model space)
     DxfBlock* m_currentBlock = nullptr;
 
+    // --- Layer filter ---
+    std::set<std::string> m_ignoredLayers;
+    std::set<std::string> m_allLayers;
+
+    const std::set<std::string>& allLayers() const { return m_allLayers; }
+
+    /// Helper: returns true if the entity's layer is in the ignored set.
+    bool isLayerIgnored(const DRW_Entity& ent) const {
+        if (m_ignoredLayers.empty()) return false;
+        return m_ignoredLayers.count(ent.layer) != 0;
+    }
+
     // --- Implemented entity callbacks ---
     void addLine(const DRW_Line& data) override;
     void addCircle(const DRW_Circle& data) override;
@@ -38,10 +51,12 @@ public:
     void endBlock() override;
     void addInsert(const DRW_Insert& data) override;
 
+    // --- Layer callback (collect layer names) ---
+    void addLayer(const DRW_Layer& data) override;
+
     // --- Stub callbacks (no-op) ---
     void addHeader(const DRW_Header* data) override {}
     void addLType(const DRW_LType& data) override {}
-    void addLayer(const DRW_Layer& data) override {}
     void addDimStyle(const DRW_Dimstyle& data) override {}
     void addVport(const DRW_Vport& data) override {}
     void addTextStyle(const DRW_Textstyle& data) override {}
@@ -141,7 +156,8 @@ static void expandSingleBlock(DxfData& output,
                               const DxfBlock& blk,
                               const InsertInfo& ins,
                               double tolerance,
-                              const std::unordered_map<std::string, DxfBlock>& blocks);
+                              const std::unordered_map<std::string, DxfBlock>& blocks,
+                              int depth = 0);
 
 /// Expand one INSERT with array (row × col) support.
 /// Generates all array instances and delegates each to expandSingleBlock.
@@ -149,16 +165,23 @@ static void expandInsertArray(DxfData& output,
                               const DxfBlock& blk,
                               const InsertInfo& ins,
                               double tolerance,
-                              const std::unordered_map<std::string, DxfBlock>& blocks)
+                              const std::unordered_map<std::string, DxfBlock>& blocks,
+                              int depth = 0)
 {
     const int nCols = std::max(1, ins.colCount);
     const int nRows = std::max(1, ins.rowCount);
+    const double cosA = std::cos(ins.angle);
+    const double sinA = std::sin(ins.angle);
     for (int row = 0; row < nRows; ++row) {
         for (int col = 0; col < nCols; ++col) {
+            // Array spacing in INSERT's local coordinate system,
+            // rotated to world direction.
+            const double ox = col * ins.colSpace;
+            const double oy = row * ins.rowSpace;
             InsertInfo insCopy = ins;
-            insCopy.insertX += col * ins.colSpace;
-            insCopy.insertY += row * ins.rowSpace;
-            expandSingleBlock(output, blk, insCopy, tolerance, blocks);
+            insCopy.insertX += cosA * ox - sinA * oy;
+            insCopy.insertY += sinA * ox + cosA * oy;
+            expandSingleBlock(output, blk, insCopy, tolerance, blocks, depth);
         }
     }
 }
@@ -169,8 +192,16 @@ static void expandSingleBlock(DxfData& output,
                               const DxfBlock& blk,
                               const InsertInfo& ins,
                               double tolerance,
-                              const std::unordered_map<std::string, DxfBlock>& blocks)
+                              const std::unordered_map<std::string, DxfBlock>& blocks,
+                              int depth)
 {
+    static const int kMaxExpandDepth = 32;
+    if (depth > kMaxExpandDepth) {
+        qWarning() << "[BlockExpand] max depth" << kMaxExpandDepth
+                   << "exceeded at block:" << blk.name().c_str();
+        return;
+    }
+
     const double bx = blk.baseX(), by = blk.baseY(), bz = blk.baseZ();
 
     // --- Points: direct transform ---
@@ -305,7 +336,7 @@ static void expandSingleBlock(DxfData& output,
         composed.rowSpace  = nested.rowSpace;
 
         // Generate nested array instances
-        expandInsertArray(output, nestedBlk, composed, tolerance, blocks);
+        expandInsertArray(output, nestedBlk, composed, tolerance, blocks, depth + 1);
     }
 }
 
@@ -344,6 +375,7 @@ static void expandBlocks(DxfData& output,
 // ========================================================================
 
 void DxfReader::addLine(const DRW_Line& data) {
+    if (isLayerIgnored(data)) return;
     DxfPoint start(data.basePoint.x, data.basePoint.y, data.basePoint.z);
     DxfPoint end(data.secPoint.x, data.secPoint.y, data.secPoint.z);
     DxfLine line(start, end);
@@ -357,6 +389,7 @@ void DxfReader::addLine(const DRW_Line& data) {
 
 void DxfReader::addCircle(const DRW_Circle& data)
 {
+    if (isLayerIgnored(data)) return;
     DxfPoint center(data.basePoint.x, data.basePoint.y, data.basePoint.z);
     DxfCircle circle(center, data.radious);
 
@@ -368,6 +401,7 @@ void DxfReader::addCircle(const DRW_Circle& data)
 }
 
 void DxfReader::addArc(const DRW_Arc& data) {
+    if (isLayerIgnored(data)) return;
     const DRW_Coord center = data.basePoint;
     const double radius = data.radious;
 
@@ -397,6 +431,7 @@ void DxfReader::addArc(const DRW_Arc& data) {
 }
 
 void DxfReader::addEllipse(const DRW_Ellipse& data) {
+    if (isLayerIgnored(data)) return;
     const double majorX = data.secPoint.x;
     const double majorY = data.secPoint.y;
     const double majorLen = std::sqrt(majorX * majorX + majorY * majorY);
@@ -418,6 +453,7 @@ void DxfReader::addEllipse(const DRW_Ellipse& data) {
 
 void DxfReader::addLWPolyline(const DRW_LWPolyline& data)
 {
+    if (isLayerIgnored(data)) return;
     const int numVerts = std::min(data.vertexnum, static_cast<int>(data.vertlist.size()));
     if (numVerts < 2) return;
 
@@ -455,6 +491,7 @@ void DxfReader::addLWPolyline(const DRW_LWPolyline& data)
 void DxfReader::addSpline(const DRW_Spline* data)
 {
     if (!data) return;
+    if (isLayerIgnored(*data)) return;
 
     const bool isRational = (data->flags & 4) != 0;
     const bool isPeriodic = (data->flags & 2) != 0;
@@ -551,6 +588,7 @@ void DxfReader::addSpline(const DRW_Spline* data)
 }
 
 void DxfReader::addPoint(const DRW_Point& data) {
+    if (isLayerIgnored(data)) return;
     DxfPoint pt(data.basePoint.x, data.basePoint.y, data.basePoint.z);
     if (m_currentBlock) {
         m_currentBlock->addPoint(pt);
@@ -628,13 +666,19 @@ void DxfReader::addInsert(const DRW_Insert& data) {
     m_modelSpaceInserts.push_back(ins);
 }
 
+void DxfReader::addLayer(const DRW_Layer& data) {
+    m_allLayers.insert(data.name);
+}
+
 }  // namespace
 
 // ========================================================================
 //  DxfParser::parseFile
 // ========================================================================
 
-bool DxfParser::parseFile(const QString& filePath, DxfData& outData, double curveTolerance) {
+bool DxfParser::parseFile(const QString& filePath, DxfData& outData,
+                          double curveTolerance,
+                          const std::set<std::string>& ignoredLayers) {
     outData = DxfData();
     if (filePath.isEmpty()) {
         outData.setErrorMessage(QStringLiteral("DXF file is empty"));
@@ -643,6 +687,7 @@ bool DxfParser::parseFile(const QString& filePath, DxfData& outData, double curv
     const QByteArray pathBytes = filePath.toLocal8Bit();
     dxfRW dxf(pathBytes.constData());
     DxfReader reader;
+    reader.m_ignoredLayers = ignoredLayers;
     if (!dxf.read(&reader, true)) {
         outData.setErrorMessage(
             QStringLiteral("Failed to read DXF file. Error code: %1")

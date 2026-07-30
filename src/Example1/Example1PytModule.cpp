@@ -5,7 +5,10 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QElapsedTimer>
+#include <QStringList>
 #include <cmath>
+#include <set>
+#include <string>
 
 #include "DxfImportLogger.h"
 #include "DxfParser.h"
@@ -74,6 +77,7 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 	double baseY = 0.0;
 	double baseZ = 0.0;
 	double curveTolerance = ConversionEngine::defaultBulgeTolerance();
+	QString ignoreLayersStr;
 	args.Begin();
 	args.Get(filePath);
 	args.Get(baseX);
@@ -81,7 +85,23 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 	args.Get(baseZ);
 	args.Optional();
 	args.Get(curveTolerance, "curveTolerance");
+	args.Get(ignoreLayersStr, "ignoreLayers");
 	args.End();
+
+	// Parse ignored layers
+	std::set<std::string> ignoredLayers;
+	if (!ignoreLayersStr.isEmpty()) {
+		QStringList parts = ignoreLayersStr.split(',', QString::SkipEmptyParts);
+		for (const QString& part : parts) {
+			std::string layer = part.trimmed().toStdString();
+			if (!layer.empty()) {
+				ignoredLayers.insert(layer);
+			}
+		}
+	}
+	if (!ignoredLayers.empty()) {
+		qDebug() << "[importDxf] 忽略图层:" << ignoreLayersStr;
+	}
 
 	// ② 日志初始化
 	const std::string importId = QDateTime::currentDateTimeUtc()
@@ -122,16 +142,14 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 	QElapsedTimer stageTimer;
 	stageTimer.start();
 	DxfData dxfData;
+	DxfParser parser;
+	if (!parser.parseFile(filePath, dxfData, curveTolerance, ignoredLayers))
 	{
-		DxfParser parser;
-		if (!parser.parseFile(filePath, dxfData, curveTolerance))
-		{
 		std::string detail = " error=\"" + dxfData.errorMessage().toLocal8Bit().toStdString() + "\"";
 		return failImport(logger, errorLogger, importId, pathText,
 			"parse", detail, totalTimer.elapsed(),
 			QString("[importDxf] ERROR: DXF parse failed — %1").arg(dxfData.errorMessage()));
 	}
-}
 
 	// ④ 解析完成日志
 	if (logger)
