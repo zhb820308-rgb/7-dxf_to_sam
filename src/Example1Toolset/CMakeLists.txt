@@ -83,4 +83,3 @@ target_link_libraries(Example1Toolset
     SAMGui.lib
     libtcmalloc_minimal.lib
 )
-

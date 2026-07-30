@@ -62,7 +62,7 @@ set_target_properties(Example1 PROPERTIES
     CXX_STANDARD_REQUIRED ON
 )
 
-# set_target_properties(Example1 PROPERTIES LINK_FLAGS /INCLUDE:"__tcmalloc")  # ÊöÇÊó∂Á¶ÅÁî® tcmalloc
+# set_target_properties(Example1 PROPERTIES LINK_FLAGS /INCLUDE:"__tcmalloc")  # ‘› ±Ω˚”√ tcmalloc
 
 
 
@@ -149,8 +149,5 @@ add_custom_command(TARGET Example1 POST_BUILD
         "$<TARGET_FILE_DIR:Example1>"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "$<TARGET_FILE:spdlog::spdlog>"
-        "$<TARGET_FILE_DIR:Example1>"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "$<TARGET_FILE:fmt::fmt>"
         "$<TARGET_FILE_DIR:Example1>"
 )

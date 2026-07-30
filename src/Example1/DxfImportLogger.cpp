@@ -21,6 +21,21 @@
 
 static const int kMaxImportLogs = 50;
 
+static const char* entityTypeName(EntityType type)
+{
+	switch (type)
+	{
+	case EntityType::Point:      return "POINT";
+	case EntityType::Line:       return "LINE";
+	case EntityType::Circle:     return "CIRCLE";
+	case EntityType::Arc:        return "ARC";
+	case EntityType::LWPolyline: return "LWPOLYLINE";
+	case EntityType::Ellipse:    return "ELLIPSE";
+	case EntityType::Spline:     return "SPLINE";
+	default:                     return "UNKNOWN";
+	}
+}
+
 static QString dxfLogRootDirectory()
 {
 	return QDir(QCoreApplication::applicationDirPath()).filePath("logs");
@@ -286,15 +301,56 @@ void logConvertedSamData(
 				id, tag, pt.getId(), pt.x(), pt.y(), pt.z());
 		});
 
-	logEntities(logger, importId, "converted", data.lines(),
-		[](const std::shared_ptr<spdlog::logger>& log, const std::string& id,
-		   const std::string& tag, size_t, const DxfLine& line) {
-			log->trace(
-				"[import={}] {} LINE id={} start=({}, {}, {}) end=({}, {}, {})",
-				id, tag, line.getId(),
+	std::vector<bool> isCurveSegment(data.lines().size(), false);
+	for (const CurveSegmentSource& source : data.curveSegments())
+	{
+		if (source.lineIndex < isCurveSegment.size())
+			isCurveSegment[source.lineIndex] = true;
+	}
+	for (size_t i = 0; i < data.lines().size(); ++i)
+	{
+		if (isCurveSegment[i])
+			continue;
+		const DxfLine& line = data.lines()[i];
+		logger->trace(
+			"[import={}] converted LINE id={} start=({}, {}, {}) end=({}, {}, {})",
+			importId, line.getId(),
+			line.start().x(), line.start().y(), line.start().z(),
+			line.end().x(), line.end().y(), line.end().z());
+	}
+
+	const std::vector<CurveSegmentSource>& curveSegments = data.curveSegments();
+	for (size_t i = 0; i < curveSegments.size();)
+	{
+		const CurveSegmentSource& first = curveSegments[i];
+		size_t end = i + 1;
+		while (end < curveSegments.size() &&
+			curveSegments[end].parentType == first.parentType &&
+			curveSegments[end].parentId == first.parentId)
+		{
+			++end;
+		}
+
+		logger->info(
+			"[import={}] converted_curve type={} parent_id={} segment_count={}",
+			importId, entityTypeName(first.parentType), first.parentId, end - i);
+
+		for (size_t j = i; j < end; ++j)
+		{
+			const CurveSegmentSource& source = curveSegments[j];
+			if (source.lineIndex >= data.lines().size())
+				continue;
+			const DxfLine& line = data.lines()[source.lineIndex];
+			logger->trace(
+				"[import={}] curve_segment type={} parent_id={} segment_index={} line_id={} start=({}, {}, {}) end=({}, {}, {})",
+				importId, entityTypeName(source.parentType), source.parentId,
+				source.segmentIndex, line.getId(),
 				line.start().x(), line.start().y(), line.start().z(),
 				line.end().x(), line.end().y(), line.end().z());
-		});
+		}
+
+		i = end;
+	}
 
 	logEntities(logger, importId, "converted", data.circles(),
 		[](const std::shared_ptr<spdlog::logger>& log, const std::string& id,

@@ -4,6 +4,7 @@
 #include "SamData.h"
 #include <basBasis.h>
 #include <QString>
+#include <functional>
 #include <vector>
 
 class skcSketch;
@@ -11,12 +12,15 @@ class skcGeomFactory;
 
 class SamBuilder {
 public:
+    using ProgressCallback = std::function<bool(const QString& stage, int current, int total)>;
+
     SamBuilder();
     ~SamBuilder();
 
     bool beginImport(const QString& modelName = "Model-1");
     bool commit();
     void rollback();
+    void setProgressCallback(const ProgressCallback& callback);
 
     int createPoints(const std::vector<DxfPoint>& points);
     int createLines(const std::vector<DxfLine>& lines);
@@ -29,6 +33,7 @@ public:
 private:
     void buildSketchPath();
     void extendBounds(double x, double y);
+    bool reportProgress(const QString& stage, int current, int total);
 
     QString m_modelName;
     QString m_sketchName;
@@ -40,6 +45,7 @@ private:
     basMdb          m_mdb;
     int m_createdCount = 0;
     bool m_active = false;
+    ProgressCallback m_progressCallback;
 
     // bounding box of imported geometry (for sheet size)
     bool   m_hasBounds = false;

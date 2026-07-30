@@ -44,37 +44,40 @@ bool ConversionEngine::convert(const DxfData& dxfData,
     }
 
     // --- 辅助：将离散化后的线段平移并添加到输出 ---
-    auto addSegments = [&](const std::vector<DxfLine>& segments) {
+    auto addSegments = [&](const std::vector<DxfLine>& segments,
+                           EntityType parentType, int parentId) {
+        std::size_t segmentIndex = 0;
         for (const DxfLine& seg : segments) {
             if (!seg.isValid()) continue;
-            outData.addLine(DxfLine(
+            outData.addCurveSegment(parentType, parentId, segmentIndex, DxfLine(
                 translate(seg.start(), baseX, baseY, baseZ),
                 translate(seg.end(),   baseX, baseY, baseZ)));
+            ++segmentIndex;
         }
     };
 
     // --- arcs (离散化 + 平移) ---
     for (const DxfArc& arc : dxfData.arcs()) {
         if (!arc.isValid()) continue;
-        addSegments(GeometryUtils::tessellateArc(arc, tolerance));
+        addSegments(GeometryUtils::tessellateArc(arc, tolerance), EntityType::Arc, arc.getId());
     }
 
     // --- lwPolylines (离散化 + 平移) ---
     for (const DxfLWPolyline& poly : dxfData.lwPolylines()) {
         if (!poly.isValid()) continue;
-        addSegments(GeometryUtils::tessellateLWPolyline(poly, tolerance));
+        addSegments(GeometryUtils::tessellateLWPolyline(poly, tolerance), EntityType::LWPolyline, poly.getId());
     }
 
     // --- ellipses (离散化 + 平移) ---
     for (const DxfEllipse& ellipse : dxfData.ellipses()) {
         if (!ellipse.isValid()) continue;
-        addSegments(GeometryUtils::tessellateEllipse(ellipse, tolerance));
+        addSegments(GeometryUtils::tessellateEllipse(ellipse, tolerance), EntityType::Ellipse, ellipse.getId());
     }
 
     // --- splines (OCCT B-spline 构建 + 离散化 + 平移) ---
     for (const DxfSpline& spline : dxfData.splines()) {
         if (!spline.isValid()) continue;
-        addSegments(GeometryUtils::tessellateSpline(spline, tolerance));
+        addSegments(GeometryUtils::tessellateSpline(spline, tolerance), EntityType::Spline, spline.getId());
     }
 
     bool ok = !outData.points().empty() ||

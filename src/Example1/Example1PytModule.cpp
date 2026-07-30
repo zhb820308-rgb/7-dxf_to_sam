@@ -5,6 +5,8 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QElapsedTimer>
+#include <QCoreApplication>
+#include <QProgressDialog>
 #include <cmath>
 
 #include "DxfImportLogger.h"
@@ -61,9 +63,29 @@ int Example1PytModule::buildSamSketch(const SamData& samData, SamBuilder& builde
 	}
 
 	int created = 0;
-	created += builder.createPoints(samData.points());
-	created += builder.createLines(samData.lines());
-	created += builder.createCircles(samData.circles());
+	int stepCreated = builder.createPoints(samData.points());
+	if (stepCreated < 0)
+	{
+		builder.rollback();
+		return -1;
+	}
+	created += stepCreated;
+
+	stepCreated = builder.createLines(samData.lines());
+	if (stepCreated < 0)
+	{
+		builder.rollback();
+		return -1;
+	}
+	created += stepCreated;
+
+	stepCreated = builder.createCircles(samData.circles());
+	if (stepCreated < 0)
+	{
+		builder.rollback();
+		return -1;
+	}
+	created += stepCreated;
 
 	if (!builder.commit())
 	{
@@ -119,6 +141,47 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 			<< QString::fromStdString(importId);
 	}
 
+	QProgressDialog progressDialog(
+		QStringLiteral("Importing DXF..."),
+		QStringLiteral("Cancel"),
+		0,
+		100);
+	progressDialog.setWindowTitle(QStringLiteral("DXF Import"));
+	progressDialog.setWindowModality(Qt::ApplicationModal);
+	progressDialog.setMinimumDuration(0);
+	progressDialog.setAutoClose(false);
+	progressDialog.setAutoReset(false);
+
+	auto updateProgress = [&](int value, const QString& label) -> bool {
+		progressDialog.setLabelText(label);
+		progressDialog.setValue(value);
+		QCoreApplication::processEvents();
+		return !progressDialog.wasCanceled();
+	};
+
+	auto cancelImport = [&](const QString& stage, int current, int total)
+		-> omuPrimitive* {
+		if (logger)
+		{
+			logger->warn(
+				"[import={}] canceled stage=\"{}\" progress={}/{} total_elapsed_ms={}",
+				importId,
+				stage.toLocal8Bit().toStdString(),
+				current,
+				total,
+				totalTimer.elapsed());
+			logger->flush();
+		}
+		qWarning() << "[importDxf] canceled by user during"
+		           << stage << current << "/" << total;
+		dropDxfImportLogger(importId);
+		return nullptr;
+	};
+
+	progressDialog.show();
+	if (!updateProgress(0, QStringLiteral("Importing DXF file (0-10%)")))
+		return cancelImport(QStringLiteral("import"), 0, 10);
+
 	if (logger)
 	{
 		logger->info(
@@ -134,6 +197,9 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 	// ③ 阶段1：解析 DXF 文件
 	QElapsedTimer stageTimer;
 	stageTimer.start();
+	if (!updateProgress(10, QStringLiteral("Parsing DXF (10-20%)")))
+		return cancelImport(QStringLiteral("parse"), 10, 20);
+
 	DxfData dxfData;
 	if (!parseDxfFile(filePath, dxfData))
 	{
@@ -144,6 +210,9 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 	}
 
 	// ④ 解析完成日志
+	if (!updateProgress(20, QStringLiteral("DXF parsed (20%)")))
+		return cancelImport(QStringLiteral("parse"), 20, 20);
+
 	if (logger)
 	{
 		logger->info(
@@ -185,13 +254,66 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 			stageTimer.elapsed());
 	}
 	logConvertedSamData(logger, importId, samData);
+	if (!updateProgress(20, QStringLiteral("Creating lines (20-100%)")))
+		return cancelImport(QStringLiteral("create_lines"), 20, 100);
 
 	// ⑦ 阶段3：构建 SAM 草图并提交
 	stageTimer.restart();
 	SamBuilder builder;
+	const int lineTotal = static_cast<int>(samData.lines().size());
+
+	QString canceledStage;
+	int canceledCurrent = 0;
+	int canceledTotal = lineTotal;
+	builder.setProgressCallback(
+		[&](const QString& stage, int current, int total) -> bool {
+			int value = 20;
+			if (stage == QStringLiteral("Creating lines") && total > 0)
+			{
+				value = 20 + static_cast<int>(
+					(static_cast<long long>(current) * 80) / total);
+			}
+			else if (stage == QStringLiteral("Creating circles"))
+			{
+				value = 100;
+			}
+
+			progressDialog.setLabelText(
+				QStringLiteral("%1: %2 / %3").arg(stage).arg(current).arg(total));
+			progressDialog.setValue(value);
+			QCoreApplication::processEvents();
+
+			if (!progressDialog.wasCanceled())
+				return true;
+
+			canceledStage = stage;
+			canceledCurrent = current;
+			canceledTotal = total;
+			return false;
+		});
+
 	int created = buildSamSketch(samData, builder);
 	if (created < 0)
 	{
+		if (builder.lastError() == QStringLiteral("import canceled by user"))
+		{
+			if (logger)
+			{
+				logger->warn(
+					"[import={}] canceled stage=\"{}\" progress={}/{} total_elapsed_ms={}",
+					importId,
+					canceledStage.toLocal8Bit().toStdString(),
+					canceledCurrent,
+					canceledTotal,
+					totalTimer.elapsed());
+				logger->flush();
+			}
+			qWarning() << "[importDxf] canceled by user during" << canceledStage
+			           << canceledCurrent << "/" << canceledTotal;
+			dropDxfImportLogger(importId);
+			return nullptr;
+		}
+
 		bool isBeginImport = (builder.lastError() == QString("failed to create sketch"));
 		std::string stage = isBeginImport ? "begin_import" : "commit";
 		std::string detail = " error=\"" + builder.lastError().toLocal8Bit().toStdString() + "\"";
@@ -222,6 +344,8 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 			totalTimer.elapsed());
 		logger->flush();
 	}
+	progressDialog.setValue(100);
+	progressDialog.close();
 	dropDxfImportLogger(importId);
 	return new omuPrimNumber(created);
 }
