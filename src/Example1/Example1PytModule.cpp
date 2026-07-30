@@ -53,7 +53,6 @@ int Example1PytModule::buildSamSketch(const SamData& samData, SamBuilder& builde
 	}
 
 	int created = 0;
-	created += builder.createPoints(samData.points());
 	created += builder.createLines(samData.lines());
 	created += builder.createCircles(samData.circles());
 
@@ -187,9 +186,8 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 	if (logger)
 	{
 		logger->info(
-			"[import={}] conversion_completed points={} lines={} circles={} curve_tolerance={} duration_ms={}",
+			"[import={}] conversion_completed lines={} circles={} curve_tolerance={} duration_ms={}",
 			importId,
-			samData.points().size(),
 			samData.lines().size(),
 			samData.circles().size(),
 			curveTolerance,

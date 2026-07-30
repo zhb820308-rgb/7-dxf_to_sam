@@ -190,7 +190,6 @@ TEST_F(DxfImportLoggerTest, log_converted_sam_data_lines)
     ASSERT_NE(logger, nullptr);
 
     SamData data;
-    data.addPoint(DxfPoint(100.0, 200.0, 0.0));
     data.addLine(DxfLine(DxfPoint(10, 20, 0), DxfPoint(30, 40, 0)));
     data.addCircle(DxfCircle(DxfPoint(50, 60, 0), 5.0));
 
@@ -199,7 +198,6 @@ TEST_F(DxfImportLoggerTest, log_converted_sam_data_lines)
 
     std::string content = readFileContent(perImportLogPath(importId));
 
-    EXPECT_NE(content.find("converted POINT"), std::string::npos)  << content;
     EXPECT_NE(content.find("converted LINE"), std::string::npos)   << content;
     EXPECT_NE(content.find("converted CIRCLE"), std::string::npos) << content;
     EXPECT_NE(content.find("start=(10, 20, 0)"), std::string::npos);

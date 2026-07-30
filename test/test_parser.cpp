@@ -325,7 +325,7 @@ TEST(Pipeline, all_example_files_parse_and_convert) {
 
         // Every file should produce some output
         int totalOutput = static_cast<int>(
-            out.lines().size() + out.circles().size() + out.points().size());
+            out.lines().size() + out.circles().size());
         EXPECT_GT(totalOutput, 0) << "No output entities from: " << filenames[i];
     }
 }

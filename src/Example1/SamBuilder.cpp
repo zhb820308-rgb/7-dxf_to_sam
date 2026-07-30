@@ -120,31 +120,6 @@ bool SamBuilder::beginImport(const QString& modelName) {
 }
 
 // ========================================================================
-//  createPoints
-// ========================================================================
-
-int SamBuilder::createPoints(const std::vector<DxfPoint>& points) {
-    if (!m_active || !m_factory) return 0;
-    const int total = static_cast<int>(points.size());
-    if (!reportProgress(QStringLiteral("Creating points"), 0, total))
-        return -1;
-
-    int count = 0;
-    for (const DxfPoint& pt : points) {
-        // TODO: skcGeomFactory::CreatePoint interface TBC
-        ++count;
-
-        if (count % 1000 == 0 || count == total) {
-            if (!reportProgress(QStringLiteral("Creating points"), count, total))
-                return -1;
-            QCoreApplication::processEvents();
-        }
-    }
-    m_createdCount += count;
-    return count;
-}
-
-// ========================================================================
 //  createLines
 // ========================================================================
 

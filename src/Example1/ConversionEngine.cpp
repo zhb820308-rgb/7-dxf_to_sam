@@ -19,12 +19,8 @@ bool ConversionEngine::convert(const DxfData& dxfData,
         return false;
     }
 
-    // --- points ---
-    for (const DxfPoint& pt : dxfData.points()) {
-        if (!pt.isValid())
-            continue;
-        outData.addPoint(translate(pt, baseX, baseY, baseZ));
-    }
+    // POINT entities are parsed and logged as raw DXF data, but they are not
+    // converted because the current SAM builder only creates lines and circles.
 
     // --- lines ---
     for (const DxfLine& line : dxfData.lines()) {
@@ -85,12 +81,10 @@ bool ConversionEngine::convert(const DxfData& dxfData,
                     EntityType::Spline, spline.getId());
     }
 
-    bool ok = !outData.points().empty() ||
-              !outData.lines().empty()  ||
+    bool ok = !outData.lines().empty() ||
               !outData.circles().empty();
 
     qDebug() << "[ConversionEngine] done:"
-             << "points=" << outData.points().size()
              << "lines="  << outData.lines().size()
              << "circles="<< outData.circles().size();
 

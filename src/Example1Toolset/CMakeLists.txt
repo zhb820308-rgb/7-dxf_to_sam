@@ -83,6 +83,6 @@ target_link_libraries(Example1Toolset
     SAMIngQtSAM.lib
     SAMGui.lib
     libtcmalloc_minimal.lib
-    ${LIBDXFRW_LIBRARY}
+    "${LIBDXFRW_LIBRARY}"
 )
 

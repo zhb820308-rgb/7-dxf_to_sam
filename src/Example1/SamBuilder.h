@@ -23,7 +23,6 @@ public:
 
     void setProgressCallback(const ProgressCallback& callback);
 
-    int createPoints(const std::vector<DxfPoint>& points);
     int createLines(const std::vector<DxfLine>& lines);
     int createCircles(const std::vector<DxfCircle>& circles);
 
