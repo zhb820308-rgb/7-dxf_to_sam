@@ -6,6 +6,7 @@
 #include <cmath>
 #include <set>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace {
@@ -157,7 +158,8 @@ static void expandSingleBlock(DxfData& output,
                               const InsertInfo& ins,
                               double tolerance,
                               const std::unordered_map<std::string, DxfBlock>& blocks,
-                              int depth = 0);
+                              int depth,
+                              std::unordered_set<std::string>& visiting);
 
 /// Expand one INSERT with array (row × col) support.
 /// Generates all array instances and delegates each to expandSingleBlock.
@@ -166,7 +168,8 @@ static void expandInsertArray(DxfData& output,
                               const InsertInfo& ins,
                               double tolerance,
                               const std::unordered_map<std::string, DxfBlock>& blocks,
-                              int depth = 0)
+                              int depth,
+                              std::unordered_set<std::string>& visiting)
 {
     const int nCols = std::max(1, ins.colCount);
     const int nRows = std::max(1, ins.rowCount);
@@ -181,7 +184,7 @@ static void expandInsertArray(DxfData& output,
             InsertInfo insCopy = ins;
             insCopy.insertX += cosA * ox - sinA * oy;
             insCopy.insertY += sinA * ox + cosA * oy;
-            expandSingleBlock(output, blk, insCopy, tolerance, blocks, depth);
+            expandSingleBlock(output, blk, insCopy, tolerance, blocks, depth, visiting);
         }
     }
 }
@@ -193,7 +196,8 @@ static void expandSingleBlock(DxfData& output,
                               const InsertInfo& ins,
                               double tolerance,
                               const std::unordered_map<std::string, DxfBlock>& blocks,
-                              int depth)
+                              int depth,
+                              std::unordered_set<std::string>& visiting)
 {
     static const int kMaxExpandDepth = 32;
     if (depth > kMaxExpandDepth) {
@@ -201,6 +205,14 @@ static void expandSingleBlock(DxfData& output,
                    << "exceeded at block:" << blk.name().c_str();
         return;
     }
+
+    // Cycle detection
+    if (visiting.count(blk.name())) {
+        qWarning() << "[BlockExpand] cycle detected for block:"
+                   << blk.name().c_str() << "- skipping recursion";
+        return;
+    }
+    visiting.insert(blk.name());
 
     const double bx = blk.baseX(), by = blk.baseY(), bz = blk.baseZ();
 
@@ -336,8 +348,10 @@ static void expandSingleBlock(DxfData& output,
         composed.rowSpace  = nested.rowSpace;
 
         // Generate nested array instances
-        expandInsertArray(output, nestedBlk, composed, tolerance, blocks, depth + 1);
+        expandInsertArray(output, nestedBlk, composed, tolerance, blocks, depth + 1, visiting);
     }
+
+    visiting.erase(blk.name());
 }
 
 /// Expand all model-space inserts into the output DxfData.
@@ -351,6 +365,7 @@ static void expandBlocks(DxfData& output,
     // Only INSERT expansion is needed here.
 
     // Expand INSERTs
+    std::unordered_set<std::string> visiting;
     int expandedInserts = 0;
     int skippedInserts  = 0;
 
@@ -362,7 +377,7 @@ static void expandBlocks(DxfData& output,
             continue;
         }
         const DxfBlock& blk = it->second;
-        expandInsertArray(output, blk, ins, tolerance, blocks);
+        expandInsertArray(output, blk, ins, tolerance, blocks, 0, visiting);
         expandedInserts += std::max(1, ins.colCount) * std::max(1, ins.rowCount);
     }
 

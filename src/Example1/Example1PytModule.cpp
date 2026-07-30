@@ -216,10 +216,14 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 	builder.setProgressCallback(
 		[&](const QString& stage, int current, int total) -> bool {
 			int value = 20;
-			if (stage == QStringLiteral("Creating lines") && total > 0)
-				value = 20 + static_cast<int>(80.0 * current / total);
-			else if (stage == QStringLiteral("Creating circles"))
+			if (stage == QStringLiteral("Creating lines")) {
+				if (total > 0)
+					value = 20 + static_cast<int>(80.0 * current / total);
+				else
+					value = 100;  // empty dataset → done
+			} else if (stage == QStringLiteral("Creating circles")) {
 				value = 100;
+			}
 
 			progressDialog.setLabelText(
 				QStringLiteral("%1: %2 / %3").arg(stage).arg(current).arg(total));
