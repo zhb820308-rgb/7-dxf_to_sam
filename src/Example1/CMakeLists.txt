@@ -150,7 +150,4 @@ add_custom_command(TARGET Example1 POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "$<TARGET_FILE:spdlog::spdlog>"
         "$<TARGET_FILE_DIR:Example1>"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "$<TARGET_FILE:fmt::fmt>"
-        "$<TARGET_FILE_DIR:Example1>"
 )
