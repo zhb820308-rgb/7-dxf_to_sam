@@ -1,5 +1,7 @@
 #include <Example1DXFImportDialog.h>
 #include <Example1Form.h>
+#include <DxfLayerReader.h>
+#include <MultiSelectComboBox.h>
 
 #include <QValidator>
 #include <QLabel>
@@ -30,6 +32,8 @@ Example1DXFImportDialog::Example1DXFImportDialog(Example1Form* form)
 
 	m_dxfPathEdit = new QLineEdit(dxfGroup);
 	m_dxfPathEdit->setPlaceholderText(tr("Enter or paste DXF file path"));
+	connect(m_dxfPathEdit, SIGNAL(editingFinished()),
+		this, SLOT(onDxfPathEditingFinished()));
 
 	m_browseButton = new QPushButton(tr("Browse..."), dxfGroup);
 	connect(m_browseButton, SIGNAL(clicked()), this, SLOT(onBrowse()));
@@ -95,16 +99,14 @@ Example1DXFImportDialog::Example1DXFImportDialog(Example1Form* form)
 
 	/*************************Ignore Layers*******************************/
 	QGroupBox* layerGroup =
-		new QGroupBox(tr("Ignore Layers (comma-separated)"), this);
+		new QGroupBox(tr("Ignore Layers"), this);
 
-	m_ignoreLayersEdit = new QLineEdit(layerGroup);
-	m_ignoreLayersEdit->setText("");
-	m_ignoreLayersEdit->setPlaceholderText(tr("e.g. DIM, 尺寸, 标注, ANNOTATION, TEXT"));
-	m_ignoreLayersEdit->setToolTip(
-		tr("Comma-separated layer names. Entities on these layers will be excluded from import."));
+	m_ignoreLayersCombo = new MultiSelectComboBox(layerGroup);
+	m_ignoreLayersCombo->setToolTip(
+		tr("Select one or more layers. Entities on selected layers will be excluded from import."));
 
 	QVBoxLayout* layerLayout = new QVBoxLayout(layerGroup);
-	layerLayout->addWidget(m_ignoreLayersEdit);
+	layerLayout->addWidget(m_ignoreLayersCombo);
 
 	paramLayout->addWidget(layerGroup);
 
@@ -132,6 +134,25 @@ void Example1DXFImportDialog::onBrowse()
 
 	if (!filePath.isEmpty()) {
 		m_dxfPathEdit->setText(QDir::fromNativeSeparators(filePath));
+
+		QStringList layers;
+		if (collectDxfLayers(filePath, layers)) {
+			m_ignoreLayersCombo->setItems(layers);
+		}
+	}
+}
+
+void Example1DXFImportDialog::onDxfPathEditingFinished()
+{
+	const QString filePath = m_dxfPathEdit->text().trimmed();
+	if (filePath.isEmpty() || !QFileInfo::exists(filePath) ||
+		QFileInfo(filePath).suffix().compare("dxf", Qt::CaseInsensitive) != 0) {
+		return;
+	}
+
+	QStringList layers;
+	if (collectDxfLayers(filePath, layers)) {
+		m_ignoreLayersCombo->setItems(layers);
 	}
 }
 
@@ -195,7 +216,7 @@ void Example1DXFImportDialog::onCmdOk(int id)
 	}
 
 	// call importDxf
-	QString ignoreLayers = m_ignoreLayersEdit->text().trimmed();
+	const QString ignoreLayers = m_ignoreLayersCombo->checkedItems().join(',');
 	const QString importPath = QDir::fromNativeSeparators(
 		QFileInfo(path).absoluteFilePath());
 	omuArguments args(6);

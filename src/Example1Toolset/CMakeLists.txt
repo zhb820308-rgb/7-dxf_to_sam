@@ -12,6 +12,7 @@ include_directories(
     ${LIBS_OC_ROOT}/include
     ${LIBS_SAMSDK_ROOT}/include
     ${LIBS_SAMSDK_ROOT}/include/guiProject
+    ${LIBDXFRW_INCLUDE_DIR}
 )
   
 link_directories(
@@ -82,5 +83,6 @@ target_link_libraries(Example1Toolset
     SAMIngQtSAM.lib
     SAMGui.lib
     libtcmalloc_minimal.lib
+    ${LIBDXFRW_LIBRARY}
 )
 
