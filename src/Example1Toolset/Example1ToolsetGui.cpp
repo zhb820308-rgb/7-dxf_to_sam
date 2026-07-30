@@ -86,7 +86,7 @@ void Example1ToolsetGui::createMenuItems()
 	SAMMainWindow* mainWindow = SAMApp::getSAMApp()->getSAMMainWindow();
 	QMenuBar* menuBar = mainWindow ? mainWindow->getMenubar() : nullptr;
 	QMenu* toolsMenu = menuBar
-		? findMenu(menuBar->actions(), QStringLiteral("Tools"), QStringLiteral("工具"))
+		? findMenu(menuBar->actions(), QStringLiteral("Tools"), QStringLiteral("\u5de5\u5177"))
 		: nullptr;
 	if (toolsMenu)
 	{

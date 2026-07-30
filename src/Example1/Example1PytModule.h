@@ -35,13 +35,6 @@ private:
 
 	// === DXF import helpers ===
 
-	// Stage 1: parse DXF file, returns false on failure
-	bool parseDxfFile(const QString& filePath, DxfData& outData);
-
-	// Stage 2: coordinate conversion (incl. discretization), returns false on failure
-	bool convertToSamData(const DxfData& dxfData, double baseX, double baseY,
-	                      double baseZ, double tolerance, SamData& outData);
-
 	// Stage 3: build SAM sketch and commit, auto-rollback on failure, returns created count or -1
 	int buildSamSketch(const SamData& samData, SamBuilder& builder);
 };

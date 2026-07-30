@@ -2,7 +2,19 @@
 #define DxfData_h
 
 #include <vector>
+#include <string>
 #include <QString>
+
+// ---- InsertInfo — shared by DxfBlock and DxfData ----
+
+struct InsertInfo {
+    std::string blockName;
+    double insertX = 0, insertY = 0, insertZ = 0;
+    double scaleX  = 1, scaleY  = 1, scaleZ  = 1;
+    double angle   = 0;  // radians
+    int    colCount = 1, rowCount = 1;
+    double colSpace = 0, rowSpace = 0;
+};
 
 // ---- EntityType ----
 
@@ -225,6 +237,7 @@ public:
     void addLWPolyline(const DxfLWPolyline& poly);
     void addEllipse(const DxfEllipse& ellipse);
     void addSpline(const DxfSpline& spline);
+    void addInsert(const InsertInfo& ins) { m_inserts.push_back(ins); }
     void clear();
 
     // --- accessors ---
@@ -235,6 +248,7 @@ public:
     const std::vector<DxfLWPolyline>&  lwPolylines()  const { return m_lwPolylines; }
     const std::vector<DxfEllipse>&     ellipses()     const { return m_ellipses; }
     const std::vector<DxfSpline>&      splines()      const { return m_splines; }
+    const std::vector<InsertInfo>&     inserts()      const { return m_inserts; }
 
     int entityCount() const {
         return static_cast<int>(
@@ -258,8 +272,56 @@ private:
     std::vector<DxfLWPolyline>  m_lwPolylines;
     std::vector<DxfEllipse>     m_ellipses;
     std::vector<DxfSpline>      m_splines;
+    std::vector<InsertInfo>     m_inserts;
     QString m_errorMessage;
     bool m_isValid = false;
+};
+
+// ---- DxfBlock — named block definition (parsed, not yet expanded) ----
+
+class DxfBlock {
+public:
+    DxfBlock() = default;
+
+    const std::string& name()  const { return m_name; }
+    double baseX() const { return m_baseX; }
+    double baseY() const { return m_baseY; }
+    double baseZ() const { return m_baseZ; }
+
+    void setName(const std::string& n)    { m_name = n; }
+    void setBase(double x, double y, double z) { m_baseX = x; m_baseY = y; m_baseZ = z; }
+
+    const std::vector<DxfPoint>&      points()      const { return m_points; }
+    const std::vector<DxfLine>&       lines()       const { return m_lines; }
+    const std::vector<DxfCircle>&     circles()     const { return m_circles; }
+    const std::vector<DxfArc>&        arcs()        const { return m_arcs; }
+    const std::vector<DxfLWPolyline>& lwPolylines() const { return m_lwPolylines; }
+    const std::vector<DxfEllipse>&    ellipses()    const { return m_ellipses; }
+    const std::vector<DxfSpline>&     splines()     const { return m_splines; }
+
+    void addPoint(const DxfPoint& pt)           { m_points.push_back(pt); }
+    void addLine(const DxfLine& line)           { m_lines.push_back(line); }
+    void addCircle(const DxfCircle& circle)     { m_circles.push_back(circle); }
+    void addArc(const DxfArc& arc)              { m_arcs.push_back(arc); }
+    void addLWPolyline(const DxfLWPolyline& p)  { m_lwPolylines.push_back(p); }
+    void addEllipse(const DxfEllipse& e)        { m_ellipses.push_back(e); }
+    void addSpline(const DxfSpline& s)          { m_splines.push_back(s); }
+
+    // --- Nested INSERTs ---
+    void addInsert(const InsertInfo& ins) { m_inserts.push_back(ins); }
+    const std::vector<InsertInfo>& inserts() const { return m_inserts; }
+
+private:
+    std::string m_name;
+    double m_baseX = 0.0, m_baseY = 0.0, m_baseZ = 0.0;
+    std::vector<DxfPoint>      m_points;
+    std::vector<DxfLine>       m_lines;
+    std::vector<DxfCircle>     m_circles;
+    std::vector<DxfArc>        m_arcs;
+    std::vector<DxfLWPolyline> m_lwPolylines;
+    std::vector<DxfEllipse>    m_ellipses;
+    std::vector<DxfSpline>     m_splines;
+    std::vector<InsertInfo>    m_inserts;
 };
 
 #endif // DxfData_h

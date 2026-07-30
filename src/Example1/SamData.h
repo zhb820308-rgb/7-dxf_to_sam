@@ -6,12 +6,13 @@
 #include <vector>
 
 // Describes which original curve produced a converted line segment.
-// lineIndex refers to the same DxfLine stored in SamData::lines().
+// lineIndex refers to the same DxfLine stored in SamData::lines(), so this
+// metadata does not duplicate or alter the geometry used to build SAM.
 struct CurveSegmentSource {
     EntityType parentType;
     int parentId;
-    std::size_t segmentIndex;
-    std::size_t lineIndex;
+    size_t segmentIndex;
+    size_t lineIndex;
 };
 
 // Output of ConversionEngine -- ready to pass to skcGeomFactory.
@@ -31,9 +32,12 @@ public:
     void addLine(const DxfLine& line)   { m_lines.push_back(line); }
     void addCircle(const DxfCircle& c)  { m_circles.push_back(c); }
     void addCurveSegment(EntityType parentType, int parentId,
-                         std::size_t segmentIndex, const DxfLine& line) {
+                         size_t segmentIndex, const DxfLine& line) {
         m_lines.push_back(line);
-        m_curveSegments.push_back({parentType, parentId, segmentIndex, m_lines.size() - 1});
+        CurveSegmentSource source = {
+            parentType, parentId, segmentIndex, m_lines.size() - 1
+        };
+        m_curveSegments.push_back(source);
     }
 
     void clear() {

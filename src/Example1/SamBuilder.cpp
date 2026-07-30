@@ -64,23 +64,6 @@ SamBuilder::~SamBuilder() {
     m_factory = nullptr;
 }
 
-void SamBuilder::setProgressCallback(const ProgressCallback& callback) {
-    m_progressCallback = callback;
-}
-
-bool SamBuilder::reportProgress(const QString& stage, int current, int total) {
-    if (!m_progressCallback)
-        return true;
-
-    if (m_progressCallback(stage, current, total))
-        return true;
-
-    m_lastError = "import canceled by user";
-    qWarning() << "[SamBuilder] import canceled during" << stage
-               << current << "/" << total;
-    return false;
-}
-
 // ========================================================================
 //  beginImport
 // ========================================================================
@@ -125,20 +108,10 @@ bool SamBuilder::beginImport(const QString& modelName) {
 
 int SamBuilder::createPoints(const std::vector<DxfPoint>& points) {
     if (!m_active || !m_factory) return 0;
-    const int total = static_cast<int>(points.size());
-    if (!reportProgress(QStringLiteral("Creating points"), 0, total))
-        return -1;
-
     int count = 0;
     for (const DxfPoint& pt : points) {
         // TODO: skcGeomFactory::CreatePoint interface TBC
         ++count;
-
-        if (count % 1000 == 0 || count == total) {
-            if (!reportProgress(QStringLiteral("Creating points"), count, total))
-                return -1;
-            QCoreApplication::processEvents();
-        }
     }
     m_createdCount += count;
     return count;
@@ -151,10 +124,6 @@ int SamBuilder::createPoints(const std::vector<DxfPoint>& points) {
 int SamBuilder::createLines(const std::vector<DxfLine>& lines) {
     if (!m_active || !m_factory) return 0;
     qDebug() << "[SamBuilder] creating" << lines.size() << "lines...";
-    const int total = static_cast<int>(lines.size());
-    if (!reportProgress(QStringLiteral("Creating lines"), 0, total))
-        return -1;
-
     int count = 0;
     for (const DxfLine& line : lines) {
         gslPoint p1(line.start().x(), line.start().y(), line.start().z());
@@ -164,10 +133,8 @@ int SamBuilder::createLines(const std::vector<DxfLine>& lines) {
         extendBounds(p2.GetX(), p2.GetY());
         ++count;
 
-        if (count % 1000 == 0 || count == total) {
+        if (count % 5000 == 0) {
             qDebug() << "[SamBuilder] lines progress:" << count << "/" << lines.size();
-            if (!reportProgress(QStringLiteral("Creating lines"), count, total))
-                return -1;
             QCoreApplication::processEvents();
         }
     }
@@ -183,10 +150,6 @@ int SamBuilder::createLines(const std::vector<DxfLine>& lines) {
 int SamBuilder::createCircles(const std::vector<DxfCircle>& circles) {
     if (!m_active || !m_factory) return 0;
     qDebug() << "[SamBuilder] creating" << circles.size() << "circles...";
-    const int total = static_cast<int>(circles.size());
-    if (!reportProgress(QStringLiteral("Creating circles"), 0, total))
-        return -1;
-
     int count = 0;
     for (const DxfCircle& circle : circles) {
         const DxfPoint& c = circle.center();
@@ -198,10 +161,8 @@ int SamBuilder::createCircles(const std::vector<DxfCircle>& circles) {
         extendBounds(c.x() - r, c.y() - r);
         ++count;
 
-        if (count % 1000 == 0 || count == total) {
+        if (count % 2000 == 0) {
             qDebug() << "[SamBuilder] circles progress:" << count << "/" << circles.size();
-            if (!reportProgress(QStringLiteral("Creating circles"), count, total))
-                return -1;
             QCoreApplication::processEvents();
         }
     }
@@ -283,6 +244,7 @@ void SamBuilder::rollback() {
     m_factory = nullptr;
     m_active = false;
     m_createdCount = 0;
+    m_lastError.clear();
 }
 
 // ========================================================================
