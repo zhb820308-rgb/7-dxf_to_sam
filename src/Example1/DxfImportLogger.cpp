@@ -22,6 +22,20 @@
 
 static const int kMaxImportLogs = 50;
 
+static const char* entityTypeName(EntityType type)
+{
+	switch (type)
+	{
+	case EntityType::Point:      return "POINT";
+	case EntityType::Line:       return "LINE";
+	case EntityType::Circle:     return "CIRCLE";
+	case EntityType::Arc:        return "ARC";
+	case EntityType::LWPolyline: return "LWPOLYLINE";
+	case EntityType::Ellipse:    return "ELLIPSE";
+	default:                     return "UNKNOWN";
+	}
+}
+
 static QString dxfLogRootDirectory()
 {
 	// Prefer SAM's own directory for user-friendly access, but fall back
@@ -251,7 +265,7 @@ void logRawDxfData(
 	logEntities(logger, importId, "raw", data.arcs(),
 		[](const std::shared_ptr<spdlog::logger>& log, const std::string& id,
 		   const std::string& tag, size_t, const DxfArc& arc) {
-			log->trace(
+			log->info(
 				"[import={}] {} ARC id={} center=({}, {}, {}) radius={}"
 				" start_angle={} end_angle={} ccw={}",
 				id, tag, arc.getId(),
@@ -262,7 +276,7 @@ void logRawDxfData(
 	for (size_t i = 0; i < data.lwPolylines().size(); ++i)
 	{
 		const DxfLWPolyline& polyline = data.lwPolylines()[i];
-		logger->trace(
+		logger->info(
 			"[import={}] raw LWPOLYLINE id={} vertices={} closed={} const_z={}",
 			importId, polyline.getId(), polyline.vertices().size(),
 			polyline.isClosed(), polyline.constZ());
@@ -290,7 +304,7 @@ void logRawDxfData(
 	logEntities(logger, importId, "raw", data.ellipses(),
 		[](const std::shared_ptr<spdlog::logger>& log, const std::string& id,
 		   const std::string& tag, size_t, const DxfEllipse& ellipse) {
-			log->trace(
+			log->info(
 				"[import={}] {} ELLIPSE id={} center=({}, {}, {})"
 				" major_axis=({}, {}, {}) ratio={} start_param={} end_param={} ccw={}",
 				id, tag, ellipse.getId(),
@@ -317,15 +331,60 @@ void logConvertedSamData(
 				id, tag, pt.getId(), pt.x(), pt.y(), pt.z());
 		});
 
-	logEntities(logger, importId, "converted", data.lines(),
-		[](const std::shared_ptr<spdlog::logger>& log, const std::string& id,
-		   const std::string& tag, size_t, const DxfLine& line) {
-			log->trace(
-				"[import={}] {} LINE id={} start=({}, {}, {}) end=({}, {}, {})",
-				id, tag, line.getId(),
+	// Lines produced by curve tessellation are logged below with their parent
+	// entity ID. Keep ordinary converted DXF lines in the original trace form.
+	std::vector<bool> isCurveSegment(data.lines().size(), false);
+	for (const CurveSegmentSource& source : data.curveSegments())
+	{
+		if (source.lineIndex < isCurveSegment.size())
+			isCurveSegment[source.lineIndex] = true;
+	}
+	for (size_t i = 0; i < data.lines().size(); ++i)
+	{
+		if (isCurveSegment[i])
+			continue;
+		const DxfLine& line = data.lines()[i];
+		logger->trace(
+			"[import={}] converted LINE id={} start=({}, {}, {}) end=({}, {}, {})",
+			importId, line.getId(),
+			line.start().x(), line.start().y(), line.start().z(),
+			line.end().x(), line.end().y(), line.end().z());
+	}
+
+	// Each original curve gets one INFO summary. Its individual generated
+	// segments remain TRACE and can be expanded by filtering parent_id.
+	const std::vector<CurveSegmentSource>& curveSegments = data.curveSegments();
+	for (size_t i = 0; i < curveSegments.size();)
+	{
+		const CurveSegmentSource& first = curveSegments[i];
+		size_t end = i + 1;
+		while (end < curveSegments.size() &&
+			curveSegments[end].parentType == first.parentType &&
+			curveSegments[end].parentId == first.parentId)
+		{
+			++end;
+		}
+
+		logger->info(
+			"[import={}] converted_curve type={} parent_id={} segment_count={}",
+			importId, entityTypeName(first.parentType), first.parentId, end - i);
+
+		for (size_t j = i; j < end; ++j)
+		{
+			const CurveSegmentSource& source = curveSegments[j];
+			if (source.lineIndex >= data.lines().size())
+				continue;
+			const DxfLine& line = data.lines()[source.lineIndex];
+			logger->trace(
+				"[import={}] curve_segment type={} parent_id={} segment_index={} line_id={} start=({}, {}, {}) end=({}, {}, {})",
+				importId, entityTypeName(source.parentType), source.parentId,
+				source.segmentIndex, line.getId(),
 				line.start().x(), line.start().y(), line.start().z(),
 				line.end().x(), line.end().y(), line.end().z());
-		});
+		}
+
+		i = end;
+	}
 
 	logEntities(logger, importId, "converted", data.circles(),
 		[](const std::shared_ptr<spdlog::logger>& log, const std::string& id,

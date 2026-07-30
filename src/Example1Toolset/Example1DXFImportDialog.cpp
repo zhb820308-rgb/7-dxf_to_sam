@@ -131,7 +131,7 @@ void Example1DXFImportDialog::onBrowse()
 	);
 
 	if (!filePath.isEmpty()) {
-		m_dxfPathEdit->setText(QDir::toNativeSeparators(filePath));
+		m_dxfPathEdit->setText(QDir::fromNativeSeparators(filePath));
 	}
 }
 
@@ -196,8 +196,10 @@ void Example1DXFImportDialog::onCmdOk(int id)
 
 	// call importDxf
 	QString ignoreLayers = m_ignoreLayersEdit->text().trimmed();
+	const QString importPath = QDir::fromNativeSeparators(
+		QFileInfo(path).absoluteFilePath());
 	omuArguments args(6);
-	args.Put(path);
+	args.Put(importPath);
 	args.Put(baseX);
 	args.Put(baseY);
 	args.Put(baseZ);

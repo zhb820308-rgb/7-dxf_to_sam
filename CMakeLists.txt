@@ -13,11 +13,11 @@ get_filename_component(current_dir ${current_folder_absolute} DIRECTORY)
 
 # set libs
 # Default paths can be overridden via cmake -D or cmake-gui.
-set(LIBS_SAM_ROOT "D:/Program Files/SAM" CACHE PATH
+set(LIBS_SAM_ROOT "D:/shixiSoftware/SAM" CACHE PATH
     "SAM installation root directory")
-set(LIBS_SAMSDK_ROOT "D:/shixi_CAE/SAMSDK" CACHE PATH
+set(LIBS_SAMSDK_ROOT "D:/shixiSoftware/OpenOLTranSim-main/SAMSDK" CACHE PATH
     "SAMSDK root directory")
-set(LIBDXFRW_ROOT "D:/shixi_CAE/autocad_to_sam/libdxfrw" CACHE PATH
+set(LIBDXFRW_ROOT "D:/shixiSoftware/Homework/env/libdxfrw" CACHE PATH
     "libdxfrw root directory")
 set(SPDLOG_ROOT "D:/vcpkg/installed/x64-windows" CACHE PATH
     "Root directory containing the installed shared spdlog package")
@@ -32,7 +32,7 @@ set(LIBS_QTITAN_ROOT ${LIBS_SAMSDK_ROOT}/ThridPartys/Qtitan)
 set(LIBDXFRW_INCLUDE_DIR "${LIBDXFRW_ROOT}/src")
 set(LIBDXFRW_LIBRARY "${LIBDXFRW_ROOT}/build/Release/dxfrw.lib")
 set(LIBDXFRW_RUNTIME "${LIBDXFRW_ROOT}/build/Release/dxfrw.dll")
-set(spdlog_DIR "${SPDLOG_ROOT}/lib/cmake/spdlog")
+set(spdlog_DIR "${SPDLOG_ROOT}/share/spdlog")
 set(fmt_DIR "${SPDLOG_ROOT}/share/fmt")
 
 # OCCT (Open CASCADE Technology) — headers in repo, libs configurable
