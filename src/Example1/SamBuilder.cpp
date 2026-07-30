@@ -1,5 +1,6 @@
 #include "SamBuilder.h"
 
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDebug>
 
@@ -122,17 +123,20 @@ int SamBuilder::createPoints(const std::vector<DxfPoint>& points) {
 
 int SamBuilder::createLines(const std::vector<DxfLine>& lines) {
     if (!m_active || !m_factory) return 0;
+    qDebug() << "[SamBuilder] creating" << lines.size() << "lines...";
     int count = 0;
     for (const DxfLine& line : lines) {
         gslPoint p1(line.start().x(), line.start().y(), line.start().z());
         gslPoint p2(line.end().x(),   line.end().y(),   line.end().z());
-        if (count < 3)
-            qDebug() << "[SamBuilder] CreateLine" << p1.GetX() << p1.GetY() << p1.GetZ()
-                     << "->" << p2.GetX() << p2.GetY() << p2.GetZ();
         m_factory->CreateLine(p1, p2, skc_FOREGROUND, false);
         extendBounds(p1.GetX(), p1.GetY());
         extendBounds(p2.GetX(), p2.GetY());
         ++count;
+
+        if (count % 5000 == 0) {
+            qDebug() << "[SamBuilder] lines progress:" << count << "/" << lines.size();
+            QCoreApplication::processEvents();
+        }
     }
     m_createdCount += count;
     qDebug() << "[SamBuilder] lines:" << count;
@@ -145,18 +149,22 @@ int SamBuilder::createLines(const std::vector<DxfLine>& lines) {
 
 int SamBuilder::createCircles(const std::vector<DxfCircle>& circles) {
     if (!m_active || !m_factory) return 0;
+    qDebug() << "[SamBuilder] creating" << circles.size() << "circles...";
     int count = 0;
     for (const DxfCircle& circle : circles) {
         const DxfPoint& c = circle.center();
         double r = circle.radius();
         gslPoint ptCenter(c.x(), c.y(), c.z());
         gslPoint ptOnCircle(c.x() + r, c.y(), c.z());
-        if (count < 3)
-            qDebug() << "[SamBuilder] CreateCircle center" << c.x() << c.y() << "r=" << r;
         m_factory->CreateCircle(ptCenter, ptOnCircle, skc_FOREGROUND, false);
         extendBounds(c.x() + r, c.y() + r);
         extendBounds(c.x() - r, c.y() - r);
         ++count;
+
+        if (count % 2000 == 0) {
+            qDebug() << "[SamBuilder] circles progress:" << count << "/" << circles.size();
+            QCoreApplication::processEvents();
+        }
     }
     m_createdCount += count;
     qDebug() << "[SamBuilder] circles:" << count;

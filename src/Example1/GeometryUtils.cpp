@@ -351,9 +351,9 @@ Handle(Geom_BSplineCurve) buildCurveFromFitPoints(const DxfSpline& spline)
 
 bool discretizeByDeflection(
     const Handle(Geom_BSplineCurve)& curve,
-    std::vector<DxfPoint>& sampledPoints)
+    std::vector<DxfPoint>& sampledPoints,
+    double linearDeflection)
 {
-    constexpr double linearDeflection  = 0.01;
     constexpr double angularDeflection = 0.10;
     constexpr int    minimumPoints = 2;
 
@@ -387,7 +387,7 @@ bool discretizeByDeflection(
 
 }  // namespace (anonymous)
 
-std::vector<DxfLine> tessellateSpline(const DxfSpline& spline, double /*tolerance*/)
+std::vector<DxfLine> tessellateSpline(const DxfSpline& spline, double tolerance)
 {
     std::vector<DxfLine> result;
 
@@ -421,7 +421,8 @@ std::vector<DxfLine> tessellateSpline(const DxfSpline& spline, double /*toleranc
 
     // Chord-height adaptive discretization
     std::vector<DxfPoint> sampledPoints;
-    if (!discretizeByDeflection(curve, sampledPoints))
+    double deflection = (std::isfinite(tolerance) && tolerance > 0.0) ? tolerance : 0.01;
+    if (!discretizeByDeflection(curve, sampledPoints, deflection))
         return result;
 
     if (sampledPoints.size() < 2)

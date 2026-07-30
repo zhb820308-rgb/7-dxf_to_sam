@@ -169,6 +169,9 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 			QString("[importDxf] WARNING: no valid entities to import"));
 	}
 
+	// 释放解析数据，降低峰值内存（转换完成后 DxfData 不再需要）
+	dxfData.clear();
+
 	// ⑥ 转换完成日志
 	if (logger)
 	{
