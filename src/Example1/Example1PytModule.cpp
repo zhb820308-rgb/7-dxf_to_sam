@@ -45,6 +45,50 @@ Example1PytModule::~Example1PytModule()
 //  DXF import helpers
 // ========================================================================
 
+static QString boolText(bool value)
+{
+	return value ? QStringLiteral("true") : QStringLiteral("false");
+}
+
+static QString splineKindText(const SplineKind& kind)
+{
+	const QString construction = kind.construction == SplineConstruction::ControlBased
+		? QStringLiteral("ControlBased")
+		: QStringLiteral("FitBased");
+	return QStringLiteral("%1|rational=%2|periodic=%3|closed=%4")
+		.arg(construction)
+		.arg(boolText(kind.rational))
+		.arg(boolText(kind.periodic))
+		.arg(boolText(kind.closed));
+}
+
+static QString importSummaryText(int created, const DxfEntityStats& stats)
+{
+	QStringList splineCategories;
+	for (const auto& entry : stats.splineKinds)
+	{
+		if (entry.second == 0)
+			continue;
+		splineCategories.append(
+			QStringLiteral("%1=%2")
+			.arg(splineKindText(entry.first))
+			.arg(static_cast<qulonglong>(entry.second)));
+	}
+
+	return QStringLiteral(
+		"[importDxf] 导入完成：实际导入图元=%1；原图（图层过滤、Block展开后）："
+		"直线=%2，多段线=%3，曲线=%4（圆=%5，圆弧=%6，椭圆=%7，样条=%8；样条分类=[%9]）")
+		.arg(created)
+		.arg(static_cast<qulonglong>(stats.lines))
+		.arg(static_cast<qulonglong>(stats.lwPolylines))
+		.arg(static_cast<qulonglong>(stats.curveCount()))
+		.arg(static_cast<qulonglong>(stats.circles))
+		.arg(static_cast<qulonglong>(stats.arcs))
+		.arg(static_cast<qulonglong>(stats.ellipses))
+		.arg(static_cast<qulonglong>(stats.splineCount()))
+		.arg(splineCategories.join(QStringLiteral(", ")));
+}
+
 int Example1PytModule::buildSamSketch(const SamData& samData, SamBuilder& builder)
 {
 	if (!builder.beginImport())
@@ -100,9 +144,6 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 			}
 		}
 	}
-	if (!ignoredLayers.empty()) {
-		qDebug() << "[importDxf] 忽略图层:" << ignoreLayersStr;
-	}
 
 	// ② 日志初始化
 	const std::string importId = QDateTime::currentDateTimeUtc()
@@ -134,11 +175,6 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 			importId, pathText, baseX, baseY, baseZ, curveTolerance);
 	}
 
-	qDebug() << "[importDxf] ====== DXF 导入开始 ======";
-	qDebug() << "[importDxf] 文件路径:" << filePath;
-	qDebug() << "[importDxf] 基点:" << baseX << baseY << baseZ;
-	qDebug() << "[importDxf] 曲线离散容差:" << curveTolerance;
-
 	// ③ 阶段1：解析 DXF 文件
 	QElapsedTimer stageTimer;
 	stageTimer.start();
@@ -167,6 +203,7 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 			stageTimer.elapsed());
 	}
 	logRawDxfData(logger, importId, dxfData);
+	const DxfEntityStats entityStats = dxfData.entityStats();
 
 	// ⑤ 阶段2：坐标转换（含离散化）
 	stageTimer.restart();
@@ -266,7 +303,7 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 
 	// ⑧ 成功
 	progressDialog.setValue(100);
-	qDebug() << "[importDxf] ====== 导入完成, 共" << created << "个图元 =====";
+	qDebug().noquote() << importSummaryText(created, entityStats);
 	if (logger)
 	{
 		logger->info(

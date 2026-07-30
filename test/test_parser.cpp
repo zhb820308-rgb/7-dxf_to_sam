@@ -25,6 +25,7 @@ static bool fileExists(const QString& path) {
 }
 
 #define EXAMPLE_DIR QStringLiteral("D:/shixiSoftware/Homework/7-dxf_to_sam/example")
+#define TEST_DATA_DIR QStringLiteral("D:/shixiSoftware/Homework/7-dxf_to_sam/test/data")
 
 // ========================================================================
 //  文件存在性
@@ -70,6 +71,9 @@ TEST(Parser, line1_dxf_has_lines) {
     ASSERT_TRUE(parser.parseFile(EXAMPLE_DIR + "/line1.dxf", data));
     EXPECT_TRUE(data.isValid());
     EXPECT_GE(data.lines().size(), 1u);
+    EXPECT_EQ(data.entityStats().lines, data.lines().size());
+    EXPECT_EQ(data.entityStats().lwPolylines, data.lwPolylines().size());
+    EXPECT_EQ(data.entityStats().curveCount(), 0u);
     EXPECT_EQ(data.circles().size(), 0u);
     EXPECT_EQ(data.arcs().size(), 0u);
 }
@@ -80,6 +84,8 @@ TEST(Parser, circle_dxf_has_circles) {
     ASSERT_TRUE(parser.parseFile(EXAMPLE_DIR + "/circle.dxf", data));
     EXPECT_TRUE(data.isValid());
     EXPECT_GE(data.circles().size(), 1u);
+    EXPECT_EQ(data.entityStats().circles, data.circles().size());
+    EXPECT_EQ(data.entityStats().curveCount(), data.circles().size());
     // All circles should be valid
     for (const auto& c : data.circles()) {
         EXPECT_TRUE(c.isValid());
@@ -145,10 +151,52 @@ TEST(Parser, pline_half_circle_dxf_has_polylines) {
     ASSERT_TRUE(parser.parseFile(EXAMPLE_DIR + "/pline_half_circle.dxf", data));
     EXPECT_TRUE(data.isValid());
     EXPECT_GE(data.lwPolylines().size(), 1u);
+    EXPECT_EQ(data.entityStats().lwPolylines, data.lwPolylines().size());
     for (const auto& poly : data.lwPolylines()) {
         EXPECT_TRUE(poly.isValid());
         EXPECT_GE(poly.vertexCount(), 2);
     }
+}
+
+TEST(Parser, control_spline_is_classified) {
+    DxfData data;
+    DxfParser parser;
+    ASSERT_TRUE(parser.parseFile(EXAMPLE_DIR + "/spline.dxf", data));
+    ASSERT_FALSE(data.splines().empty());
+    EXPECT_EQ(data.entityStats().splineCount(), data.splines().size());
+    EXPECT_EQ(data.entityStats().curveCount(),
+              data.entityStats().circles + data.entityStats().arcs
+              + data.entityStats().ellipses + data.splines().size());
+
+    for (const DxfSpline& spline : data.splines())
+        EXPECT_EQ(spline.kind().construction, SplineConstruction::ControlBased);
+}
+
+TEST(Parser, fit_only_spline_is_classified) {
+    DxfData data;
+    DxfParser parser;
+    ASSERT_TRUE(parser.parseFile(EXAMPLE_DIR + "/spline_fit_only.dxf", data));
+    ASSERT_FALSE(data.splines().empty());
+    EXPECT_EQ(data.entityStats().splineCount(), data.splines().size());
+
+    for (const DxfSpline& spline : data.splines())
+        EXPECT_EQ(spline.kind().construction, SplineConstruction::FitBased);
+}
+
+TEST(Parser, nonuniform_block_curves_keep_source_statistics) {
+    DxfData data;
+    DxfParser parser;
+    ASSERT_TRUE(parser.parseFile(TEST_DATA_DIR + "/block_stats_nonuniform.dxf", data));
+
+    ASSERT_GT(data.lines().size(), 1u);
+    EXPECT_TRUE(data.arcs().empty());
+    EXPECT_TRUE(data.lwPolylines().empty());
+
+    const DxfEntityStats& stats = data.entityStats();
+    EXPECT_EQ(stats.lines, 1u);
+    EXPECT_EQ(stats.lwPolylines, 1u);
+    EXPECT_EQ(stats.arcs, 1u);
+    EXPECT_EQ(stats.curveCount(), 1u);
 }
 
 // ========================================================================

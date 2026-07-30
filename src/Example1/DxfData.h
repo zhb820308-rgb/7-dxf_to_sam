@@ -1,8 +1,9 @@
 #ifndef DxfData_h
 #define DxfData_h
 
-#include <vector>
+#include <map>
 #include <string>
+#include <vector>
 #include <QString>
 
 // ---- InsertInfo — shared by DxfBlock and DxfData ----
@@ -26,6 +27,32 @@ enum class EntityType {
     LWPolyline,
     Ellipse,
     Spline,
+};
+
+enum class SplineConstruction {
+    ControlBased,
+    FitBased,
+};
+
+struct SplineKind {
+    SplineConstruction construction = SplineConstruction::ControlBased;
+    bool rational = false;
+    bool periodic = false;
+    bool closed = false;
+
+    bool operator<(const SplineKind& other) const;
+};
+
+struct DxfEntityStats {
+    std::size_t lines = 0;
+    std::size_t lwPolylines = 0;
+    std::size_t circles = 0;
+    std::size_t arcs = 0;
+    std::size_t ellipses = 0;
+    std::map<SplineKind, std::size_t> splineKinds;
+
+    std::size_t splineCount() const;
+    std::size_t curveCount() const;
 };
 
 // ---- DxfEntity (abstract base) ----
@@ -209,6 +236,7 @@ public:
     double tgEndX()   const { return m_tgEndX; }
     double tgEndY()   const { return m_tgEndY; }
     double tgEndZ()   const { return m_tgEndZ; }
+    SplineKind kind() const;
 
     bool isValid() const override;
 
@@ -237,6 +265,9 @@ public:
     void addLWPolyline(const DxfLWPolyline& poly);
     void addEllipse(const DxfEllipse& ellipse);
     void addSpline(const DxfSpline& spline);
+    void addGeneratedLine(const DxfLine& line);
+    void recordGeneratedEntity(EntityType sourceType);
+    void recordGeneratedSpline(const SplineKind& kind);
     void addInsert(const InsertInfo& ins) { m_inserts.push_back(ins); }
     void clear();
 
@@ -249,6 +280,7 @@ public:
     const std::vector<DxfEllipse>&     ellipses()     const { return m_ellipses; }
     const std::vector<DxfSpline>&      splines()      const { return m_splines; }
     const std::vector<InsertInfo>&     inserts()      const { return m_inserts; }
+    const DxfEntityStats&             entityStats()  const { return m_entityStats; }
 
     int entityCount() const {
         return static_cast<int>(
@@ -273,6 +305,7 @@ private:
     std::vector<DxfEllipse>     m_ellipses;
     std::vector<DxfSpline>      m_splines;
     std::vector<InsertInfo>     m_inserts;
+    DxfEntityStats m_entityStats;
     QString m_errorMessage;
     bool m_isValid = false;
 };

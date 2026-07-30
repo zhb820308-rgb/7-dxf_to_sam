@@ -9,6 +9,30 @@
 
 static std::atomic<int> s_nextId{1};
 
+bool SplineKind::operator<(const SplineKind& other) const
+{
+    if (construction != other.construction)
+        return construction < other.construction;
+    if (rational != other.rational)
+        return rational < other.rational;
+    if (periodic != other.periodic)
+        return periodic < other.periodic;
+    return closed < other.closed;
+}
+
+std::size_t DxfEntityStats::splineCount() const
+{
+    std::size_t count = 0;
+    for (const auto& entry : splineKinds)
+        count += entry.second;
+    return count;
+}
+
+std::size_t DxfEntityStats::curveCount() const
+{
+    return circles + arcs + ellipses + splineCount();
+}
+
 DxfEntity::DxfEntity(EntityType entityType)
     : id(s_nextId++)
     , type(entityType)
@@ -199,6 +223,7 @@ void DxfData::clear()
     m_lwPolylines.clear();
     m_ellipses.clear();
     m_splines.clear();
+    m_entityStats = DxfEntityStats();
     m_errorMessage.clear();
     m_isValid = false;
 }
@@ -211,31 +236,67 @@ void DxfData::addPoint(const DxfPoint& pt)
 void DxfData::addLine(const DxfLine& line)
 {
     m_lines.push_back(line);
+    ++m_entityStats.lines;
 }
 
 void DxfData::addCircle(const DxfCircle& circle)
 {
     m_circles.push_back(circle);
+    ++m_entityStats.circles;
 }
 
 void DxfData::addArc(const DxfArc& arc)
 {
     m_arcs.push_back(arc);
+    ++m_entityStats.arcs;
 }
 
 void DxfData::addLWPolyline(const DxfLWPolyline& poly)
 {
     m_lwPolylines.push_back(poly);
+    ++m_entityStats.lwPolylines;
 }
 
 void DxfData::addEllipse(const DxfEllipse& ellipse)
 {
     m_ellipses.push_back(ellipse);
+    ++m_entityStats.ellipses;
 }
 
 void DxfData::addSpline(const DxfSpline& spline)
 {
     m_splines.push_back(spline);
+    ++m_entityStats.splineKinds[spline.kind()];
+}
+
+void DxfData::addGeneratedLine(const DxfLine& line)
+{
+    m_lines.push_back(line);
+}
+
+void DxfData::recordGeneratedEntity(EntityType sourceType)
+{
+    switch (sourceType) {
+    case EntityType::Circle:
+        ++m_entityStats.circles;
+        break;
+    case EntityType::Arc:
+        ++m_entityStats.arcs;
+        break;
+    case EntityType::LWPolyline:
+        ++m_entityStats.lwPolylines;
+        break;
+    case EntityType::Ellipse:
+        ++m_entityStats.ellipses;
+        break;
+    default:
+        break;
+    }
+}
+
+void DxfData::recordGeneratedSpline(const SplineKind& kind)
+{
+    ++m_entityStats.splineKinds[kind];
 }
 
 // ========================================================================
@@ -264,6 +325,23 @@ DxfSpline::DxfSpline(const std::vector<DxfPoint>& ctrlPts,
     , m_tgStartX(tgStartX), m_tgStartY(tgStartY), m_tgStartZ(tgStartZ)
     , m_tgEndX(tgEndX), m_tgEndY(tgEndY), m_tgEndZ(tgEndZ)
 {
+}
+
+SplineKind DxfSpline::kind() const
+{
+    const bool hasControlData =
+        static_cast<int>(m_ctrlPts.size()) > m_degree
+        && static_cast<int>(m_knots.size()) >=
+           static_cast<int>(m_ctrlPts.size()) + m_degree + 1;
+
+    SplineKind result;
+    result.construction = hasControlData
+        ? SplineConstruction::ControlBased
+        : SplineConstruction::FitBased;
+    result.rational = isRational();
+    result.periodic = isPeriodic();
+    result.closed = isClosed();
+    return result;
 }
 
 bool DxfSpline::isValid() const
