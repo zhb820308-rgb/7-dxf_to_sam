@@ -183,6 +183,34 @@ static void expandSingleBlock(DxfData& output,
                               int depth,
                               std::unordered_set<std::string>& visiting);
 
+/// Compose two INSERT transforms: outer × inner.
+/// Transforms the inner INSERT's insertion point by the outer INSERT,
+/// then combines scales (multiply) and angles (add).
+///
+/// NOTE: Scale/angle composition assumes the transforms are decomposed
+/// as (Translate × Rotate × Scale). This is correct for standard DXF
+/// INSERTs with uniform scale. Non-uniform nested transforms involving
+/// shearing or mirroring are not handled by this composition.
+static InsertInfo composeInsertTransform(const InsertInfo& outer,
+                                          const InsertInfo& inner,
+                                          const DxfPoint& nestedPos)
+{
+    InsertInfo composed;
+    composed.blockName = inner.blockName;
+    composed.insertX   = nestedPos.x();
+    composed.insertY   = nestedPos.y();
+    composed.insertZ   = nestedPos.z();
+    composed.scaleX    = outer.scaleX * inner.scaleX;
+    composed.scaleY    = outer.scaleY * inner.scaleY;
+    composed.scaleZ    = outer.scaleZ * inner.scaleZ;
+    composed.angle     = outer.angle  + inner.angle;
+    composed.colCount  = inner.colCount;
+    composed.rowCount  = inner.rowCount;
+    composed.colSpace  = inner.colSpace;
+    composed.rowSpace  = inner.rowSpace;
+    return composed;
+}
+
 /// Expand one INSERT with array (row × col) support.
 /// Generates all array instances and delegates each to expandSingleBlock.
 static void expandInsertArray(DxfData& output,
@@ -333,24 +361,11 @@ static void expandSingleBlock(DxfData& output,
         }
         const DxfBlock& nestedBlk = it->second;
 
-        // Compose transforms: outer * inner
+        // Compose transforms: outer × inner
         const DxfPoint nestedPos = transformPoint(
             DxfPoint(nested.insertX, nested.insertY, nested.insertZ),
             ins, bx, by, bz);
-
-        InsertInfo composed;
-        composed.blockName = nested.blockName;
-        composed.insertX   = nestedPos.x();
-        composed.insertY   = nestedPos.y();
-        composed.insertZ   = nestedPos.z();
-        composed.scaleX    = ins.scaleX * nested.scaleX;
-        composed.scaleY    = ins.scaleY * nested.scaleY;
-        composed.scaleZ    = ins.scaleZ * nested.scaleZ;
-        composed.angle     = ins.angle  + nested.angle;
-        composed.colCount  = nested.colCount;
-        composed.rowCount  = nested.rowCount;
-        composed.colSpace  = nested.colSpace;
-        composed.rowSpace  = nested.rowSpace;
+        InsertInfo composed = composeInsertTransform(ins, nested, nestedPos);
 
         // Generate nested array instances
         expandInsertArray(output, nestedBlk, composed, tolerance, blocks, depth + 1, visiting);

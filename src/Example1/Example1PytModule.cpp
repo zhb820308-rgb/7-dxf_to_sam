@@ -208,6 +208,7 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 	progressDialog.setWindowModality(Qt::ApplicationModal);
 	progressDialog.setMinimumDuration(0);
 	progressDialog.show();
+	QCoreApplication::processEvents();
 
 	SamBuilder builder;
 
