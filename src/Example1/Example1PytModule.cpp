@@ -2,9 +2,11 @@
 #include <omuPrimNumber.h>
 #include <omuPrimType.h>
 
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDebug>
 #include <QElapsedTimer>
+#include <QProgressDialog>
 #include <QStringList>
 #include <cmath>
 #include <set>
@@ -197,17 +199,58 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 
 	// ⑦ 阶段3：构建 SAM 草图并提交
 	stageTimer.restart();
+
+	QProgressDialog progressDialog(
+		QStringLiteral("Importing DXF..."),
+		QStringLiteral("Cancel"),
+		0, 100);
+	progressDialog.setWindowTitle(QStringLiteral("DXF Import"));
+	progressDialog.setWindowModality(Qt::ApplicationModal);
+	progressDialog.setMinimumDuration(0);
+	progressDialog.show();
+
 	SamBuilder builder;
+
+	QString canceledStage;
+	int canceledCurrent = 0, canceledTotal = 0;
+	builder.setProgressCallback(
+		[&](const QString& stage, int current, int total) -> bool {
+			int value = 20;
+			if (stage == QStringLiteral("Creating lines") && total > 0)
+				value = 20 + static_cast<int>(80.0 * current / total);
+			else if (stage == QStringLiteral("Creating circles"))
+				value = 100;
+
+			progressDialog.setLabelText(
+				QStringLiteral("%1: %2 / %3").arg(stage).arg(current).arg(total));
+			progressDialog.setValue(value);
+			QCoreApplication::processEvents();
+
+			if (!progressDialog.wasCanceled())
+				return true;
+
+			canceledStage = stage;
+			canceledCurrent = current;
+			canceledTotal = total;
+			return false;
+		});
+
 	int created = buildSamSketch(samData, builder);
 	if (created < 0)
 	{
 		bool isBeginImport = (builder.lastError() == QString("failed to create sketch"));
-		std::string stage = isBeginImport ? "begin_import" : "commit";
+		bool isCanceled = (builder.lastError() == QString("import canceled by user"));
+		std::string stage = isBeginImport ? "begin_import" : isCanceled ? "canceled" : "commit";
 		std::string detail = " error=\"" + builder.lastError().toLocal8Bit().toStdString() + "\"";
 		QString qWarningMsg;
 		if (isBeginImport)
 		{
 			qWarningMsg = QString("[importDxf] ERROR: failed to create sketch — %1").arg(builder.lastError());
+		}
+		else if (isCanceled)
+		{
+			qWarningMsg = QString("[importDxf] IMPORT CANCELED — %1 %2/%3")
+				.arg(canceledStage).arg(canceledCurrent).arg(canceledTotal);
 		}
 		else
 		{
@@ -219,6 +262,7 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 	}
 
 	// ⑧ 成功
+	progressDialog.setValue(100);
 	qDebug() << "[importDxf] ====== 导入完成, 共" << created << "个图元 =====";
 	if (logger)
 	{
