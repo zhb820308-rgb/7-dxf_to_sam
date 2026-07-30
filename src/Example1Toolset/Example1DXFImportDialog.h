@@ -25,6 +25,7 @@ private:
     QLineEdit* m_baseYEdit;
     QLineEdit* m_baseZEdit;
     QLineEdit* m_toleranceEdit;
+    QLineEdit* m_ignoreLayersEdit;
     QPushButton* m_browseButton;
     QDoubleValidator* m_doubleValidator;
     QDoubleValidator* m_toleranceValidator;
