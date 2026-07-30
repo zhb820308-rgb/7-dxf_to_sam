@@ -152,6 +152,28 @@ static bool isScaleUniformXY(const InsertInfo& ins) {
         && std::fabs(ins.scaleX) > 1e-12;
 }
 
+/// Expand a group of curve entities under uniform or non-uniform scale.
+/// Uniform scale → call preserve() to keep original entity type.
+/// Non-uniform  → call tessellate() then transform segments to output.
+template<typename Entity, typename TessFn, typename PreserveFn>
+static void expandCurveGroup(DxfData& output,
+                             const std::vector<Entity>& entities,
+                             const InsertInfo& ins,
+                             double bx, double by, double bz,
+                             double tolerance, bool uniformXY,
+                             TessFn tessellate,
+                             PreserveFn preserve)
+{
+    for (const Entity& e : entities) {
+        if (!e.isValid()) continue;
+        if (uniformXY) {
+            preserve(output, e, ins, bx, by, bz);
+        } else {
+            addTransformedSegments(output, tessellate(e, tolerance), ins, bx, by, bz);
+        }
+    }
+}
+
 /// Forward declaration for recursive expansion.
 static void expandSingleBlock(DxfData& output,
                               const DxfBlock& blk,
@@ -250,73 +272,56 @@ static void expandSingleBlock(DxfData& output,
 
     // --- Arcs: uniform scale → preserve Arc; non-uniform → discretize ---
     const bool uniformXY = isScaleUniformXY(ins);
-    for (const DxfArc& arc : blk.arcs()) {
-        if (!arc.isValid()) continue;
-        if (uniformXY) {
-            output.addArc(DxfArc(
-                transformPoint(arc.center(), ins, bx, by, bz),
-                arc.radius() * ins.scaleX,
-                arc.startAngle(), arc.endAngle(), arc.isCCW()));
-        } else {
-            addTransformedSegments(output,
-                                   GeometryUtils::tessellateArc(arc, tolerance),
-                                   ins, bx, by, bz);
-        }
-    }
+    expandCurveGroup(output, blk.arcs(), ins, bx, by, bz, tolerance, uniformXY,
+        GeometryUtils::tessellateArc,
+        [](DxfData& out, const DxfArc& arc,
+           const InsertInfo& i, double x, double y, double z) {
+            out.addArc(DxfArc(transformPoint(arc.center(), i, x, y, z),
+                        arc.radius() * i.scaleX,
+                        arc.startAngle(), arc.endAngle(), arc.isCCW()));
+        });
 
     // --- LWPolylines: uniform scale → preserve; non-uniform → discretize ---
-    for (const DxfLWPolyline& poly : blk.lwPolylines()) {
-        if (!poly.isValid()) continue;
-        if (uniformXY) {
+    expandCurveGroup(output, blk.lwPolylines(), ins, bx, by, bz, tolerance, uniformXY,
+        GeometryUtils::tessellateLWPolyline,
+        [](DxfData& out, const DxfLWPolyline& poly,
+           const InsertInfo& i, double x, double y, double z) {
             std::vector<DxfPoint> verts;
             for (const DxfPoint& v : poly.vertices())
-                verts.push_back(transformPoint(v, ins, bx, by, bz));
-            output.addLWPolyline(DxfLWPolyline(verts, poly.bulges(),
-                                                poly.isClosed(), poly.constZ() * ins.scaleZ));
-        } else {
-            addTransformedSegments(output,
-                                   GeometryUtils::tessellateLWPolyline(poly, tolerance),
-                                   ins, bx, by, bz);
-        }
-    }
+                verts.push_back(transformPoint(v, i, x, y, z));
+            out.addLWPolyline(DxfLWPolyline(verts, poly.bulges(),
+                                             poly.isClosed(), poly.constZ() * i.scaleZ));
+        });
 
     // --- Ellipses: uniform scale → preserve; non-uniform → discretize ---
-    for (const DxfEllipse& ellipse : blk.ellipses()) {
-        if (!ellipse.isValid()) continue;
-        if (uniformXY) {
-            DxfPoint c = transformPoint(ellipse.center(), ins, bx, by, bz);
-            DxfPoint m(ellipse.majorAxisEnd().x() * ins.scaleX,
-                       ellipse.majorAxisEnd().y() * ins.scaleY,
-                       ellipse.majorAxisEnd().z() * ins.scaleZ);
-            output.addEllipse(DxfEllipse(c, m, ellipse.ratio(),
-                                          ellipse.startParam(), ellipse.endParam(), ellipse.isCCW()));
-        } else {
-            addTransformedSegments(output,
-                                   GeometryUtils::tessellateEllipse(ellipse, tolerance),
-                                   ins, bx, by, bz);
-        }
-    }
+    expandCurveGroup(output, blk.ellipses(), ins, bx, by, bz, tolerance, uniformXY,
+        GeometryUtils::tessellateEllipse,
+        [](DxfData& out, const DxfEllipse& ellipse,
+           const InsertInfo& i, double x, double y, double z) {
+            DxfPoint c = transformPoint(ellipse.center(), i, x, y, z);
+            DxfPoint m(ellipse.majorAxisEnd().x() * i.scaleX,
+                       ellipse.majorAxisEnd().y() * i.scaleY,
+                       ellipse.majorAxisEnd().z() * i.scaleZ);
+            out.addEllipse(DxfEllipse(c, m, ellipse.ratio(),
+                                       ellipse.startParam(), ellipse.endParam(), ellipse.isCCW()));
+        });
 
     // --- Splines: uniform scale → preserve; non-uniform → discretize ---
-    for (const DxfSpline& spline : blk.splines()) {
-        if (!spline.isValid()) continue;
-        if (uniformXY) {
+    expandCurveGroup(output, blk.splines(), ins, bx, by, bz, tolerance, uniformXY,
+        GeometryUtils::tessellateSpline,
+        [](DxfData& out, const DxfSpline& spline,
+           const InsertInfo& i, double x, double y, double z) {
             std::vector<DxfPoint> ctrlPts;
             for (const DxfPoint& cp : spline.controlPoints())
-                ctrlPts.push_back(transformPoint(cp, ins, bx, by, bz));
+                ctrlPts.push_back(transformPoint(cp, i, x, y, z));
             std::vector<DxfPoint> fitPts;
             for (const DxfPoint& fp : spline.fitPoints())
-                fitPts.push_back(transformPoint(fp, ins, bx, by, bz));
-            output.addSpline(DxfSpline(ctrlPts, spline.knots(), spline.weights(), fitPts,
-                                        spline.degree(), spline.flags(),
-                                        spline.tgStartX(), spline.tgStartY(), spline.tgStartZ(),
-                                        spline.tgEndX(), spline.tgEndY(), spline.tgEndZ()));
-        } else {
-            addTransformedSegments(output,
-                                   GeometryUtils::tessellateSpline(spline, tolerance),
-                                   ins, bx, by, bz);
-        }
-    }
+                fitPts.push_back(transformPoint(fp, i, x, y, z));
+            out.addSpline(DxfSpline(ctrlPts, spline.knots(), spline.weights(), fitPts,
+                                     spline.degree(), spline.flags(),
+                                     spline.tgStartX(), spline.tgStartY(), spline.tgStartZ(),
+                                     spline.tgEndX(), spline.tgEndY(), spline.tgEndZ()));
+        });
 
     // --- Nested INSERTs: recursive expansion ---
     for (const InsertInfo& nested : blk.inserts()) {
