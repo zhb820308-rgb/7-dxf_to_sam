@@ -14,6 +14,9 @@ class SamBuilder;
 #include <ptsKPartFragment.h>
 #include <pyoModule.h>
 
+#include <set>
+#include <string>
+
 // Class definition
 
 class Example1PytModule : public pyoModule
@@ -36,7 +39,8 @@ private:
 	// === DXF import helpers ===
 
 	// Stage 1: parse DXF file, returns false on failure
-	bool parseDxfFile(const QString& filePath, DxfData& outData);
+	bool parseDxfFile(const QString& filePath, DxfData& outData,
+	                  const std::set<std::string>& ignoredLayers = {});
 
 	// Stage 2: coordinate conversion (incl. discretization), returns false on failure
 	bool convertToSamData(const DxfData& dxfData, double baseX, double baseY,

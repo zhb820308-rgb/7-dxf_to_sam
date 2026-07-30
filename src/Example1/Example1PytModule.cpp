@@ -6,6 +6,8 @@
 #include <QDebug>
 #include <QElapsedTimer>
 #include <cmath>
+#include <set>
+#include <string>
 
 #include "DxfImportLogger.h"
 #include "DxfParser.h"
@@ -40,10 +42,11 @@ Example1PytModule::~Example1PytModule()
 //  DXF import helpers
 // ========================================================================
 
-bool Example1PytModule::parseDxfFile(const QString& filePath, DxfData& outData)
+bool Example1PytModule::parseDxfFile(const QString& filePath, DxfData& outData,
+                                      const std::set<std::string>& ignoredLayers)
 {
 	DxfParser parser;
-	return parser.parseFile(filePath, outData);
+	return parser.parseFile(filePath, outData, ignoredLayers);
 }
 
 bool Example1PytModule::convertToSamData(const DxfData& dxfData, double baseX, double baseY,
@@ -83,6 +86,7 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 {
 	// ① 参数解析
 	QString filePath;
+	QString ignoreLayersStr;
 	double baseX = 0.0;
 	double baseY = 0.0;
 	double baseZ = 0.0;
@@ -94,7 +98,23 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 	args.Get(baseZ);
 	args.Optional();
 	args.Get(curveTolerance, "curveTolerance");
+	args.Get(ignoreLayersStr, "ignoreLayers");
 	args.End();
+
+	// Parse ignored layers
+	std::set<std::string> ignoredLayers;
+	if (!ignoreLayersStr.isEmpty()) {
+		QStringList parts = ignoreLayersStr.split(',', QString::SkipEmptyParts);
+		for (const QString& part : parts) {
+			std::string layer = part.trimmed().toStdString();
+			if (!layer.empty()) {
+				ignoredLayers.insert(layer);
+			}
+		}
+	}
+	if (!ignoredLayers.empty()) {
+		qDebug() << "[importDxf] 忽略图层:" << ignoreLayersStr;
+	}
 
 	// ② 日志初始化
 	const std::string importId = QDateTime::currentDateTimeUtc()
@@ -135,7 +155,7 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 	QElapsedTimer stageTimer;
 	stageTimer.start();
 	DxfData dxfData;
-	if (!parseDxfFile(filePath, dxfData))
+	if (!parseDxfFile(filePath, dxfData, ignoredLayers))
 	{
 		std::string detail = " error=\"" + dxfData.errorMessage().toLocal8Bit().toStdString() + "\"";
 		return failImport(logger, errorLogger, importId, pathText,

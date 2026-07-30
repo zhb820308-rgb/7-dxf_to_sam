@@ -4,6 +4,7 @@
 
 #include "DxfData.h"
 #include <QString>
+#include <set>
 
 class DxfParser {
 public:
@@ -11,7 +12,8 @@ public:
     /// @param  filePath  absolute or relative path to .dxf file
     /// @param  outData   [out] parsed entity data; cleared on failure
     /// @return true on success; on failure outData.errorMessage() is set
-    bool parseFile(const QString& filePath, DxfData& outData);
+    bool parseFile(const QString& filePath, DxfData& outData,
+                   const std::set<std::string>& ignoredLayers = {});
 };
 
 #endif

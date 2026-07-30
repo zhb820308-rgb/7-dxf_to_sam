@@ -93,6 +93,21 @@ Example1DXFImportDialog::Example1DXFImportDialog(Example1Form* form)
 
 	paramLayout->addWidget(discretizationGroup);
 
+	/*************************Ignore Layers*******************************/
+	QGroupBox* layerGroup =
+		new QGroupBox(tr("Ignore Layers (comma-separated)"), this);
+
+	m_ignoreLayersEdit = new QLineEdit(layerGroup);
+	m_ignoreLayersEdit->setText("");
+	m_ignoreLayersEdit->setPlaceholderText(tr("e.g. DIM, 尺寸, 标注, ANNOTATION, TEXT"));
+	m_ignoreLayersEdit->setToolTip(
+		tr("Comma-separated layer names. Entities on these layers will be excluded from import."));
+
+	QVBoxLayout* layerLayout = new QVBoxLayout(layerGroup);
+	layerLayout->addWidget(m_ignoreLayersEdit);
+
+	paramLayout->addWidget(layerGroup);
+
 	QHBoxLayout* contentLayout = new QHBoxLayout(contentArea);
 	contentLayout->addLayout(paramLayout);
 
@@ -180,12 +195,14 @@ void Example1DXFImportDialog::onCmdOk(int id)
 	}
 
 	// call importDxf
-	omuArguments args(5);
+	QString ignoreLayers = m_ignoreLayersEdit->text().trimmed();
+	omuArguments args(6);
 	args.Put(path);
 	args.Put(baseX);
 	args.Put(baseY);
 	args.Put(baseZ);
 	args.Put(tolerance);
+	args.Put(ignoreLayers);
 	omuMethodCall mc("Example1", "importDxf", args);
 
 	QString cmd;

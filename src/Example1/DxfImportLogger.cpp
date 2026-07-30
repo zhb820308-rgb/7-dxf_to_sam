@@ -5,6 +5,7 @@
 
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QStandardPaths>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
@@ -23,7 +24,37 @@ static const int kMaxImportLogs = 50;
 
 static QString dxfLogRootDirectory()
 {
-	return QDir(QCoreApplication::applicationDirPath()).filePath("logs");
+	// Prefer SAM's own directory for user-friendly access, but fall back
+	// to a user-writable location when SAM is installed under a protected
+	// folder such as "Program Files".
+	const QString appDir = QCoreApplication::applicationDirPath();
+	const QString preferredPath = QDir(appDir).filePath("logs");
+
+	// Create the directory first so we can test writability.
+	if (!QDir().mkpath(preferredPath))
+	{
+		qWarning() << "[importDxf] Cannot create log directory:"
+			<< preferredPath;
+	}
+
+	// Verify writability by creating a temporary test file.
+	const QString testFilePath =
+		QDir(preferredPath).filePath(".dzf_log_test");
+	QFile testFile(testFilePath);
+	const bool writable = testFile.open(QIODevice::WriteOnly | QIODevice::Truncate);
+	if (writable)
+	{
+		testFile.close();
+		testFile.remove();
+		return preferredPath;
+	}
+
+	const QString fallbackPath =
+		QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
+		+ "/logs";
+	qWarning() << "[importDxf] Log directory" << preferredPath
+		<< "is not writable, using" << fallbackPath << "instead.";
+	return fallbackPath;
 }
 
 static void retainRecentImportLogs(
