@@ -148,25 +148,41 @@ TEST(TessellateLWPolyline, constZ_applied) {
 }
 
 // ========================================================================
-//  translate
+//  Translation through the public conversion API
 // ========================================================================
 
 TEST(Translate, basic_offset) {
-    DxfPoint result = ConversionEngine::translate(DxfPoint(1, 2, 3), 10, 20, 30);
+    DxfData data;
+    data.addLine(DxfLine(DxfPoint(1, 2, 3), DxfPoint(2, 2, 3)));
+    SamData output;
+    ASSERT_TRUE(ConversionEngine().convert(data, 10, 20, 30, 0.01, output));
+    ASSERT_EQ(output.lines().size(), 1u);
+    const DxfPoint& result = output.lines()[0].start();
     EXPECT_DOUBLE_EQ(result.x(), 11.0);
     EXPECT_DOUBLE_EQ(result.y(), 22.0);
     EXPECT_DOUBLE_EQ(result.z(), 33.0);
 }
 
 TEST(Translate, zero_offset) {
-    DxfPoint result = ConversionEngine::translate(DxfPoint(5, 5, 5), 0, 0, 0);
+    DxfData data;
+    data.addLine(DxfLine(DxfPoint(5, 5, 5), DxfPoint(6, 5, 5)));
+    SamData output;
+    ASSERT_TRUE(ConversionEngine().convert(data, 0, 0, 0, 0.01, output));
+    ASSERT_EQ(output.lines().size(), 1u);
+    const DxfPoint& result = output.lines()[0].start();
     EXPECT_DOUBLE_EQ(result.x(), 5.0);
     EXPECT_DOUBLE_EQ(result.y(), 5.0);
     EXPECT_DOUBLE_EQ(result.z(), 5.0);
 }
 
 TEST(Translate, negative_offset) {
-    DxfPoint result = ConversionEngine::translate(DxfPoint(10, 20, 30), -5, -10, -15);
+    DxfData data;
+    data.addLine(DxfLine(DxfPoint(10, 20, 30), DxfPoint(11, 20, 30)));
+    SamData output;
+    ASSERT_TRUE(ConversionEngine().convert(
+        data, -5, -10, -15, 0.01, output));
+    ASSERT_EQ(output.lines().size(), 1u);
+    const DxfPoint& result = output.lines()[0].start();
     EXPECT_DOUBLE_EQ(result.x(), 5.0);
     EXPECT_DOUBLE_EQ(result.y(), 10.0);
     EXPECT_DOUBLE_EQ(result.z(), 15.0);
@@ -265,8 +281,13 @@ TEST(TessellateLWPolyline, two_vertex_closed) {
 }
 
 TEST(Translate, large_offset) {
-    DxfPoint result = ConversionEngine::translate(
-        DxfPoint(0, 0, 0), 1e9, -1e9, 1e9);
+    DxfData data;
+    data.addLine(DxfLine(DxfPoint(0, 0, 0), DxfPoint(1, 0, 0)));
+    SamData output;
+    ASSERT_TRUE(ConversionEngine().convert(
+        data, 1e9, -1e9, 1e9, 0.01, output));
+    ASSERT_EQ(output.lines().size(), 1u);
+    const DxfPoint& result = output.lines()[0].start();
     EXPECT_DOUBLE_EQ(result.x(), 1e9);
     EXPECT_DOUBLE_EQ(result.y(), -1e9);
     EXPECT_DOUBLE_EQ(result.z(), 1e9);

@@ -78,7 +78,19 @@ target_include_directories(test_convert PRIVATE ${TEST_COMMON_INCLUDE_DIRS})
 target_link_libraries(test_convert PRIVATE ${TEST_COMMON_LIBS})
 add_test(NAME Convert COMMAND test_convert)
 
-# Test 5: DxfParser integration (needs dxfrw.lib + real DXF files)
+# Test 5: FeConversionEngine (pure data conversion)
+add_executable(test_fe_conversion_engine
+    test_fe_conversion_engine.cpp
+    ${CMAKE_SOURCE_DIR}/src/Example1/GeometryUtils.cpp
+    ${CMAKE_SOURCE_DIR}/src/Example1/DxfData.cpp
+    ${CMAKE_SOURCE_DIR}/src/Example1/FeData.cpp
+    ${CMAKE_SOURCE_DIR}/src/Example1/FeConversionEngine.cpp
+)
+target_include_directories(test_fe_conversion_engine PRIVATE ${TEST_COMMON_INCLUDE_DIRS})
+target_link_libraries(test_fe_conversion_engine PRIVATE ${TEST_COMMON_LIBS})
+add_test(NAME FeConversionEngine COMMAND test_fe_conversion_engine)
+
+# Test 6: DxfParser integration (needs dxfrw.lib + real DXF files)
 add_executable(test_parser
     test_parser.cpp
     ${TESTABLE_SOURCES}
@@ -101,11 +113,13 @@ if(MSVC)
 endif()
 
 # ---- Runtime: ensure Qt5 DLLs are in PATH for test executables ----
-set_tests_properties(GeometryUtils DxfData ConversionEngine Convert Parser PROPERTIES
-    ENVIRONMENT "PATH=$<TARGET_FILE_DIR:Qt5::Core>\\;${LIBDXFRW_ROOT}/build/Release\\;$ENV{PATH}"
+set_tests_properties(
+    GeometryUtils DxfData ConversionEngine Convert FeConversionEngine Parser
+    PROPERTIES
+    ENVIRONMENT "PATH=$<TARGET_FILE_DIR:Qt5::Core>\\;${LIBDXFRW_ROOT}/build/Release\\;${SAM_OCCT_BIN_DIR}\\;$ENV{PATH}"
 )
 
-# Test 6: DxfImportLogger (needs QCoreApplication + spdlog, custom main)
+# Test 7: DxfImportLogger (needs QCoreApplication + spdlog, custom main)
 add_executable(test_dxf_import_logger
     test_dxf_import_logger.cpp
     ${CMAKE_SOURCE_DIR}/src/Example1/DxfImportLogger.cpp
@@ -122,5 +136,5 @@ target_link_libraries(test_dxf_import_logger PRIVATE
 add_test(NAME DxfImportLogger COMMAND test_dxf_import_logger)
 
 set_tests_properties(DxfImportLogger PROPERTIES
-    ENVIRONMENT "PATH=$<TARGET_FILE_DIR:Qt5::Core>\\;$ENV{PATH}"
+    ENVIRONMENT "PATH=$<TARGET_FILE_DIR:Qt5::Core>\\;${SPDLOG_ROOT}/bin\\;${SAM_OCCT_BIN_DIR}\\;$ENV{PATH}"
 )

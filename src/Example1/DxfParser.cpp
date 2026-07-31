@@ -687,6 +687,12 @@ bool DxfParser::parseFile(const QString& filePath, DxfData& outData,
         outData.setErrorMessage(QStringLiteral("DXF file is empty"));
         return false;
     }
+    if (!std::isfinite(curveTolerance) || curveTolerance <= 0.0) {
+        outData.setErrorMessage(
+            QStringLiteral("curveTolerance must be finite and greater than zero"));
+        return false;
+    }
+
     const QByteArray pathBytes = filePath.toLocal8Bit();
     dxfRW dxf(pathBytes.constData());
     DxfReader reader;
@@ -704,13 +710,14 @@ bool DxfParser::parseFile(const QString& filePath, DxfData& outData,
     // --- Expand blocks into flat DxfData ---
     expandBlocks(outData, reader.m_blocks, reader.m_modelSpaceInserts, curveTolerance);
 
-    outData.setValid(true);
-
     const int total = outData.entityCount();
     if (total == 0) {
+        outData.setValid(false);
         outData.setErrorMessage(
             QStringLiteral("DXF was read successfully, but no supported entities were found."));
         return false;
     }
+
+    outData.setValid(true);
     return true;
 }

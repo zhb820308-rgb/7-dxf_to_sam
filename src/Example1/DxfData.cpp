@@ -223,6 +223,7 @@ void DxfData::clear()
     m_lwPolylines.clear();
     m_ellipses.clear();
     m_splines.clear();
+    m_inserts.clear();
     m_entityStats = DxfEntityStats();
     m_errorMessage.clear();
     m_isValid = false;

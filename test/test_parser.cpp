@@ -12,6 +12,7 @@
 #include <QFile>
 #include <QDebug>
 #include <cmath>
+#include <limits>
 #include "DxfParser.h"
 #include "ConversionEngine.h"
 #include "SamData.h"
@@ -61,6 +62,20 @@ TEST(Parser, nonexistent_file_returns_false) {
     EXPECT_FALSE(data.isValid());
 }
 
+TEST(Parser, invalid_curve_tolerance_is_rejected_before_reading) {
+    DxfData data;
+    data.addLine(DxfLine(DxfPoint(0, 0, 0), DxfPoint(1, 0, 0)));
+    data.setValid(true);
+
+    DxfParser parser;
+    EXPECT_FALSE(parser.parseFile(
+        TEST_DATA_DIR + "/point_only.dxf", data,
+        std::numeric_limits<double>::quiet_NaN()));
+    EXPECT_FALSE(data.isValid());
+    EXPECT_EQ(data.entityCount(), 0);
+    EXPECT_FALSE(data.errorMessage().isEmpty());
+}
+
 // ========================================================================
 //  Single entity files
 // ========================================================================
@@ -99,6 +114,18 @@ TEST(Parser, square_dxf_has_entities) {
     EXPECT_TRUE(data.isValid());
     // square.dxf contains a polyline or lines → at least one entity
     EXPECT_GT(data.entityCount(), 0);
+}
+
+TEST(Parser, point_only_dxf_is_valid_input) {
+    DxfData data;
+    DxfParser parser;
+
+    ASSERT_TRUE(parser.parseFile(TEST_DATA_DIR + "/point_only.dxf", data));
+    EXPECT_TRUE(data.isValid());
+    EXPECT_EQ(data.points().size(), 2u);
+    EXPECT_EQ(data.entityCount(), 2);
+    EXPECT_EQ(data.sketchEntityCount(), 0);
+    EXPECT_EQ(data.feEntityCount(), 2);
 }
 
 // ========================================================================

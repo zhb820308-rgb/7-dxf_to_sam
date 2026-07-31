@@ -63,6 +63,13 @@ bool FeConversionEngine::convert(const DxfData& dxfData,
                     << nodeMergeTolerance;
         return false;
     }
+    if (!std::isfinite(baseX) ||
+        !std::isfinite(baseY) ||
+        !std::isfinite(baseZ)) {
+        qWarning() << "[FeConversionEngine] base coordinates must be finite:"
+                   << baseX << baseY << baseZ;
+        return false;
+    }
 
     FeConversionStats& stats = outData.stats();
 
