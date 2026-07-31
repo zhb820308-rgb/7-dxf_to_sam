@@ -96,7 +96,8 @@ target_link_libraries(ContainerShipSectionToolset
 
 # 后构建操作
 add_custom_command(TARGET ContainerShipSectionToolset POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy
-    $<TARGET_FILE:ContainerShipSectionToolset>
-    ${LIBS_SAM_ROOT}/Release/FilePlugin/SAM.Pre.ContainerShipSectionToolset.dll
+    COMMAND ${CMAKE_COMMAND}
+        "-DSOURCE=$<TARGET_FILE:ContainerShipSectionToolset>"
+        "-DDEST=${LIBS_SAM_ROOT}/Release/FilePlugin/SAM.Pre.ContainerShipSectionToolset.dll"
+        -P "${CMAKE_SOURCE_DIR}/cmake/copy_if_possible.cmake"
 )

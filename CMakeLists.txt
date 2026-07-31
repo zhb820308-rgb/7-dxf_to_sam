@@ -66,6 +66,17 @@ if(NOT SPDLOG_ROOT)
     endif()
 endif()
 
+# FE libraries are included in the local SAMSDK distribution.
+if(NOT LIBS_FEASOFT_ROOT)
+    if(DEFINED ENV{FEASOFT_ROOT})
+        set(LIBS_FEASOFT_ROOT "$ENV{FEASOFT_ROOT}" CACHE PATH
+            "FEASoft installation root directory")
+    else()
+        set(LIBS_FEASOFT_ROOT "${LIBS_SAMSDK_ROOT}" CACHE PATH
+            "FEASoft-compatible SAMSDK root directory")
+    endif()
+endif()
+
 # Derived paths
 set(LIBS_PYTHON_ROOT ${LIBS_SAM_ROOT}/Python27)
 set(LIBS_QT5_ROOT ${LIBS_SAMSDK_ROOT}/ThridPartys/Qt-5.12.6-VC14-64)
@@ -130,6 +141,13 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_INSTALL_PREFIX}/lib)
 
 add_subdirectory(src/Example1)
 add_subdirectory(src/Example1Toolset)
+
+option(EXAMPLE1_BUILD_CONTAINER_SHIP_SECTION
+    "Build the optional ContainerShipSection modules" OFF)
+if(EXAMPLE1_BUILD_CONTAINER_SHIP_SECTION)
+    add_subdirectory(ContainerShipSection)
+    add_subdirectory(ContainerShipSectionToolset/ContainerShipSectionToolset)
+endif()
 
 option(EXAMPLE1_BUILD_TESTS "Build Example1 unit tests" OFF)
 if(EXAMPLE1_BUILD_TESTS)

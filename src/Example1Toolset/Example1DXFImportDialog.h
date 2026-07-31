@@ -5,6 +5,7 @@
 
 class QLineEdit;
 class QPushButton;
+class QComboBox;
 class QDoubleValidator;
 class MultiSelectComboBox;
 class Example1Form;
@@ -24,6 +25,7 @@ private slots:
     void onCmdOk(int id) override;
     void onBrowse();
     void onDxfPathEditingFinished();
+    void onImportModeChanged(int index);
 
 private:
     QLineEdit* m_dxfPathEdit;
@@ -31,7 +33,10 @@ private:
     QLineEdit* m_baseYEdit;
     QLineEdit* m_baseZEdit;
     QLineEdit* m_toleranceEdit;
+    QLineEdit* m_modelNameEdit;
+    QLineEdit* m_partNameEdit;
     MultiSelectComboBox* m_ignoreLayersCombo;
+    QComboBox* m_importModeCombo;
     QPushButton* m_browseButton;
     QDoubleValidator* m_doubleValidator;
     QDoubleValidator* m_toleranceValidator;
