@@ -6,6 +6,7 @@
 class QLineEdit;
 class QPushButton;
 class QDoubleValidator;
+class MultiSelectComboBox;
 class Example1Form;
 
 class Example1DXFImportDialog : public SAMDataDialog
@@ -18,6 +19,7 @@ public:
 private slots:
     void onCmdOk(int id) override;
     void onBrowse();
+    void onDxfPathEditingFinished();
 
 private:
     QLineEdit* m_dxfPathEdit;
@@ -25,6 +27,7 @@ private:
     QLineEdit* m_baseYEdit;
     QLineEdit* m_baseZEdit;
     QLineEdit* m_toleranceEdit;
+    MultiSelectComboBox* m_ignoreLayersCombo;
     QPushButton* m_browseButton;
     QDoubleValidator* m_doubleValidator;
     QDoubleValidator* m_toleranceValidator;

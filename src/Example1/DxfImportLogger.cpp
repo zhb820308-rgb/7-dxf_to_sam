@@ -5,6 +5,7 @@
 
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QStandardPaths>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
@@ -31,14 +32,43 @@ static const char* entityTypeName(EntityType type)
 	case EntityType::Arc:        return "ARC";
 	case EntityType::LWPolyline: return "LWPOLYLINE";
 	case EntityType::Ellipse:    return "ELLIPSE";
-	case EntityType::Spline:     return "SPLINE";
 	default:                     return "UNKNOWN";
 	}
 }
 
 static QString dxfLogRootDirectory()
 {
-	return QDir(QCoreApplication::applicationDirPath()).filePath("logs");
+	// Prefer SAM's own directory for user-friendly access, but fall back
+	// to a user-writable location when SAM is installed under a protected
+	// folder such as "Program Files".
+	const QString appDir = QCoreApplication::applicationDirPath();
+	const QString preferredPath = QDir(appDir).filePath("logs");
+
+	// Create the directory first so we can test writability.
+	if (!QDir().mkpath(preferredPath))
+	{
+		qWarning() << "[importDxf] Cannot create log directory:"
+			<< preferredPath;
+	}
+
+	// Verify writability by creating a temporary test file.
+	const QString testFilePath =
+		QDir(preferredPath).filePath(".dxf_log_test");
+	QFile testFile(testFilePath);
+	const bool writable = testFile.open(QIODevice::WriteOnly | QIODevice::Truncate);
+	if (writable)
+	{
+		testFile.close();
+		testFile.remove();
+		return preferredPath;
+	}
+
+	const QString fallbackPath =
+		QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
+		+ "/logs";
+	qWarning() << "[importDxf] Log directory" << preferredPath
+		<< "is not writable, using" << fallbackPath << "instead.";
+	return fallbackPath;
 }
 
 static void retainRecentImportLogs(
@@ -235,7 +265,7 @@ void logRawDxfData(
 	logEntities(logger, importId, "raw", data.arcs(),
 		[](const std::shared_ptr<spdlog::logger>& log, const std::string& id,
 		   const std::string& tag, size_t, const DxfArc& arc) {
-			log->trace(
+			log->info(
 				"[import={}] {} ARC id={} center=({}, {}, {}) radius={}"
 				" start_angle={} end_angle={} ccw={}",
 				id, tag, arc.getId(),
@@ -246,7 +276,7 @@ void logRawDxfData(
 	for (size_t i = 0; i < data.lwPolylines().size(); ++i)
 	{
 		const DxfLWPolyline& polyline = data.lwPolylines()[i];
-		logger->trace(
+		logger->info(
 			"[import={}] raw LWPOLYLINE id={} vertices={} closed={} const_z={}",
 			importId, polyline.getId(), polyline.vertices().size(),
 			polyline.isClosed(), polyline.constZ());
@@ -274,7 +304,7 @@ void logRawDxfData(
 	logEntities(logger, importId, "raw", data.ellipses(),
 		[](const std::shared_ptr<spdlog::logger>& log, const std::string& id,
 		   const std::string& tag, size_t, const DxfEllipse& ellipse) {
-			log->trace(
+			log->info(
 				"[import={}] {} ELLIPSE id={} center=({}, {}, {})"
 				" major_axis=({}, {}, {}) ratio={} start_param={} end_param={} ccw={}",
 				id, tag, ellipse.getId(),
@@ -301,6 +331,8 @@ void logConvertedSamData(
 				id, tag, pt.getId(), pt.x(), pt.y(), pt.z());
 		});
 
+	// Lines produced by curve tessellation are logged below with their parent
+	// entity ID. Keep ordinary converted DXF lines in the original trace form.
 	std::vector<bool> isCurveSegment(data.lines().size(), false);
 	for (const CurveSegmentSource& source : data.curveSegments())
 	{
@@ -319,6 +351,8 @@ void logConvertedSamData(
 			line.end().x(), line.end().y(), line.end().z());
 	}
 
+	// Each original curve gets one INFO summary. Its individual generated
+	// segments remain TRACE and can be expanded by filtering parent_id.
 	const std::vector<CurveSegmentSource>& curveSegments = data.curveSegments();
 	for (size_t i = 0; i < curveSegments.size();)
 	{

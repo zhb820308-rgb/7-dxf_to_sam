@@ -12,6 +12,7 @@ include_directories(
     ${LIBS_OC_ROOT}/include
     ${LIBS_SAMSDK_ROOT}/include
     ${LIBS_SAMSDK_ROOT}/include/guiProject
+    ${LIBDXFRW_INCLUDE_DIR}
 )
   
 link_directories(
@@ -22,6 +23,7 @@ link_directories(
 	${LIBS_SAMSDK_ROOT}/libs
     ${LIBS_TCMALLOC_ROOT}
     ${CMAKE_ARCHIVE_OUTPUT_DIRECTORY}
+    ${LIBDXFRW_ROOT}/build/Release
 )
 
 # source list
@@ -82,4 +84,5 @@ target_link_libraries(Example1Toolset
     SAMIngQtSAM.lib
     SAMGui.lib
     libtcmalloc_minimal.lib
+    dxfrw.lib
 )

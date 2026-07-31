@@ -1,8 +1,13 @@
 #include "DxfParser.h"
 
+#include "GeometryUtils.h"
 #include "libdxfrw.h"
 #include <QDebug>
 #include <cmath>
+#include <set>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 namespace {
 
@@ -12,275 +17,692 @@ namespace {
 
 class DxfReader : public DRW_Interface {
 public:
-	DxfData m_data;
+    DxfData m_data;                         // final flattened output
 
-	// Implemented entity callbacks
-	void addLine(const DRW_Line& data) override;
-	void addCircle(const DRW_Circle& data) override;
-	void addArc(const DRW_Arc& data) override;
-	void addEllipse(const DRW_Ellipse& data) override;
-	void addLWPolyline(const DRW_LWPolyline& data) override;
-	void addSpline(const DRW_Spline* data) override;
+    // --- Parsing context ---
+    std::unordered_map<std::string, DxfBlock> m_blocks;
+    std::vector<InsertInfo>      m_modelSpaceInserts;
 
-	// Stub callbacks (no-op)
-	void addHeader(const DRW_Header* data) override {}
-	void addLType(const DRW_LType& data) override {}
-	void addLayer(const DRW_Layer& data) override {}
-	void addDimStyle(const DRW_Dimstyle& data) override {}
-	void addVport(const DRW_Vport& data) override {}
-	void addTextStyle(const DRW_Textstyle& data) override {}
-	void addAppId(const DRW_AppId& data) override {}
-	void addBlock(const DRW_Block& data) override {}
-	void setBlock(const int handle) override {}
-	void endBlock() override {}
-	void addPoint(const DRW_Point& data) override {}
-	void addRay(const DRW_Ray& data) override {}
-	void addXline(const DRW_Xline& data) override {}
-	void addPolyline(const DRW_Polyline& data) override {}
-	void addKnot(const DRW_Entity& data) override {}
-	void addInsert(const DRW_Insert& data) override {}
-	void addTrace(const DRW_Trace& data) override {}
-	void add3dFace(const DRW_3Dface& data) override {}
-	void addSolid(const DRW_Solid& data) override {}
-	void addMText(const DRW_MText& data) override {}
-	void addText(const DRW_Text& data) override {}
-	void addDimAlign(const DRW_DimAligned* data) override {}
-	void addDimLinear(const DRW_DimLinear* data) override {}
-	void addDimRadial(const DRW_DimRadial* data) override {}
-	void addDimDiametric(const DRW_DimDiametric* data) override {}
-	void addDimAngular(const DRW_DimAngular* data) override {}
-	void addDimAngular3P(const DRW_DimAngular3p* data) override {}
-	void addDimOrdinate(const DRW_DimOrdinate* data) override {}
-	void addLeader(const DRW_Leader* data) override {}
-	void addHatch(const DRW_Hatch* data) override {}
-	void addViewport(const DRW_Viewport& data) override {}
-	void addImage(const DRW_Image* data) override {}
-	void linkImage(const DRW_ImageDef* data) override {}
-	void addComment(const char* comment) override {}
-	void addPlotSettings(const DRW_PlotSettings* data) override {}
-	void writeHeader(DRW_Header& data) override {}
-	void writeBlocks() override {}
-	void writeBlockRecords() override {}
-	void writeEntities() override {}
-	void writeLTypes() override {}
-	void writeLayers() override {}
-	void writeTextstyles() override {}
-	void writeVports() override {}
-	void writeDimstyles() override {}
-	void writeObjects() override {}
-	void writeAppId() override {}
+    // current block being parsed (nullptr = model space)
+    DxfBlock* m_currentBlock = nullptr;
+
+    // --- Layer filter ---
+    std::set<std::string> m_ignoredLayers;
+    std::set<std::string> m_allLayers;
+
+    const std::set<std::string>& allLayers() const { return m_allLayers; }
+
+    /// Helper: returns true if the entity's layer is in the ignored set.
+    bool isLayerIgnored(const DRW_Entity& ent) const {
+        if (m_ignoredLayers.empty()) return false;
+        return m_ignoredLayers.count(ent.layer) != 0;
+    }
+
+    // --- Implemented entity callbacks ---
+    void addLine(const DRW_Line& data) override;
+    void addCircle(const DRW_Circle& data) override;
+    void addArc(const DRW_Arc& data) override;
+    void addEllipse(const DRW_Ellipse& data) override;
+    void addLWPolyline(const DRW_LWPolyline& data) override;
+    void addSpline(const DRW_Spline* data) override;
+    void addPoint(const DRW_Point& data) override;
+
+    // --- Block / Insert callbacks ---
+    void addBlock(const DRW_Block& data) override;
+    void endBlock() override;
+    void addInsert(const DRW_Insert& data) override;
+
+    // --- Layer callback (collect layer names) ---
+    void addLayer(const DRW_Layer& data) override;
+
+    // --- Stub callbacks (no-op) ---
+    void addHeader(const DRW_Header* data) override {}
+    void addLType(const DRW_LType& data) override {}
+    void addDimStyle(const DRW_Dimstyle& data) override {}
+    void addVport(const DRW_Vport& data) override {}
+    void addTextStyle(const DRW_Textstyle& data) override {}
+    void addAppId(const DRW_AppId& data) override {}
+    void setBlock(const int handle) override {}
+    void addRay(const DRW_Ray& data) override {}
+    void addXline(const DRW_Xline& data) override {}
+    void addPolyline(const DRW_Polyline& data) override {}
+    void addKnot(const DRW_Entity& data) override {}
+    void addTrace(const DRW_Trace& data) override {}
+    void add3dFace(const DRW_3Dface& data) override {}
+    void addSolid(const DRW_Solid& data) override {}
+    void addMText(const DRW_MText& data) override {}
+    void addText(const DRW_Text& data) override {}
+    void addDimAlign(const DRW_DimAligned* data) override {}
+    void addDimLinear(const DRW_DimLinear* data) override {}
+    void addDimRadial(const DRW_DimRadial* data) override {}
+    void addDimDiametric(const DRW_DimDiametric* data) override {}
+    void addDimAngular(const DRW_DimAngular* data) override {}
+    void addDimAngular3P(const DRW_DimAngular3p* data) override {}
+    void addDimOrdinate(const DRW_DimOrdinate* data) override {}
+    void addLeader(const DRW_Leader* data) override {}
+    void addHatch(const DRW_Hatch* data) override {}
+    void addViewport(const DRW_Viewport& data) override {}
+    void addImage(const DRW_Image* data) override {}
+    void linkImage(const DRW_ImageDef* data) override {}
+    void addComment(const char* comment) override {}
+    void addPlotSettings(const DRW_PlotSettings* data) override {}
+    void writeHeader(DRW_Header& data) override {}
+    void writeBlocks() override {}
+    void writeBlockRecords() override {}
+    void writeEntities() override {}
+    void writeLTypes() override {}
+    void writeLayers() override {}
+    void writeTextstyles() override {}
+    void writeVports() override {}
+    void writeDimstyles() override {}
+    void writeObjects() override {}
+    void writeAppId() override {}
 };
+
+// ========================================================================
+//  Block expansion helpers
+// ========================================================================
+
+/// Transform a point by an insert's translation / rotation / scale.
+static DxfPoint transformPoint(const DxfPoint& pt,
+                               const InsertInfo& ins,
+                               double blockBaseX, double blockBaseY, double blockBaseZ)
+{
+    double x = pt.x() - blockBaseX;
+    double y = pt.y() - blockBaseY;
+    double z = pt.z() - blockBaseZ;
+
+    x *= ins.scaleX;
+    y *= ins.scaleY;
+    z *= ins.scaleZ;
+
+    if (std::fabs(ins.angle) > 1e-12) {
+        const double cosA = std::cos(ins.angle);
+        const double sinA = std::sin(ins.angle);
+        const double rx = x * cosA - y * sinA;
+        const double ry = x * sinA + y * cosA;
+        x = rx;
+        y = ry;
+    }
+
+    x += ins.insertX;
+    y += ins.insertY;
+    z += ins.insertZ;
+
+    return DxfPoint(x, y, z);
+}
+
+/// Transform and append discretized segments to output.
+static void addTransformedSegments(DxfData& output,
+                                   const std::vector<DxfLine>& segments,
+                                   const InsertInfo& ins,
+                                   double baseX, double baseY, double baseZ)
+{
+    for (const DxfLine& seg : segments) {
+        if (!seg.isValid()) continue;
+        DxfPoint s = transformPoint(seg.start(), ins, baseX, baseY, baseZ);
+        DxfPoint e = transformPoint(seg.end(),   ins, baseX, baseY, baseZ);
+        output.addLine(DxfLine(s, e));
+    }
+}
+
+/// Check whether scales are approximately uniform in XY (for circle preservation).
+static bool isScaleUniformXY(const InsertInfo& ins) {
+    return std::fabs(ins.scaleX - ins.scaleY) < 1e-9
+        && std::fabs(ins.scaleX) > 1e-12;
+}
+
+/// Expand a group of curve entities under uniform or non-uniform scale.
+/// Uniform scale → call preserve() to keep original entity type.
+/// Non-uniform  → call tessellate() then transform segments to output.
+template<typename Entity, typename TessFn, typename PreserveFn>
+static void expandCurveGroup(DxfData& output,
+                             const std::vector<Entity>& entities,
+                             const InsertInfo& ins,
+                             double bx, double by, double bz,
+                             double tolerance, bool uniformXY,
+                             TessFn tessellate,
+                             PreserveFn preserve)
+{
+    for (const Entity& e : entities) {
+        if (!e.isValid()) continue;
+        if (uniformXY) {
+            preserve(output, e, ins, bx, by, bz);
+        } else {
+            addTransformedSegments(output, tessellate(e, tolerance), ins, bx, by, bz);
+        }
+    }
+}
+
+/// Forward declaration for recursive expansion.
+static void expandSingleBlock(DxfData& output,
+                              const DxfBlock& blk,
+                              const InsertInfo& ins,
+                              double tolerance,
+                              const std::unordered_map<std::string, DxfBlock>& blocks,
+                              int depth,
+                              std::unordered_set<std::string>& visiting);
+
+/// Compose two INSERT transforms: outer × inner.
+/// Transforms the inner INSERT's insertion point by the outer INSERT,
+/// then combines scales (multiply) and angles (add).
+///
+/// NOTE: Scale/angle composition assumes the transforms are decomposed
+/// as (Translate × Rotate × Scale). This is correct for standard DXF
+/// INSERTs with uniform scale. Non-uniform nested transforms involving
+/// shearing or mirroring are not handled by this composition.
+static InsertInfo composeInsertTransform(const InsertInfo& outer,
+                                          const InsertInfo& inner,
+                                          const DxfPoint& nestedPos)
+{
+    InsertInfo composed;
+    composed.blockName = inner.blockName;
+    composed.insertX   = nestedPos.x();
+    composed.insertY   = nestedPos.y();
+    composed.insertZ   = nestedPos.z();
+    composed.scaleX    = outer.scaleX * inner.scaleX;
+    composed.scaleY    = outer.scaleY * inner.scaleY;
+    composed.scaleZ    = outer.scaleZ * inner.scaleZ;
+    composed.angle     = outer.angle  + inner.angle;
+    composed.colCount  = inner.colCount;
+    composed.rowCount  = inner.rowCount;
+    composed.colSpace  = inner.colSpace;
+    composed.rowSpace  = inner.rowSpace;
+    return composed;
+}
+
+/// Expand one INSERT with array (row × col) support.
+/// Generates all array instances and delegates each to expandSingleBlock.
+static void expandInsertArray(DxfData& output,
+                              const DxfBlock& blk,
+                              const InsertInfo& ins,
+                              double tolerance,
+                              const std::unordered_map<std::string, DxfBlock>& blocks,
+                              int depth,
+                              std::unordered_set<std::string>& visiting)
+{
+    const int nCols = std::max(1, ins.colCount);
+    const int nRows = std::max(1, ins.rowCount);
+    const double cosA = std::cos(ins.angle);
+    const double sinA = std::sin(ins.angle);
+    for (int row = 0; row < nRows; ++row) {
+        for (int col = 0; col < nCols; ++col) {
+            // Array spacing in INSERT's local coordinate system,
+            // rotated to world direction.
+            const double ox = col * ins.colSpace;
+            const double oy = row * ins.rowSpace;
+            InsertInfo insCopy = ins;
+            insCopy.insertX += cosA * ox - sinA * oy;
+            insCopy.insertY += sinA * ox + cosA * oy;
+            expandSingleBlock(output, blk, insCopy, tolerance, blocks, depth, visiting);
+        }
+    }
+}
+
+/// Expand a single block instance (one INSERT, one array element).
+/// @param blocks  block definitions map, needed for recursive nested INSERT expansion
+static void expandSingleBlock(DxfData& output,
+                              const DxfBlock& blk,
+                              const InsertInfo& ins,
+                              double tolerance,
+                              const std::unordered_map<std::string, DxfBlock>& blocks,
+                              int depth,
+                              std::unordered_set<std::string>& visiting)
+{
+    static const int kMaxExpandDepth = 32;
+    if (depth > kMaxExpandDepth) {
+        qWarning() << "[BlockExpand] max depth" << kMaxExpandDepth
+                   << "exceeded at block:" << blk.name().c_str();
+        return;
+    }
+
+    // Cycle detection
+    if (visiting.count(blk.name())) {
+        qWarning() << "[BlockExpand] cycle detected for block:"
+                   << blk.name().c_str() << "- skipping recursion";
+        return;
+    }
+    visiting.insert(blk.name());
+
+    const double bx = blk.baseX(), by = blk.baseY(), bz = blk.baseZ();
+
+    // --- Points: direct transform ---
+    for (const DxfPoint& pt : blk.points()) {
+        if (!pt.isValid()) continue;
+        output.addPoint(transformPoint(pt, ins, bx, by, bz));
+    }
+
+    // --- Lines: direct transform ---
+    for (const DxfLine& line : blk.lines()) {
+        if (!line.isValid()) continue;
+        DxfPoint s = transformPoint(line.start(), ins, bx, by, bz);
+        DxfPoint e = transformPoint(line.end(),   ins, bx, by, bz);
+        output.addLine(DxfLine(s, e));
+    }
+
+    // --- Circles ---
+    for (const DxfCircle& circle : blk.circles()) {
+        if (!circle.isValid()) continue;
+        if (isScaleUniformXY(ins) && std::fabs(ins.scaleZ - ins.scaleX) < 1e-9) {
+            // Uniform scale → preserve as circle
+            DxfPoint c = transformPoint(circle.center(), ins, bx, by, bz);
+            double   r = circle.radius() * ins.scaleX;
+            if (r > 0.0)
+                output.addCircle(DxfCircle(c, r));
+        } else {
+            // Non-uniform or negative scale → discretize to lines
+            std::vector<DxfLine> segs = GeometryUtils::tessellateArc(
+                DxfArc(circle.center(), circle.radius(), 0.0, 2.0 * M_PI, true),
+                tolerance);
+            addTransformedSegments(output, segs, ins, bx, by, bz);
+        }
+    }
+
+    // --- Arcs: uniform scale → preserve Arc; non-uniform → discretize ---
+    const bool uniformXY = isScaleUniformXY(ins);
+    expandCurveGroup(output, blk.arcs(), ins, bx, by, bz, tolerance, uniformXY,
+        GeometryUtils::tessellateArc,
+        [](DxfData& out, const DxfArc& arc,
+           const InsertInfo& i, double x, double y, double z) {
+            out.addArc(DxfArc(transformPoint(arc.center(), i, x, y, z),
+                        arc.radius() * i.scaleX,
+                        arc.startAngle(), arc.endAngle(), arc.isCCW()));
+        });
+
+    // --- LWPolylines: uniform scale → preserve; non-uniform → discretize ---
+    expandCurveGroup(output, blk.lwPolylines(), ins, bx, by, bz, tolerance, uniformXY,
+        GeometryUtils::tessellateLWPolyline,
+        [](DxfData& out, const DxfLWPolyline& poly,
+           const InsertInfo& i, double x, double y, double z) {
+            std::vector<DxfPoint> verts;
+            for (const DxfPoint& v : poly.vertices())
+                verts.push_back(transformPoint(v, i, x, y, z));
+            out.addLWPolyline(DxfLWPolyline(verts, poly.bulges(),
+                                             poly.isClosed(), poly.constZ() * i.scaleZ));
+        });
+
+    // --- Ellipses: uniform scale → preserve; non-uniform → discretize ---
+    expandCurveGroup(output, blk.ellipses(), ins, bx, by, bz, tolerance, uniformXY,
+        GeometryUtils::tessellateEllipse,
+        [](DxfData& out, const DxfEllipse& ellipse,
+           const InsertInfo& i, double x, double y, double z) {
+            DxfPoint c = transformPoint(ellipse.center(), i, x, y, z);
+            DxfPoint m(ellipse.majorAxisEnd().x() * i.scaleX,
+                       ellipse.majorAxisEnd().y() * i.scaleY,
+                       ellipse.majorAxisEnd().z() * i.scaleZ);
+            out.addEllipse(DxfEllipse(c, m, ellipse.ratio(),
+                                       ellipse.startParam(), ellipse.endParam(), ellipse.isCCW()));
+        });
+
+    // --- Splines: uniform scale → preserve; non-uniform → discretize ---
+    expandCurveGroup(output, blk.splines(), ins, bx, by, bz, tolerance, uniformXY,
+        GeometryUtils::tessellateSpline,
+        [](DxfData& out, const DxfSpline& spline,
+           const InsertInfo& i, double x, double y, double z) {
+            std::vector<DxfPoint> ctrlPts;
+            for (const DxfPoint& cp : spline.controlPoints())
+                ctrlPts.push_back(transformPoint(cp, i, x, y, z));
+            std::vector<DxfPoint> fitPts;
+            for (const DxfPoint& fp : spline.fitPoints())
+                fitPts.push_back(transformPoint(fp, i, x, y, z));
+            out.addSpline(DxfSpline(ctrlPts, spline.knots(), spline.weights(), fitPts,
+                                     spline.degree(), spline.flags(),
+                                     spline.tgStartX(), spline.tgStartY(), spline.tgStartZ(),
+                                     spline.tgEndX(), spline.tgEndY(), spline.tgEndZ()));
+        });
+
+    // --- Nested INSERTs: recursive expansion ---
+    for (const InsertInfo& nested : blk.inserts()) {
+        auto it = blocks.find(nested.blockName);
+        if (it == blocks.end()) {
+            qWarning() << "[BlockExpand] nested INSERT references unknown block:"
+                       << nested.blockName.c_str() << "- skipped";
+            continue;
+        }
+        const DxfBlock& nestedBlk = it->second;
+
+        // Compose transforms: outer × inner
+        const DxfPoint nestedPos = transformPoint(
+            DxfPoint(nested.insertX, nested.insertY, nested.insertZ),
+            ins, bx, by, bz);
+        InsertInfo composed = composeInsertTransform(ins, nested, nestedPos);
+
+        // Generate nested array instances
+        expandInsertArray(output, nestedBlk, composed, tolerance, blocks, depth + 1, visiting);
+    }
+
+    visiting.erase(blk.name());
+}
+
+/// Expand all model-space inserts into the output DxfData.
+/// @param output  [in/out] already contains model-space entities; INSERT entities appended here
+static void expandBlocks(DxfData& output,
+                         const std::unordered_map<std::string, DxfBlock>& blocks,
+                         const std::vector<InsertInfo>& inserts,
+                         double tolerance)
+{
+    // Model-space entities are already in output (written directly during parsing).
+    // Only INSERT expansion is needed here.
+
+    // Expand INSERTs
+    std::unordered_set<std::string> visiting;
+    int expandedInserts = 0;
+    int skippedInserts  = 0;
+
+    for (const InsertInfo& ins : inserts) {
+        auto it = blocks.find(ins.blockName);
+        if (it == blocks.end()) {
+            qWarning() << "[BlockExpand] INSERT references unknown block:" << ins.blockName.c_str() << "- skipped";
+            ++skippedInserts;
+            continue;
+        }
+        const DxfBlock& blk = it->second;
+        expandInsertArray(output, blk, ins, tolerance, blocks, 0, visiting);
+        expandedInserts += std::max(1, ins.colCount) * std::max(1, ins.rowCount);
+    }
+
+    qDebug() << "[BlockExpand] expanded inserts:" << expandedInserts
+             << "skipped:" << skippedInserts;
+}
 
 // ========================================================================
 //  DxfReader member functions — entity callbacks
 // ========================================================================
 
 void DxfReader::addLine(const DRW_Line& data) {
-	DxfPoint start(data.basePoint.x, data.basePoint.y, data.basePoint.z);
-	DxfPoint end(data.secPoint.x, data.secPoint.y, data.secPoint.z);
-	m_data.addLine(DxfLine(start, end));
-	if (m_data.lines().size() <= 3)
-		qDebug() << "[DxfReader] addLine" << start.x() << start.y() << "->" << end.x() << end.y();
+    if (isLayerIgnored(data)) return;
+    DxfPoint start(data.basePoint.x, data.basePoint.y, data.basePoint.z);
+    DxfPoint end(data.secPoint.x, data.secPoint.y, data.secPoint.z);
+    DxfLine line(start, end);
+
+    if (m_currentBlock) {
+        m_currentBlock->addLine(line);
+    } else {
+        m_data.addLine(line);
+    }
 }
 
 void DxfReader::addCircle(const DRW_Circle& data)
 {
-	DxfPoint center(data.basePoint.x, data.basePoint.y, data.basePoint.z);
-	m_data.addCircle(DxfCircle(center, data.radious));
+    if (isLayerIgnored(data)) return;
+    DxfPoint center(data.basePoint.x, data.basePoint.y, data.basePoint.z);
+    DxfCircle circle(center, data.radious);
+
+    if (m_currentBlock) {
+        m_currentBlock->addCircle(circle);
+    } else {
+        m_data.addCircle(circle);
+    }
 }
 
 void DxfReader::addArc(const DRW_Arc& data) {
-	const DRW_Coord center = data.basePoint;
-	const double radius = data.radious;
+    if (isLayerIgnored(data)) return;
+    const DRW_Coord center = data.basePoint;
+    const double radius = data.radious;
 
-	if (!std::isfinite(center.x) || !std::isfinite(center.y) || !std::isfinite(center.z)) {
-		qDebug() << "[DxfReader] addArc skipped: invalid center";
-		return;
-	}
-	if (!std::isfinite(radius) || radius <= 0.0) {
-		qDebug() << "[DxfReader] addArc skipped: invalid radius" << radius;
-		return;
-	}
+    if (!std::isfinite(center.x) || !std::isfinite(center.y) || !std::isfinite(center.z)) {
+        qDebug() << "[DxfReader] addArc skipped: invalid center";
+        return;
+    }
+    if (!std::isfinite(radius) || radius <= 0.0) {
+        qDebug() << "[DxfReader] addArc skipped: invalid radius" << radius;
+        return;
+    }
+    double start = data.staangle;
+    double end = data.endangle;
+    if (!std::isfinite(start) || !std::isfinite(end)) {
+        qDebug() << "[DxfReader] addArc skipped: NaN angles";
+        return;
+    }
 
-	double start = data.staangle;
-	double end = data.endangle;
+    DxfPoint c(center.x, center.y, center.z);
+    DxfArc arc(c, radius, start, end, data.isccw);
 
-	if (!std::isfinite(start) || !std::isfinite(end)) {
-		qDebug() << "[DxfReader] addArc skipped: NaN angles";
-		return;
-	}
-
-	DxfPoint c(center.x, center.y, center.z);
-	m_data.addArc(DxfArc(c, radius, start, end, data.isccw));
+    if (m_currentBlock) {
+        m_currentBlock->addArc(arc);
+    } else {
+        m_data.addArc(arc);
+    }
 }
 
 void DxfReader::addEllipse(const DRW_Ellipse& data) {
-	// 验证长轴长度
-	const double majorX = data.secPoint.x;
-	const double majorY = data.secPoint.y;
-	const double majorLen = std::sqrt(majorX * majorX + majorY * majorY);
+    if (isLayerIgnored(data)) return;
+    const double majorX = data.secPoint.x;
+    const double majorY = data.secPoint.y;
+    const double majorLen = std::sqrt(majorX * majorX + majorY * majorY);
 
-	if (majorLen <= 0.0) return;
-	if (!std::isfinite(data.ratio) || data.ratio <= 0.0) return;
+    if (majorLen <= 0.0) return;
+    if (!std::isfinite(data.ratio) || data.ratio <= 0.0) return;
 
-	DxfPoint center(data.basePoint.x, data.basePoint.y, data.basePoint.z);
-	DxfPoint majorAxisEnd(data.secPoint.x, data.secPoint.y, data.secPoint.z);
+    DxfPoint center(data.basePoint.x, data.basePoint.y, data.basePoint.z);
+    DxfPoint majorAxisEnd(data.secPoint.x, data.secPoint.y, data.secPoint.z);
+    DxfEllipse ellipse(center, majorAxisEnd, data.ratio,
+                        data.staparam, data.endparam, data.isccw);
 
-	m_data.addEllipse(DxfEllipse(center, majorAxisEnd, data.ratio,
-	                              data.staparam, data.endparam, data.isccw));
+    if (m_currentBlock) {
+        m_currentBlock->addEllipse(ellipse);
+    } else {
+        m_data.addEllipse(ellipse);
+    }
 }
 
 void DxfReader::addLWPolyline(const DRW_LWPolyline& data)
 {
-	const int numVerts = std::min(data.vertexnum, static_cast<int>(data.vertlist.size()));
-	qDebug() << "[DxfReader] addLWPolyline vertexnum=" << numVerts
-	         << "flags=" << data.flags << "vertlist=" << (int)data.vertlist.size();
-	if (numVerts < 2) return;
+    if (isLayerIgnored(data)) return;
+    const int numVerts = std::min(data.vertexnum, static_cast<int>(data.vertlist.size()));
+    if (numVerts < 2) return;
 
-	const bool isClosed = (data.flags & 1) != 0;
+    const bool isClosed = (data.flags & 1) != 0;
 
-	std::vector<DxfPoint> vertices;
-	std::vector<double>   bulges;
-	vertices.reserve(numVerts);
-	bulges.reserve(isClosed ? numVerts : numVerts - 1);
+    std::vector<DxfPoint> vertices;
+    std::vector<double>   bulges;
+    vertices.reserve(numVerts);
+    bulges.reserve(isClosed ? numVerts : numVerts - 1);
 
-	for (int i = 0; i < numVerts; ++i) {
-		const DRW_Vertex2D& v = *data.vertlist[i];
-		vertices.push_back(DxfPoint(v.x, v.y, 0.0));
-	}
+    for (int i = 0; i < numVerts; ++i) {
+        const DRW_Vertex2D& v = *data.vertlist[i];
+        vertices.push_back(DxfPoint(v.x, v.y, 0.0));
+    }
 
-	// bulge[i] 描述顶点 i 到顶点 i+1 的弧段
-	// 闭合时最后一个 bulge 描述最后一个顶点到第一个顶点的弧段
-	if (isClosed) {
-		for (int i = 0; i < numVerts; ++i) {
-			bulges.push_back(data.vertlist[i]->bulge);
-		}
-	} else {
-		for (int i = 0; i < numVerts - 1; ++i) {
-			bulges.push_back(data.vertlist[i]->bulge);
-		}
-	}
+    if (isClosed) {
+        for (int i = 0; i < numVerts; ++i) {
+            bulges.push_back(data.vertlist[i]->bulge);
+        }
+    } else {
+        for (int i = 0; i < numVerts - 1; ++i) {
+            bulges.push_back(data.vertlist[i]->bulge);
+        }
+    }
 
-	m_data.addLWPolyline(DxfLWPolyline(vertices, bulges, isClosed, 0.0));
+    DxfLWPolyline poly(vertices, bulges, isClosed, 0.0);
+
+    if (m_currentBlock) {
+        m_currentBlock->addLWPolyline(poly);
+    } else {
+        m_data.addLWPolyline(poly);
+    }
 }
 
 void DxfReader::addSpline(const DRW_Spline* data)
 {
-	if (!data)
-		return;
+    if (!data) return;
+    if (isLayerIgnored(*data)) return;
 
-	const bool isRational = (data->flags & 4) != 0;
-	const bool isPeriodic = (data->flags & 2) != 0;
-	const bool isClosed   = (data->flags & 1) != 0;
+    const bool isRational = (data->flags & 4) != 0;
+    const bool isPeriodic = (data->flags & 2) != 0;
+    const bool isClosed   = (data->flags & 1) != 0;
 
-	const bool hasControlData =
-		data->ncontrol > 0
-		&& static_cast<int>(data->controllist.size()) >= data->ncontrol
-		&& data->degree >= 1
-		&& data->ncontrol > data->degree;
+    const bool hasControlData =
+        data->ncontrol > 0
+        && static_cast<int>(data->controllist.size()) >= data->ncontrol
+        && data->degree >= 1
+        && data->ncontrol > data->degree;
 
-	const bool hasFitData =
-		data->nfit >= 2
-		&& static_cast<int>(data->fitlist.size()) >= data->nfit;
+    const bool hasFitData =
+        data->nfit >= 2
+        && static_cast<int>(data->fitlist.size()) >= data->nfit;
 
-	if (!hasControlData && !hasFitData) {
-		qDebug() << "[Spline] no valid control or fit data;"
-		         << "ncontrol=" << data->ncontrol
-		         << "degree=" << data->degree
-		         << "nfit=" << data->nfit
-		         << "controllist=" << data->controllist.size()
-		         << "fitlist=" << data->fitlist.size()
-		         << "isRational=" << isRational
-		         << "isPeriodic=" << isPeriodic
-		         << "isClosed=" << isClosed;
-		return;
-	}
+    if (!hasControlData && !hasFitData) {
+        qDebug() << "[Spline] no valid control or fit data; ncontrol=" << data->ncontrol
+                 << " degree=" << data->degree << " nfit=" << data->nfit;
+        return;
+    }
 
-	qDebug() << "[Spline]"
-	         << "degree=" << data->degree
-	         << "ncontrol=" << data->ncontrol
-	         << "nknots=" << data->knotslist.size()
-	         << "nfit=" << data->nfit
-	         << "isRational=" << isRational
-	         << "isPeriodic=" << isPeriodic
-	         << "isClosed=" << isClosed;
+    if (hasControlData) {
+        const int numCtrl = data->ncontrol;
+        const int degree  = data->degree;
+        const std::vector<double>& knots = data->knotslist;
+        const int expectedKnotCount = numCtrl + degree + 1;
 
-	// --- Validate control data ---
-	if (hasControlData) {
-		const int numCtrl = data->ncontrol;
-		const int degree  = data->degree;
-		const std::vector<double>& knots = data->knotslist;
-		const int expectedKnotCount = numCtrl + degree + 1;
+        if (static_cast<int>(knots.size()) != expectedKnotCount) {
+            qDebug() << "[Spline] ERROR: knot count mismatch";
+            return;
+        }
+        for (int i = 0; i < expectedKnotCount; ++i) {
+            if (!std::isfinite(knots[i]) || (i > 0 && knots[i] < knots[i - 1])) {
+                qDebug() << "[Spline] ERROR: invalid knot at index" << i;
+                return;
+            }
+        }
+        for (int i = 0; i < numCtrl; ++i) {
+            const auto& point = data->controllist[i];
+            if (!point || !std::isfinite(point->x) || !std::isfinite(point->y) || !std::isfinite(point->z)) {
+                qDebug() << "[Spline] ERROR: invalid control point at index" << i;
+                return;
+            }
+        }
+        if (isRational) {
+            if (static_cast<int>(data->weightlist.size()) < numCtrl) {
+                qDebug() << "[Spline] ERROR: insufficient weights";
+                return;
+            }
+            for (int i = 0; i < numCtrl; ++i) {
+                const double w = data->weightlist[i];
+                if (!std::isfinite(w) || w <= 0.0) {
+                    qDebug() << "[Spline] ERROR: invalid weight at index" << i;
+                    return;
+                }
+            }
+        }
+    }
 
-		if (static_cast<int>(knots.size()) != expectedKnotCount) {
-			qDebug() << "[Spline] ERROR: knot count=" << knots.size()
-			         << "expected=" << expectedKnotCount;
-			return;
-		}
-		for (int i = 0; i < expectedKnotCount; ++i) {
-			if (!std::isfinite(knots[i])
-			    || (i > 0 && knots[i] < knots[i - 1])) {
-				qDebug() << "[Spline] ERROR: invalid knot at index" << i;
-				return;
-			}
-		}
-		for (int i = 0; i < numCtrl; ++i) {
-			const auto& point = data->controllist[i];
-			if (!point || !std::isfinite(point->x)
-			    || !std::isfinite(point->y) || !std::isfinite(point->z)) {
-				qDebug() << "[Spline] ERROR: invalid control point at index" << i;
-				return;
-			}
-		}
-		if (isRational) {
-			if (static_cast<int>(data->weightlist.size()) < numCtrl) {
-				qDebug() << "[Spline] ERROR: rational spline has insufficient weights";
-				return;
-			}
-			for (int i = 0; i < numCtrl; ++i) {
-				const double w = data->weightlist[i];
-				if (!std::isfinite(w) || w <= 0.0) {
-					qDebug() << "[Spline] ERROR: invalid weight at index" << i;
-					return;
-				}
-			}
-		}
-	}
+    std::vector<DxfPoint> ctrlPts;
+    for (int i = 0; i < data->ncontrol; ++i) {
+        const DRW_Coord& pt = *(data->controllist[i]);
+        ctrlPts.push_back(DxfPoint(pt.x, pt.y, pt.z));
+    }
 
-	// --- Copy control points ---
-	std::vector<DxfPoint> ctrlPts;
-	for (int i = 0; i < data->ncontrol; ++i) {
-		const DRW_Coord& pt = *(data->controllist[i]);
-		ctrlPts.push_back(DxfPoint(pt.x, pt.y, pt.z));
-	}
+    std::vector<double> knots = data->knotslist;
 
-	// --- Copy knots ---
-	std::vector<double> knots = data->knotslist;
+    std::vector<double> weights;
+    if (isRational) {
+        for (int i = 0; i < data->ncontrol; ++i)
+            weights.push_back(data->weightlist[i]);
+    }
 
-	// --- Copy weights ---
-	std::vector<double> weights;
-	if (isRational) {
-		for (int i = 0; i < data->ncontrol; ++i)
-			weights.push_back(data->weightlist[i]);
-	}
+    std::vector<DxfPoint> fitPts;
+    for (int i = 0; i < data->nfit; ++i) {
+        const auto& sp = data->fitlist[i];
+        if (sp && std::isfinite(sp->x) && std::isfinite(sp->y) && std::isfinite(sp->z))
+            fitPts.push_back(DxfPoint(sp->x, sp->y, sp->z));
+    }
 
-	// --- Copy fit points ---
-	std::vector<DxfPoint> fitPts;
-	for (int i = 0; i < data->nfit; ++i) {
-		const auto& sp = data->fitlist[i];
-		if (sp && std::isfinite(sp->x) && std::isfinite(sp->y) && std::isfinite(sp->z))
-			fitPts.push_back(DxfPoint(sp->x, sp->y, sp->z));
-	}
+    double tgStartX = data->tgStart.x, tgStartY = data->tgStart.y, tgStartZ = data->tgStart.z;
+    double tgEndX   = data->tgEnd.x,   tgEndY   = data->tgEnd.y,   tgEndZ   = data->tgEnd.z;
 
-	// --- Copy tangents ---
-	double tgStartX = data->tgStart.x, tgStartY = data->tgStart.y, tgStartZ = data->tgStart.z;
-	double tgEndX   = data->tgEnd.x,   tgEndY   = data->tgEnd.y,   tgEndZ   = data->tgEnd.z;
+    DxfSpline spline(ctrlPts, knots, weights, fitPts,
+                      data->degree, data->flags,
+                      tgStartX, tgStartY, tgStartZ,
+                      tgEndX, tgEndY, tgEndZ);
 
-	// --- Store raw data (discretization deferred to ConversionEngine) ---
-	m_data.addSpline(DxfSpline(ctrlPts, knots, weights, fitPts,
-	                            data->degree, data->flags,
-	                            tgStartX, tgStartY, tgStartZ,
-	                            tgEndX, tgEndY, tgEndZ));
+    if (m_currentBlock) {
+        m_currentBlock->addSpline(spline);
+    } else {
+        m_data.addSpline(spline);
+    }
+}
+
+void DxfReader::addPoint(const DRW_Point& data) {
+    if (isLayerIgnored(data)) return;
+    DxfPoint pt(data.basePoint.x, data.basePoint.y, data.basePoint.z);
+    if (m_currentBlock) {
+        m_currentBlock->addPoint(pt);
+    } else {
+        m_data.addPoint(pt);
+    }
+}
+
+// ========================================================================
+//  DxfReader member functions — block / insert callbacks
+// ========================================================================
+
+void DxfReader::addBlock(const DRW_Block& data) {
+    DxfBlock blk;
+    blk.setName(data.name);
+    blk.setBase(data.basePoint.x, data.basePoint.y, data.basePoint.z);
+
+    qDebug() << "[DxfReader] addBlock:" << blk.name().c_str()
+             << "base:(" << blk.baseX() << "," << blk.baseY() << "," << blk.baseZ() << ")"
+             << "flags:" << data.flags;
+
+    // Skip layout blocks
+    if (blk.name() == "*Model_Space" || blk.name() == "*Paper_Space" || blk.name() == "*Paper_Space0") {
+        qDebug() << "[DxfReader] skipping layout block:" << blk.name().c_str();
+        m_currentBlock = nullptr;
+        return;
+    }
+
+    m_blocks[blk.name()] = blk;
+    m_currentBlock = &m_blocks[blk.name()];
+}
+
+void DxfReader::endBlock() {
+    if (m_currentBlock) {
+        qDebug() << "[DxfReader] endBlock:" << m_currentBlock->name().c_str()
+                 << "lines:" << m_currentBlock->lines().size()
+                 << "circles:" << m_currentBlock->circles().size()
+                 << "arcs:" << m_currentBlock->arcs().size()
+                 << "lwPolylines:" << m_currentBlock->lwPolylines().size()
+                 << "ellipses:" << m_currentBlock->ellipses().size()
+                 << "splines:" << m_currentBlock->splines().size();
+    }
+    m_currentBlock = nullptr;
+}
+
+void DxfReader::addInsert(const DRW_Insert& data) {
+    InsertInfo ins;
+    ins.blockName = data.name;
+    ins.insertX   = data.basePoint.x;
+    ins.insertY   = data.basePoint.y;
+    ins.insertZ   = data.basePoint.z;
+    ins.scaleX    = data.xscale;
+    ins.scaleY    = data.yscale;
+    ins.scaleZ    = data.zscale;
+    ins.angle     = data.angle;
+    ins.colCount  = data.colcount;
+    ins.rowCount  = data.rowcount;
+    ins.colSpace  = data.colspace;
+    ins.rowSpace  = data.rowspace;
+
+    if (m_currentBlock) {
+        // Nested INSERT — store in parent block for recursive expansion
+        qDebug() << "[DxfReader] addInsert (nested):" << ins.blockName.c_str()
+                 << "inside block" << m_currentBlock->name().c_str();
+        m_currentBlock->addInsert(ins);
+        return;
+    }
+
+    qDebug() << "[DxfReader] addInsert:" << ins.blockName.c_str()
+             << "at (" << ins.insertX << "," << ins.insertY << "," << ins.insertZ << ")"
+             << "scale (" << ins.scaleX << "," << ins.scaleY << "," << ins.scaleZ << ")"
+             << "angle" << ins.angle << "rad"
+             << "cols" << ins.colCount << "rows" << ins.rowCount;
+
+    m_modelSpaceInserts.push_back(ins);
+}
+
+void DxfReader::addLayer(const DRW_Layer& data) {
+    m_allLayers.insert(data.name);
 }
 
 }  // namespace
@@ -289,37 +711,47 @@ void DxfReader::addSpline(const DRW_Spline* data)
 //  DxfParser::parseFile
 // ========================================================================
 
-bool DxfParser::parseFile(const QString& filePath, DxfData& outData) {
-	outData = DxfData();
-	if (filePath.isEmpty()) {
-		outData.setErrorMessage(QStringLiteral("DXF file is empty"));
-		return false;
-	}
-	const QByteArray pathBytes = filePath.toLocal8Bit();
-	dxfRW dxf(pathBytes.constData());
-	DxfReader reader;
-	if (!dxf.read(&reader, true)) {
-		outData.setErrorMessage(
-			QStringLiteral("Failed to read DXF file. Error code: %1")
-			.arg(static_cast<int>(dxf.getError())));
-		return false;
-	}
-	outData = reader.m_data;
-	outData.setValid(true);
-	qDebug() << "[DxfParser] read ok:"
-	         << "lines=" << outData.lines().size()
-	         << "circles=" << outData.circles().size()
-	         << "arcs=" << outData.arcs().size()
-	         << "lwPolylines=" << outData.lwPolylines().size()
-	         << "ellipses=" << outData.ellipses().size()
-	         << "splines=" << outData.splines().size();
+bool DxfParser::parseFile(const QString& filePath, DxfData& outData,
+                          double curveTolerance,
+                          const std::set<std::string>& ignoredLayers) {
+    outData = DxfData();
+    if (filePath.isEmpty()) {
+        outData.setErrorMessage(QStringLiteral("DXF file is empty"));
+        return false;
+    }
+    const QByteArray pathBytes = filePath.toLocal8Bit();
+    dxfRW dxf(pathBytes.constData());
+    DxfReader reader;
+    reader.m_ignoredLayers = ignoredLayers;
+    if (!dxf.read(&reader, true)) {
+        outData.setErrorMessage(
+            QStringLiteral("Failed to read DXF file. Error code: %1")
+            .arg(static_cast<int>(dxf.getError())));
+        return false;
+    }
 
-	// 检查是否至少有一个实体
-	const int total = outData.entityCount();
-	if (total == 0) {
-		outData.setErrorMessage(
-			QStringLiteral("DXF was read successfully, but no supported entities were found."));
-		return false;
-	}
-	return true;
+    // --- Move parsed entities from reader to output, then expand blocks ---
+    outData = std::move(reader.m_data);
+
+    // --- Expand blocks into flat DxfData ---
+    expandBlocks(outData, reader.m_blocks, reader.m_modelSpaceInserts, curveTolerance);
+
+    outData.setValid(true);
+    qDebug() << "[DxfParser] read ok:"
+             << "lines=" << outData.lines().size()
+             << "circles=" << outData.circles().size()
+             << "arcs=" << outData.arcs().size()
+             << "lwPolylines=" << outData.lwPolylines().size()
+             << "ellipses=" << outData.ellipses().size()
+             << "splines=" << outData.splines().size()
+             << "blocks=" << reader.m_blocks.size()
+             << "inserts=" << reader.m_modelSpaceInserts.size();
+
+    const int total = outData.entityCount();
+    if (total == 0) {
+        outData.setErrorMessage(
+            QStringLiteral("DXF was read successfully, but no supported entities were found."));
+        return false;
+    }
+    return true;
 }

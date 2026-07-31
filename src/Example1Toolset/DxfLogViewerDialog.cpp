@@ -1,5 +1,6 @@
 #include "DxfLogViewerDialog.h"
 
+#include <QBuffer>
 #include <QBrush>
 #include <QComboBox>
 #include <QCoreApplication>
@@ -16,6 +17,7 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QTextStream>
+#include <QTimer>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QVBoxLayout>
@@ -23,6 +25,9 @@
 namespace
 {
     const int kPathRole = Qt::UserRole;
+    const int kLinesPerChunk = 250;
+    const int kMaxDisplayedLines = 10000;
+    const qint64 kMaxSnapshotBytes = 8 * 1024 * 1024;
 
     QString entityKey(const QString& type, const QString& id)
     {
@@ -43,10 +48,17 @@ DxfLogViewerDialog::DxfLogViewerDialog(QWidget* parent)
       m_levelCombo(new QComboBox(this)),
       m_entityFilterEdit(new QLineEdit(this)),
       m_refreshButton(new QPushButton(tr("Refresh"), this)),
+      m_cancelLoadButton(new QPushButton(tr("Stop Loading"), this)),
       m_expandButton(new QPushButton(tr("Expand All"), this)),
       m_collapseButton(new QPushButton(tr("Collapse All"), this)),
       m_statusLabel(new QLabel(this)),
-      m_logTree(new QTreeWidget(this))
+      m_logTree(new QTreeWidget(this)),
+      m_loadTimer(new QTimer(this)),
+      m_logBuffer(nullptr),
+      m_logStream(nullptr),
+      m_scannedLineCount(0),
+      m_displayedLineCount(0),
+      m_snapshotTruncated(false)
 {
     setWindowTitle(tr("DXF Import Log Viewer"));
     resize(1180, 720);
@@ -87,6 +99,7 @@ DxfLogViewerDialog::DxfLogViewerDialog(QWidget* parent)
 
     QHBoxLayout* actions = new QHBoxLayout;
     actions->addWidget(m_statusLabel, 1);
+    actions->addWidget(m_cancelLoadButton);
     actions->addWidget(m_expandButton);
     actions->addWidget(m_collapseButton);
 
@@ -102,10 +115,20 @@ DxfLogViewerDialog::DxfLogViewerDialog(QWidget* parent)
             this, SLOT(loadSelectedLog()));
     connect(m_entityFilterEdit, SIGNAL(textChanged(QString)),
             this, SLOT(loadSelectedLog()));
+    connect(m_cancelLoadButton, SIGNAL(clicked()),
+            this, SLOT(cancelLoading()));
+    connect(m_loadTimer, SIGNAL(timeout()),
+            this, SLOT(loadNextLogChunk()));
     connect(m_expandButton, SIGNAL(clicked()), this, SLOT(expandAllItems()));
     connect(m_collapseButton, SIGNAL(clicked()), this, SLOT(collapseAllItems()));
 
+    m_cancelLoadButton->setEnabled(false);
     refreshLogFiles();
+}
+
+DxfLogViewerDialog::~DxfLogViewerDialog()
+{
+    cancelLoading();
 }
 
 QString DxfLogViewerDialog::logRootDirectory() const
@@ -218,8 +241,12 @@ bool DxfLogViewerDialog::acceptsLine(
 
 void DxfLogViewerDialog::loadSelectedLog()
 {
+    cancelLoading();
     m_logTree->clear();
     m_entityItems.clear();
+    m_scannedLineCount = 0;
+    m_displayedLineCount = 0;
+    m_snapshotTruncated = false;
 
     const QString path = m_logFileCombo->currentData(kPathRole).toString();
     if (path.isEmpty())
@@ -235,20 +262,117 @@ void DxfLogViewerDialog::loadSelectedLog()
         return;
     }
 
-    QTextStream stream(&file);
-    while (!stream.atEnd())
+    // Capture a bounded snapshot of the log.
+    QByteArray snapshot;
+    const qint64 fileSize = file.size();
+    if (fileSize > kMaxSnapshotBytes)
     {
-        const QString line = stream.readLine();
-        const QString level = detectLevel(line);
-        if (acceptsLine(line, level))
-            addLogLine(line);
+        m_snapshotTruncated = true;
+        file.seek(fileSize - kMaxSnapshotBytes);
+        snapshot = file.read(kMaxSnapshotBytes);
+        const int firstLineBreak = snapshot.indexOf('\n');
+        if (firstLineBreak >= 0)
+            snapshot.remove(0, firstLineBreak + 1);
+    }
+    else
+    {
+        snapshot = file.readAll();
     }
 
-    m_logTree->collapseAll();
+    m_logBuffer = new QBuffer(this);
+    m_logBuffer->setData(snapshot);
+    if (!m_logBuffer->open(QIODevice::ReadOnly))
+    {
+        delete m_logBuffer;
+        m_logBuffer = nullptr;
+        m_statusLabel->setText(tr("Cannot prepare log snapshot: %1").arg(path));
+        return;
+    }
+
+    m_logStream = new QTextStream(m_logBuffer);
+    m_cancelLoadButton->setEnabled(true);
+    m_statusLabel->setText(tr("Loading log..."));
+    m_loadTimer->start(0);
+}
+
+void DxfLogViewerDialog::loadNextLogChunk()
+{
+    if (!m_logStream)
+    {
+        finishLoading();
+        return;
+    }
+
+    // Process small batches to keep the UI responsive.
+    m_logTree->setUpdatesEnabled(false);
+    int processedLines = 0;
+    while (!m_logStream->atEnd() &&
+           processedLines < kLinesPerChunk &&
+           m_displayedLineCount < kMaxDisplayedLines)
+    {
+        const QString line = m_logStream->readLine();
+        ++processedLines;
+        ++m_scannedLineCount;
+
+        const QString level = detectLevel(line);
+        if (acceptsLine(line, level))
+        {
+            addLogLine(line);
+            ++m_displayedLineCount;
+        }
+    }
+    m_logTree->setUpdatesEnabled(true);
+
     m_statusLabel->setText(
-        tr("%1 top-level entries - %2")
-            .arg(m_logTree->topLevelItemCount())
-            .arg(QDir::toNativeSeparators(path)));
+        tr("Loading... scanned %1 lines, displayed %2")
+            .arg(m_scannedLineCount)
+            .arg(m_displayedLineCount));
+
+    if (m_logStream->atEnd() ||
+        m_displayedLineCount >= kMaxDisplayedLines)
+    {
+        finishLoading();
+        return;
+    }
+
+    m_loadTimer->start(0);
+}
+
+void DxfLogViewerDialog::finishLoading()
+{
+    m_loadTimer->stop();
+
+    delete m_logStream;
+    m_logStream = nullptr;
+    delete m_logBuffer;
+    m_logBuffer = nullptr;
+    m_cancelLoadButton->setEnabled(false);
+    m_logTree->collapseAll();
+
+    QString status = tr("%1 top-level entries - %2")
+        .arg(m_logTree->topLevelItemCount())
+        .arg(QDir::toNativeSeparators(
+            m_logFileCombo->currentData(kPathRole).toString()));
+    if (m_snapshotTruncated)
+        status += tr(" (latest 8 MB snapshot)");
+    if (m_displayedLineCount >= kMaxDisplayedLines)
+        status += tr(" (display limit reached)");
+    m_statusLabel->setText(status);
+}
+
+void DxfLogViewerDialog::cancelLoading()
+{
+    const bool wasLoading = m_logStream != nullptr;
+    m_loadTimer->stop();
+
+    delete m_logStream;
+    m_logStream = nullptr;
+    delete m_logBuffer;
+    m_logBuffer = nullptr;
+    m_cancelLoadButton->setEnabled(false);
+
+    if (wasLoading)
+        m_statusLabel->setText(tr("Log loading canceled."));
 }
 
 QTreeWidgetItem* DxfLogViewerDialog::findOrCreateEntityItem(

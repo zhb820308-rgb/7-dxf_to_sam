@@ -6,9 +6,13 @@
 #include <QString>
 
 class QComboBox;
+class QBuffer;
+class QFile;
 class QLineEdit;
 class QLabel;
 class QPushButton;
+class QTimer;
+class QTextStream;
 class QTreeWidget;
 class QTreeWidgetItem;
 
@@ -18,10 +22,13 @@ class DxfLogViewerDialog : public QDialog
 
 public:
     explicit DxfLogViewerDialog(QWidget* parent = nullptr);
+    ~DxfLogViewerDialog() override;
 
 private slots:
     void refreshLogFiles();
     void loadSelectedLog();
+    void loadNextLogChunk();
+    void cancelLoading();
     void expandAllItems();
     void collapseAllItems();
 
@@ -46,16 +53,24 @@ private:
     void styleItem(QTreeWidgetItem* item, const QString& level, bool isParent = false);
     QTreeWidgetItem* findOrCreateEntityItem(
         const QString& type, const QString& entityId, const QString& level);
+    void finishLoading();
 
     QComboBox* m_logFileCombo;
     QComboBox* m_levelCombo;
     QLineEdit* m_entityFilterEdit;
     QPushButton* m_refreshButton;
+    QPushButton* m_cancelLoadButton;
     QPushButton* m_expandButton;
     QPushButton* m_collapseButton;
     QLabel* m_statusLabel;
     QTreeWidget* m_logTree;
     QMap<QString, QTreeWidgetItem*> m_entityItems;
+    QTimer* m_loadTimer;
+    QBuffer* m_logBuffer;
+    QTextStream* m_logStream;
+    int m_scannedLineCount;
+    int m_displayedLineCount;
+    bool m_snapshotTruncated;
 };
 
 #endif

@@ -20,6 +20,7 @@ public:
     bool beginImport(const QString& modelName = "Model-1");
     bool commit();
     void rollback();
+
     void setProgressCallback(const ProgressCallback& callback);
 
     int createPoints(const std::vector<DxfPoint>& points);
