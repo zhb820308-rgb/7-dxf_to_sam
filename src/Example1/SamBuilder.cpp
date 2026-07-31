@@ -92,12 +92,10 @@ bool SamBuilder::beginImport(const QString& modelName) {
     m_createdCount = 0;
     m_lastError.clear();
 
-    qDebug() << "[SamBuilder] sketch:" << m_sketchName;
-
     m_hasBounds = false;
 
     basMdb mdb = basBasis::Instance()->Fetch();
-    m_mdb = mdb;  // 保存快照，commit 中复用
+    m_mdb = mdb;  // Save snapshot for reuse in commit()
     gmlSketchRepository& sketches = skcKGetSketchRepos(mdb, m_modelName);
 
     gslMatrix transform;
@@ -114,34 +112,7 @@ bool SamBuilder::beginImport(const QString& modelName) {
     m_sketch = sketch;
     m_factory = new skcGeomFactory(sketch);
     m_active = true;
-
-    qDebug() << "[SamBuilder] sketch created, ID:" << sketchId;
     return true;
-}
-
-// ========================================================================
-//  createPoints
-// ========================================================================
-
-int SamBuilder::createPoints(const std::vector<DxfPoint>& points) {
-    if (!m_active || !m_factory) return 0;
-    const int total = static_cast<int>(points.size());
-    if (!reportProgress(QStringLiteral("Creating points"), 0, total))
-        return -1;
-
-    int count = 0;
-    for (const DxfPoint& pt : points) {
-        // TODO: skcGeomFactory::CreatePoint interface TBC
-        ++count;
-
-        if (count % 1000 == 0 || count == total) {
-            if (!reportProgress(QStringLiteral("Creating points"), count, total))
-                return -1;
-            QCoreApplication::processEvents();
-        }
-    }
-    m_createdCount += count;
-    return count;
 }
 
 // ========================================================================
@@ -150,7 +121,6 @@ int SamBuilder::createPoints(const std::vector<DxfPoint>& points) {
 
 int SamBuilder::createLines(const std::vector<DxfLine>& lines) {
     if (!m_active || !m_factory) return 0;
-    qDebug() << "[SamBuilder] creating" << lines.size() << "lines...";
     const int total = static_cast<int>(lines.size());
     if (!reportProgress(QStringLiteral("Creating lines"), 0, total))
         return -1;
@@ -165,14 +135,12 @@ int SamBuilder::createLines(const std::vector<DxfLine>& lines) {
         ++count;
 
         if (count % 1000 == 0 || count == total) {
-            qDebug() << "[SamBuilder] lines progress:" << count << "/" << lines.size();
             if (!reportProgress(QStringLiteral("Creating lines"), count, total))
                 return -1;
             QCoreApplication::processEvents();
         }
     }
     m_createdCount += count;
-    qDebug() << "[SamBuilder] lines:" << count;
     return count;
 }
 
@@ -182,7 +150,6 @@ int SamBuilder::createLines(const std::vector<DxfLine>& lines) {
 
 int SamBuilder::createCircles(const std::vector<DxfCircle>& circles) {
     if (!m_active || !m_factory) return 0;
-    qDebug() << "[SamBuilder] creating" << circles.size() << "circles...";
     const int total = static_cast<int>(circles.size());
     if (!reportProgress(QStringLiteral("Creating circles"), 0, total))
         return -1;
@@ -199,14 +166,12 @@ int SamBuilder::createCircles(const std::vector<DxfCircle>& circles) {
         ++count;
 
         if (count % 1000 == 0 || count == total) {
-            qDebug() << "[SamBuilder] circles progress:" << count << "/" << circles.size();
             if (!reportProgress(QStringLiteral("Creating circles"), count, total))
                 return -1;
             QCoreApplication::processEvents();
         }
     }
     m_createdCount += count;
-    qDebug() << "[SamBuilder] circles:" << count;
     return count;
 }
 
@@ -230,11 +195,9 @@ bool SamBuilder::commit() {
             double extent = maxAbs * 2.4;
             if (extent < 200.0) extent = 200.0;
             m_sketch->DisplayOptions().SetSheetSize(extent);
-            qDebug() << "[SamBuilder] bounds" << m_minX << m_minY << "-" << m_maxX << m_maxY
-                     << "sheetSize" << extent;
         }
 
-        basMdb mdb = m_mdb;  // 复用 beginImport 中获取的快照
+        basMdb mdb = m_mdb;  // Reuse snapshot acquired in beginImport()
         gmlSketchRepository& sketches = skcKGetSketchRepos(mdb, m_modelName);
 
         gmlSketchWrapper wrapper(m_sketch);
@@ -269,7 +232,6 @@ bool SamBuilder::commit() {
     m_active = false;
     delete m_factory;
     m_factory = nullptr;
-    qDebug() << "[SamBuilder] commit done, total:" << m_createdCount;
     return true;
 }
 
@@ -278,7 +240,6 @@ bool SamBuilder::commit() {
 // ========================================================================
 
 void SamBuilder::rollback() {
-    qDebug() << "[SamBuilder] rollback...";
     delete m_factory;
     m_factory = nullptr;
     m_active = false;

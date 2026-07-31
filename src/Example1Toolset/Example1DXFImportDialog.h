@@ -9,6 +9,10 @@ class QDoubleValidator;
 class MultiSelectComboBox;
 class Example1Form;
 
+/// @brief Dialog for configuring DXF import parameters.
+///
+/// Exposes: file path, base point (X/Y/Z), curve tolerance, and layer exclusion.
+/// Validates input before invoking the import command.
 class Example1DXFImportDialog : public SAMDataDialog
 {
     Q_OBJECT

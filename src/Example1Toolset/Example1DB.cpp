@@ -25,7 +25,7 @@ Example1DB::Example1DB(Example1Form* form)
 {
 	setMinimumSize(470, 200);
 
-	/*************************Parameters*************************************/
+	// ======== Parameters ========
 	QGroupBox* geomGroup = new QGroupBox(tr("Example1GroupBox"));
 	QDoubleValidator* doubleValidator = new QDoubleValidator(geomGroup);
 
@@ -44,7 +44,6 @@ Example1DB::Example1DB(Example1Form* form)
 
 }
 
-/// Destructor.
 Example1DB::~Example1DB()
 {
 

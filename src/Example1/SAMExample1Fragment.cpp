@@ -6,11 +6,6 @@
 #include <bmeElementClass.h>
 #include <shpShape.h>
 #include <bmgUtils.h>
-/*
-#include <samMdbDrawable.h>
-#include <samModelDrawable.h>
-#include <samPartDrawable.h>
-*/
 
 #include <gdyScene.h>
 #include <gdyEditor.h>
@@ -151,7 +146,7 @@ void SAMExample1Fragment::DrawLine(int& segID, g3dVector startPoint, g3dVector e
 	}
 	
 	drawLine->createOneObject(segID, vertexXYZ);
-	scn->ExposeVP();// updata
+	scn->ExposeVP();// update
 
 }
 

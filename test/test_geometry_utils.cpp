@@ -1,7 +1,7 @@
 /**
- * test_geometry_utils.cpp — 测试 GeometryUtils 纯数学函数
+ * test_geometry_utils.cpp — Tests GeometryUtils pure math functions
  *
- * 覆盖: calculateArcSegmentCount / tessellateBulgeArc / normalizeSweep
+ * Covers: calculateArcSegmentCount / tessellateBulgeArc / normalizeSweep
  */
 #include <gtest/gtest.h>
 #include <cmath>

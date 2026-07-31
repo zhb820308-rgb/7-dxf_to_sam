@@ -12,18 +12,18 @@ class QLineEdit;
 // Class definition
 //
 
+/// @brief Minimal database dialog for SAM context.
 class Example1DB : public SAMDataDialog
 {
 	Q_OBJECT
 public:
-	/// Constructor.
+	/// @brief Constructor — creates UI fields for length and width.
 	Example1DB(Example1Form* form);
 
-	/// Destructor.
+	/// @brief Destructor.
 	~Example1DB();
 
 private:
-	// Data members
 	QLineEdit* lengthEdit;
 	QLineEdit* widthEdit;
 

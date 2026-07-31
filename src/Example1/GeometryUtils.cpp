@@ -31,7 +31,7 @@ int calculateArcSegmentCount(double radius, double sweep, double tolerance)
     double maxAngle = 2.0 * std::acos(
         std::max(-1.0, std::min(1.0, 1.0 - tolerance / radius)));
 
-    // 每段角度上限 45°，保证视觉质量
+    // Cap segment angle at 45 degrees for visual quality
     const double minAngle = M_PI / 4.0;
     if (maxAngle > minAngle)
         maxAngle = minAngle;

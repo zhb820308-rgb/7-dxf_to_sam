@@ -8,6 +8,7 @@
 class SAMGuiObjectManager;
 
 // Class definition
+/// @brief Top-level SAM form that owns the DXF import dialog.
 class Example1Form : public SAMForm
 {
 	Q_OBJECT
@@ -22,4 +23,4 @@ protected:
 
 };
 
-#endif  // #ifdef Example1Form_h
+#endif  // #ifndef Example1Form_h

@@ -323,14 +323,6 @@ void logConvertedSamData(
 	if (!logger)
 		return;
 
-	logEntities(logger, importId, "converted", data.points(),
-		[](const std::shared_ptr<spdlog::logger>& log, const std::string& id,
-		   const std::string& tag, size_t, const DxfPoint& pt) {
-			log->trace(
-				"[import={}] {} POINT id={} position=({}, {}, {})",
-				id, tag, pt.getId(), pt.x(), pt.y(), pt.z());
-		});
-
 	// Lines produced by curve tessellation are logged below with their parent
 	// entity ID. Keep ordinary converted DXF lines in the original trace form.
 	std::vector<bool> isCurveSegment(data.lines().size(), false);

@@ -1,7 +1,7 @@
 /**
- * test_dxf_data.cpp — 测试 DxfData 实体有效性验证
+ * test_dxf_data.cpp — Tests DxfData entity validity validation
  *
- * 覆盖: DxfPoint / DxfLine / DxfCircle / DxfArc / DxfEllipse / DxfLWPolyline
+ * Covers: DxfPoint / DxfLine / DxfCircle / DxfArc / DxfEllipse / DxfLWPolyline
  */
 #include <gtest/gtest.h>
 #include <cmath>
@@ -358,4 +358,79 @@ TEST(DxfData, clear_resets_everything) {
     data.clear();
     EXPECT_FALSE(data.isValid());
     EXPECT_EQ(data.entityCount(), 0);
+    EXPECT_EQ(data.entityStats().lines, 0u);
+    EXPECT_EQ(data.entityStats().curveCount(), 0u);
+}
+
+TEST(DxfEntityStats, counts_native_entities) {
+    DxfData data;
+    data.addLine(DxfLine(DxfPoint(0, 0, 0), DxfPoint(1, 0, 0)));
+    data.addLWPolyline(DxfLWPolyline(
+        { DxfPoint(0, 0, 0), DxfPoint(1, 1, 0) }, { 0.0 }, false));
+    data.addCircle(DxfCircle(DxfPoint(0, 0, 0), 1.0));
+    data.addArc(DxfArc(DxfPoint(0, 0, 0), 2.0, 0.0, M_PI, true));
+    data.addEllipse(DxfEllipse(
+        DxfPoint(0, 0, 0), DxfPoint(3, 0, 0), 0.5, 0.0, M_PI, true));
+
+    const DxfEntityStats& stats = data.entityStats();
+    EXPECT_EQ(stats.lines, 1u);
+    EXPECT_EQ(stats.lwPolylines, 1u);
+    EXPECT_EQ(stats.circles, 1u);
+    EXPECT_EQ(stats.arcs, 1u);
+    EXPECT_EQ(stats.ellipses, 1u);
+    EXPECT_EQ(stats.splineCount(), 0u);
+    EXPECT_EQ(stats.curveCount(), 3u);
+}
+
+TEST(DxfEntityStats, generated_curve_lines_do_not_count_as_source_lines) {
+    DxfData data;
+    data.addLine(DxfLine(DxfPoint(0, 0, 0), DxfPoint(1, 0, 0)));
+    data.recordGeneratedEntity(EntityType::Arc);
+    data.recordGeneratedEntity(EntityType::LWPolyline);
+    data.addGeneratedLine(DxfLine(DxfPoint(0, 0, 0), DxfPoint(0, 1, 0)));
+    data.addGeneratedLine(DxfLine(DxfPoint(0, 1, 0), DxfPoint(1, 1, 0)));
+
+    ASSERT_EQ(data.lines().size(), 3u);
+    const DxfEntityStats& stats = data.entityStats();
+    EXPECT_EQ(stats.lines, 1u);
+    EXPECT_EQ(stats.lwPolylines, 1u);
+    EXPECT_EQ(stats.arcs, 1u);
+    EXPECT_EQ(stats.curveCount(), 1u);
+}
+
+TEST(DxfEntityStats, classifies_control_and_fit_splines_separately) {
+    const std::vector<DxfPoint> controlPoints = {
+        DxfPoint(0, 0, 0), DxfPoint(1, 1, 0),
+        DxfPoint(2, 1, 0), DxfPoint(3, 0, 0)
+    };
+    const std::vector<double> knots = { 0, 0, 0, 0, 1, 1, 1, 1 };
+    const std::vector<DxfPoint> fitPoints = {
+        DxfPoint(0, 0, 0), DxfPoint(1, 1, 0), DxfPoint(2, 0, 0)
+    };
+
+    DxfSpline controlSpline(
+        controlPoints, knots, {}, fitPoints, 3, 0,
+        0, 0, 0, 0, 0, 0);
+    DxfSpline fitSpline(
+        {}, {}, {}, fitPoints, 3, 7,
+        0, 0, 0, 0, 0, 0);
+
+    DxfData data;
+    data.addSpline(controlSpline);
+    data.recordGeneratedSpline(fitSpline.kind());
+
+    const SplineKind controlKind = controlSpline.kind();
+    const SplineKind fitKind = fitSpline.kind();
+    EXPECT_EQ(controlKind.construction, SplineConstruction::ControlBased);
+    EXPECT_EQ(fitKind.construction, SplineConstruction::FitBased);
+    EXPECT_TRUE(fitKind.rational);
+    EXPECT_TRUE(fitKind.periodic);
+    EXPECT_TRUE(fitKind.closed);
+
+    const DxfEntityStats& stats = data.entityStats();
+    ASSERT_EQ(stats.splineKinds.size(), 2u);
+    EXPECT_EQ(stats.splineKinds.at(controlKind), 1u);
+    EXPECT_EQ(stats.splineKinds.at(fitKind), 1u);
+    EXPECT_EQ(stats.splineCount(), 2u);
+    EXPECT_EQ(stats.curveCount(), 2u);
 }

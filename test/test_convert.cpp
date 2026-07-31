@@ -1,11 +1,11 @@
 /**
- * test_convert.cpp — 测试 ConversionEngine::convert() 集成流程
+ * test_convert.cpp — Tests ConversionEngine::convert() integration flow
  *
- * 覆盖: 空输入 / 混合实体 / 无效过滤 / 平移验证 / 返回值
+ * Covers: Empty input / mixed entities / invalid filtering / translation verification / return values
  *
- * convert() 是管道的核心调度函数：
- *   DxfData → [离散化+平移+过滤] → SamData
- * 不依赖 SAM SDK，所有输入输出均为纯数据类。
+ * convert() is the core dispatch function of the pipeline:
+ *   DxfData -> [tessellation + translation + filtering] -> SamData
+ * Does not depend on SAM SDK; all inputs and outputs are pure data classes.
  */
 #include <gtest/gtest.h>
 #include <cmath>
@@ -28,7 +28,6 @@ TEST(Convert, empty_dxfdata_returns_false) {
     EXPECT_FALSE(ok);
     EXPECT_EQ(out.lines().size(), 0u);
     EXPECT_EQ(out.circles().size(), 0u);
-    EXPECT_EQ(out.points().size(), 0u);
 }
 
 TEST(Convert, only_invalid_entities_returns_false) {
@@ -241,22 +240,22 @@ TEST(Convert, full_curve_suite) {
 }
 
 // ========================================================================
-//  Point passthrough
+//  Unsupported POINT entities
 // ========================================================================
 
-TEST(Convert, points_pass_through) {
+TEST(Convert, point_only_input_is_not_convertible) {
     DxfData dxf;
     dxf.setValid(true);
     dxf.addPoint(DxfPoint(1, 2, 3));
     dxf.addPoint(DxfPoint(4, 5, 6));
 
     SamData out;
-    bool ok = ConversionEngine().convert(dxf, 0, 0, 0, ConversionEngine::defaultBulgeTolerance(), out);
-    // Points alone don't make convert() return true (entityCount=0)
-    // but they should still appear in output
-    EXPECT_EQ(out.points().size(), 2u);
-    EXPECT_DOUBLE_EQ(out.points()[0].x(), 1.0);
-    EXPECT_DOUBLE_EQ(out.points()[1].x(), 4.0);
+    bool ok = ConversionEngine().convert(
+        dxf, 0, 0, 0, ConversionEngine::defaultBulgeTolerance(), out);
+
+    EXPECT_FALSE(ok);
+    EXPECT_TRUE(out.lines().empty());
+    EXPECT_TRUE(out.circles().empty());
 }
 
 // ========================================================================

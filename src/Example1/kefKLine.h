@@ -16,29 +16,36 @@
 class kefKLine : public gdyNonPageGeomEditor
 {
 public:
-    // Constructor, destructor
+    /// @name Constructors
+    /// @{
     kefKLine();
     virtual ~kefKLine();
+    /// @}
 
     virtual gdyGeomEditor* Copy() const;
 
-    // Type access
+    /// @brief Returns the type atom for this editor.
     const omuAtom& Type() const { return type_atom; }
 
-    // Methods called from gdyEditor
+    /// @name Render callbacks (called from gdyEditor)
+    /// @{
     virtual void Load(const gdyDisplayRep* r, g3dSphere*);
     virtual void Unload();
     virtual void Draft(gdrRenderer&) const;
     virtual void Paint(gdrRenderer&) const;
     virtual void ASelect(gdrASelector&) const;
     virtual void Highlight(gdrRenderer&) const;
+    /// @}
 
-    // Find the index of an object by its segment ID; returns -1 if not found
+    /// @brief Find the index of an object by its segment ID.
+    /// @return Object index, or -1 if not found.
     int findObject(int segID) const;
 
-    // Create a new object or modify an existing one.
-    // segID: [in/out] — if found in existing objects, the entry is updated;
-    //         otherwise a new object is created and segID receives the new ID.
+    /// @brief Create a new object or modify an existing one.
+    /// @param segID [in/out] Segment ID — if found in existing objects the
+    ///        entry is updated; otherwise a new object is created and segID
+    ///        receives the new ID.
+    /// @param vertexXYZ Optional vertex list for new objects.
     void createOneObject(int& segID, const cowList<g3dVector>& vertexXYZ = cowList<g3dVector>());
 
 private:

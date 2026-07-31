@@ -4,23 +4,34 @@
 #include "DxfData.h"
 #include "SamData.h"
 
-// Geometry conversion engine.
-//   - filters invalid entities (zero-length lines, zero-radius circles, ...)
-//   - translates all coordinates by the user-specified base point
-//   - delegates curve discretization to GeometryUtils
-//   - output SamData is ready for skcGeomFactory
+/// @brief Geometry conversion engine.
+///
+/// Filters invalid entities (zero-length lines, zero-radius circles, etc.),
+/// translates all coordinates by the user-specified base point,
+/// delegates curve discretization to GeometryUtils,
+/// and outputs SamData ready for skcGeomFactory.
 class ConversionEngine {
 public:
     ConversionEngine() = default;
 
+    /// @brief Convert DXF entities to SAM-ready geometry.
+    /// @param dxfData   Source DXF entity container.
+    /// @param baseX     Translation offset X.
+    /// @param baseY     Translation offset Y.
+    /// @param baseZ     Translation offset Z.
+    /// @param tolerance Curve tessellation sagitta tolerance.
+    /// @param outData   [out] Resulting SAM-compatible entity container.
+    /// @return true if at least one valid entity was converted.
     bool convert(const DxfData& dxfData,
                  double baseX, double baseY, double baseZ,
                  double tolerance,
                  SamData& outData) const;
 
+    /// @brief Default bulge/chord-height tolerance for curve tessellation.
     static double defaultBulgeTolerance() { return 0.01; }
 
 private:
+    /// @brief Translate a point by the given offsets.
     static DxfPoint translate(const DxfPoint& pt,
                               double bx, double by, double bz);
 };

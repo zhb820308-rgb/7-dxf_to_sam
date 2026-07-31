@@ -142,7 +142,7 @@ static void addTransformedSegments(DxfData& output,
         if (!seg.isValid()) continue;
         DxfPoint s = transformPoint(seg.start(), ins, baseX, baseY, baseZ);
         DxfPoint e = transformPoint(seg.end(),   ins, baseX, baseY, baseZ);
-        output.addLine(DxfLine(s, e));
+        output.addGeneratedLine(DxfLine(s, e));
     }
 }
 
@@ -150,6 +150,18 @@ static void addTransformedSegments(DxfData& output,
 static bool isScaleUniformXY(const InsertInfo& ins) {
     return std::fabs(ins.scaleX - ins.scaleY) < 1e-9
         && std::fabs(ins.scaleX) > 1e-12;
+}
+
+/// Record the source entity before a block curve is discretized into lines.
+template<typename Entity>
+static void recordGeneratedEntity(DxfData& output, const Entity& entity)
+{
+    output.recordGeneratedEntity(entity.getType());
+}
+
+static void recordGeneratedEntity(DxfData& output, const DxfSpline& spline)
+{
+    output.recordGeneratedSpline(spline.kind());
 }
 
 /// Expand a group of curve entities under uniform or non-uniform scale.
@@ -169,6 +181,7 @@ static void expandCurveGroup(DxfData& output,
         if (uniformXY) {
             preserve(output, e, ins, bx, by, bz);
         } else {
+            recordGeneratedEntity(output, e);
             addTransformedSegments(output, tessellate(e, tolerance), ins, bx, by, bz);
         }
     }
@@ -289,8 +302,11 @@ static void expandSingleBlock(DxfData& output,
             double   r = circle.radius() * ins.scaleX;
             if (r > 0.0)
                 output.addCircle(DxfCircle(c, r));
+            else
+                output.recordGeneratedEntity(EntityType::Circle);
         } else {
             // Non-uniform or negative scale → discretize to lines
+            output.recordGeneratedEntity(EntityType::Circle);
             std::vector<DxfLine> segs = GeometryUtils::tessellateArc(
                 DxfArc(circle.center(), circle.radius(), 0.0, 2.0 * M_PI, true),
                 tolerance);
@@ -386,23 +402,16 @@ static void expandBlocks(DxfData& output,
 
     // Expand INSERTs
     std::unordered_set<std::string> visiting;
-    int expandedInserts = 0;
-    int skippedInserts  = 0;
 
     for (const InsertInfo& ins : inserts) {
         auto it = blocks.find(ins.blockName);
         if (it == blocks.end()) {
             qWarning() << "[BlockExpand] INSERT references unknown block:" << ins.blockName.c_str() << "- skipped";
-            ++skippedInserts;
             continue;
         }
         const DxfBlock& blk = it->second;
         expandInsertArray(output, blk, ins, tolerance, blocks, 0, visiting);
-        expandedInserts += std::max(1, ins.colCount) * std::max(1, ins.rowCount);
     }
-
-    qDebug() << "[BlockExpand] expanded inserts:" << expandedInserts
-             << "skipped:" << skippedInserts;
 }
 
 // ========================================================================
@@ -440,20 +449,14 @@ void DxfReader::addArc(const DRW_Arc& data) {
     const DRW_Coord center = data.basePoint;
     const double radius = data.radious;
 
-    if (!std::isfinite(center.x) || !std::isfinite(center.y) || !std::isfinite(center.z)) {
-        qDebug() << "[DxfReader] addArc skipped: invalid center";
+    if (!std::isfinite(center.x) || !std::isfinite(center.y) || !std::isfinite(center.z))
         return;
-    }
-    if (!std::isfinite(radius) || radius <= 0.0) {
-        qDebug() << "[DxfReader] addArc skipped: invalid radius" << radius;
+    if (!std::isfinite(radius) || radius <= 0.0)
         return;
-    }
     double start = data.staangle;
     double end = data.endangle;
-    if (!std::isfinite(start) || !std::isfinite(end)) {
-        qDebug() << "[DxfReader] addArc skipped: NaN angles";
+    if (!std::isfinite(start) || !std::isfinite(end))
         return;
-    }
 
     DxfPoint c(center.x, center.y, center.z);
     DxfArc arc(c, radius, start, end, data.isccw);
@@ -542,11 +545,8 @@ void DxfReader::addSpline(const DRW_Spline* data)
         data->nfit >= 2
         && static_cast<int>(data->fitlist.size()) >= data->nfit;
 
-    if (!hasControlData && !hasFitData) {
-        qDebug() << "[Spline] no valid control or fit data; ncontrol=" << data->ncontrol
-                 << " degree=" << data->degree << " nfit=" << data->nfit;
+    if (!hasControlData && !hasFitData)
         return;
-    }
 
     if (hasControlData) {
         const int numCtrl = data->ncontrol;
@@ -554,34 +554,24 @@ void DxfReader::addSpline(const DRW_Spline* data)
         const std::vector<double>& knots = data->knotslist;
         const int expectedKnotCount = numCtrl + degree + 1;
 
-        if (static_cast<int>(knots.size()) != expectedKnotCount) {
-            qDebug() << "[Spline] ERROR: knot count mismatch";
+        if (static_cast<int>(knots.size()) != expectedKnotCount)
             return;
-        }
         for (int i = 0; i < expectedKnotCount; ++i) {
-            if (!std::isfinite(knots[i]) || (i > 0 && knots[i] < knots[i - 1])) {
-                qDebug() << "[Spline] ERROR: invalid knot at index" << i;
+            if (!std::isfinite(knots[i]) || (i > 0 && knots[i] < knots[i - 1]))
                 return;
-            }
         }
         for (int i = 0; i < numCtrl; ++i) {
             const auto& point = data->controllist[i];
-            if (!point || !std::isfinite(point->x) || !std::isfinite(point->y) || !std::isfinite(point->z)) {
-                qDebug() << "[Spline] ERROR: invalid control point at index" << i;
+            if (!point || !std::isfinite(point->x) || !std::isfinite(point->y) || !std::isfinite(point->z))
                 return;
-            }
         }
         if (isRational) {
-            if (static_cast<int>(data->weightlist.size()) < numCtrl) {
-                qDebug() << "[Spline] ERROR: insufficient weights";
+            if (static_cast<int>(data->weightlist.size()) < numCtrl)
                 return;
-            }
             for (int i = 0; i < numCtrl; ++i) {
                 const double w = data->weightlist[i];
-                if (!std::isfinite(w) || w <= 0.0) {
-                    qDebug() << "[Spline] ERROR: invalid weight at index" << i;
+                if (!std::isfinite(w) || w <= 0.0)
                     return;
-                }
             }
         }
     }
@@ -641,13 +631,8 @@ void DxfReader::addBlock(const DRW_Block& data) {
     blk.setName(data.name);
     blk.setBase(data.basePoint.x, data.basePoint.y, data.basePoint.z);
 
-    qDebug() << "[DxfReader] addBlock:" << blk.name().c_str()
-             << "base:(" << blk.baseX() << "," << blk.baseY() << "," << blk.baseZ() << ")"
-             << "flags:" << data.flags;
-
     // Skip layout blocks
     if (blk.name() == "*Model_Space" || blk.name() == "*Paper_Space" || blk.name() == "*Paper_Space0") {
-        qDebug() << "[DxfReader] skipping layout block:" << blk.name().c_str();
         m_currentBlock = nullptr;
         return;
     }
@@ -657,15 +642,6 @@ void DxfReader::addBlock(const DRW_Block& data) {
 }
 
 void DxfReader::endBlock() {
-    if (m_currentBlock) {
-        qDebug() << "[DxfReader] endBlock:" << m_currentBlock->name().c_str()
-                 << "lines:" << m_currentBlock->lines().size()
-                 << "circles:" << m_currentBlock->circles().size()
-                 << "arcs:" << m_currentBlock->arcs().size()
-                 << "lwPolylines:" << m_currentBlock->lwPolylines().size()
-                 << "ellipses:" << m_currentBlock->ellipses().size()
-                 << "splines:" << m_currentBlock->splines().size();
-    }
     m_currentBlock = nullptr;
 }
 
@@ -686,17 +662,9 @@ void DxfReader::addInsert(const DRW_Insert& data) {
 
     if (m_currentBlock) {
         // Nested INSERT — store in parent block for recursive expansion
-        qDebug() << "[DxfReader] addInsert (nested):" << ins.blockName.c_str()
-                 << "inside block" << m_currentBlock->name().c_str();
         m_currentBlock->addInsert(ins);
         return;
     }
-
-    qDebug() << "[DxfReader] addInsert:" << ins.blockName.c_str()
-             << "at (" << ins.insertX << "," << ins.insertY << "," << ins.insertZ << ")"
-             << "scale (" << ins.scaleX << "," << ins.scaleY << "," << ins.scaleZ << ")"
-             << "angle" << ins.angle << "rad"
-             << "cols" << ins.colCount << "rows" << ins.rowCount;
 
     m_modelSpaceInserts.push_back(ins);
 }
@@ -737,15 +705,6 @@ bool DxfParser::parseFile(const QString& filePath, DxfData& outData,
     expandBlocks(outData, reader.m_blocks, reader.m_modelSpaceInserts, curveTolerance);
 
     outData.setValid(true);
-    qDebug() << "[DxfParser] read ok:"
-             << "lines=" << outData.lines().size()
-             << "circles=" << outData.circles().size()
-             << "arcs=" << outData.arcs().size()
-             << "lwPolylines=" << outData.lwPolylines().size()
-             << "ellipses=" << outData.ellipses().size()
-             << "splines=" << outData.splines().size()
-             << "blocks=" << reader.m_blocks.size()
-             << "inserts=" << reader.m_modelSpaceInserts.size();
 
     const int total = outData.entityCount();
     if (total == 0) {
