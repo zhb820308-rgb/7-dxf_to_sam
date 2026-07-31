@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 // A single finite-element node with a unique ID within FeData.
@@ -36,8 +37,8 @@ struct FeConversionStats {
 };
 
 // Container that holds nodes and truss elements produced by
-// FeConversionEngine.  Owns node merging (3-D spatial hash + merge
-// tolerance), element deduplication, and ID assignment.
+// FeConversionEngine.  Owns node merging (incremental 3-D spatial hash +
+// merge tolerance), element deduplication, and ID assignment.
 //
 // No SAM SDK dependency — suitable for unit testing.
 class FeData {
@@ -86,6 +87,21 @@ private:
         }
     };
 
+    struct TrussKey {
+        int first = -1;
+        int second = -1;
+        bool operator==(const TrussKey& o) const {
+            return first == o.first && second == o.second;
+        }
+    };
+    struct TrussKeyHash {
+        std::size_t operator()(const TrussKey& k) const {
+            std::size_t h = static_cast<std::size_t>(k.first);
+            h ^= static_cast<std::size_t>(k.second) * 0x9e3779b97f4a7c15ULL;
+            return h;
+        }
+    };
+
     SpatialKey makeKey(double x, double y, double z, double cellSize) const;
 
     // Find an existing node whose distance to (x,y,z) <= tolerance.
@@ -94,10 +110,12 @@ private:
 
     std::vector<FeNode>  m_nodes;
     std::vector<FeTruss> m_trusses;
+    std::unordered_set<TrussKey, TrussKeyHash> m_trussIndex;
     FeConversionStats    m_stats;
 
     // Spatial index: key → vector of node indices.
-    // Rebuilt on demand (lazy) when tolerance changes.
+    // Updated incrementally while tolerance is unchanged. Rebuilt only when
+    // tolerance changes or after nodes were inserted with merging disabled.
     mutable double m_indexTolerance = -1.0;
     mutable std::unordered_map<SpatialKey, std::vector<int>, SpatialKeyHash> m_index;
     void rebuildIndex(double tolerance) const;
