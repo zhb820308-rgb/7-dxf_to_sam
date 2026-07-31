@@ -84,6 +84,7 @@ target_link_libraries(Example1
     OrientBasicCoreUtilities
     OrientBasicPrimtives
     OrientPythonInterfaces
+    SAMPythonUtilities
     SAMPythonModuleConfiguration
     SAMCommonCommand
     SAMKernelAttributesInterfaceObjects
