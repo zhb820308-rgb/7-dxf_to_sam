@@ -13,6 +13,7 @@ class SamBuilder;
 
 #include <ptsKPartFragment.h>
 #include <pyoModule.h>
+#include <QString>
 
 // Class definition
 
@@ -43,9 +44,20 @@ private:
 
 	// === DXF import helpers ===
 
-	/// @brief Stage 3: build SAM sketch and commit, auto-rollback on failure.
-	/// @return Number of created entities, or -1 on failure.
-	int buildSamSketch(const SamData& samData, SamBuilder& builder);
+	enum class BuildStatus {
+		Success,
+		Canceled,
+		Failed
+	};
+
+	struct BuildResult {
+		BuildStatus status;
+		int createdCount;
+		QString error;
+	};
+
+	/// @brief Stage 3: build and commit, rolling back immediately on cancellation or failure.
+	BuildResult buildSamSketch(const SamData& samData, SamBuilder& builder);
 };
 
 #endif  // #ifndef Example1PytModule_h

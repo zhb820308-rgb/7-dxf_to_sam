@@ -89,24 +89,54 @@ static QString importSummaryText(int created, const DxfEntityStats& stats)
 		.arg(splineCategories.join(QStringLiteral(", ")));
 }
 
-int Example1PytModule::buildSamSketch(const SamData& samData, SamBuilder& builder)
+Example1PytModule::BuildResult Example1PytModule::buildSamSketch(
+	const SamData& samData,
+	SamBuilder& builder)
 {
 	if (!builder.beginImport())
 	{
-		return -1;
+		return {BuildStatus::Failed, 0, builder.lastError()};
 	}
 
 	int created = 0;
-	created += builder.createLines(samData.lines());
-	created += builder.createCircles(samData.circles());
+	int result = builder.createLines(samData.lines());
+	if (result < 0)
+	{
+		const QString error = builder.lastError();
+		builder.rollback();
+		const BuildStatus status =
+			error == QStringLiteral("import canceled by user")
+				? BuildStatus::Canceled
+				: BuildStatus::Failed;
+		return {status, created, error};
+	}
+	created += result;
+
+	result = builder.createCircles(samData.circles());
+	if (result < 0)
+	{
+		const QString error = builder.lastError();
+		builder.rollback();
+		const BuildStatus status =
+			error == QStringLiteral("import canceled by user")
+				? BuildStatus::Canceled
+				: BuildStatus::Failed;
+		return {status, created, error};
+	}
+	created += result;
 
 	if (!builder.commit())
 	{
+		const QString error = builder.lastError();
 		builder.rollback();
-		return -1;
+		const BuildStatus status =
+			error == QStringLiteral("import canceled by user")
+				? BuildStatus::Canceled
+				: BuildStatus::Failed;
+		return {status, created, error};
 	}
 
-	return created;
+	return {BuildStatus::Success, created, QString()};
 }
 
 void Example1PytModule::DefineConstants()
@@ -249,16 +279,22 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 
 	QString canceledStage;
 	int canceledCurrent = 0, canceledTotal = 0;
+	const int totalBuildEntities = static_cast<int>(
+		samData.lines().size() + samData.circles().size());
 	builder.setProgressCallback(
 		[&](const QString& stage, int current, int total) -> bool {
 			int value = 20;
 			if (stage == QStringLiteral("Creating lines")) {
-				if (total > 0)
-					value = 20 + static_cast<int>(80.0 * current / total);
-				else
-					value = 100;  // empty dataset → done
+				if (totalBuildEntities > 0)
+					value = 20 + static_cast<int>(
+						79.0 * current / totalBuildEntities);
 			} else if (stage == QStringLiteral("Creating circles")) {
-				value = 100;
+				if (totalBuildEntities > 0)
+					value = 20 + static_cast<int>(
+						79.0 * (samData.lines().size() + current) /
+						totalBuildEntities);
+			} else if (stage == QStringLiteral("Finalizing import")) {
+				value = 99;
 			}
 
 			progressDialog.setLabelText(
@@ -275,32 +311,44 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 			return false;
 		});
 
-	int created = buildSamSketch(samData, builder);
-	if (created < 0)
+	const BuildResult buildResult = buildSamSketch(samData, builder);
+	if (buildResult.status == BuildStatus::Canceled)
 	{
-		bool isBeginImport = (builder.lastError() == QString("failed to create sketch"));
-		bool isCanceled = (builder.lastError() == QString("import canceled by user"));
-		std::string stage = isBeginImport ? "begin_import" : isCanceled ? "canceled" : "commit";
-		std::string detail = " error=\"" + builder.lastError().toLocal8Bit().toStdString() + "\"";
-		QString qWarningMsg;
-		if (isBeginImport)
+		progressDialog.close();
+		if (logger)
 		{
-			qWarningMsg = QString("[importDxf] ERROR: failed to create sketch — %1").arg(builder.lastError());
+			logger->warn(
+				"[import={}] canceled stage=\"{}\" progress={}/{} total_elapsed_ms={}",
+				importId,
+				canceledStage.toLocal8Bit().toStdString(),
+				canceledCurrent,
+				canceledTotal,
+				totalTimer.elapsed());
+			logger->flush();
 		}
-		else if (isCanceled)
-		{
-			qWarningMsg = QString("[importDxf] IMPORT CANCELED — %1 %2/%3")
-				.arg(canceledStage).arg(canceledCurrent).arg(canceledTotal);
-		}
-		else
-		{
-			detail = " sketch=\"" + builder.sketchName().toLocal8Bit().toStdString() + "\"" + detail;
-			qWarningMsg = QString("[importDxf] ERROR: commit failed, rolling back — %1").arg(builder.lastError());
-		}
-		return failImport(logger, errorLogger, importId, pathText,
-			stage, detail, totalTimer.elapsed(), qWarningMsg);
+		qWarning().noquote() << QString("[importDxf] IMPORT CANCELED — %1 %2/%3")
+			.arg(canceledStage).arg(canceledCurrent).arg(canceledTotal);
+		dropDxfImportLogger(importId);
+		return nullptr;
 	}
 
+	if (buildResult.status == BuildStatus::Failed)
+	{
+		const bool beginFailed =
+			buildResult.error == QStringLiteral("failed to create sketch");
+		const std::string stage = beginFailed ? "begin_import" : "commit";
+		std::string detail =
+			" error=\"" + buildResult.error.toLocal8Bit().toStdString() + "\"";
+		if (!beginFailed)
+			detail = " sketch=\"" +
+				builder.sketchName().toLocal8Bit().toStdString() + "\"" + detail;
+		return failImport(logger, errorLogger, importId, pathText,
+			stage, detail, totalTimer.elapsed(),
+			QString("[importDxf] ERROR: build failed, rolling back — %1")
+				.arg(buildResult.error));
+	}
+
+	const int created = buildResult.createdCount;
 	// [8/8] Success
 	progressDialog.setValue(100);
 	qDebug().noquote() << importSummaryText(created, entityStats);
