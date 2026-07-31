@@ -62,7 +62,7 @@ set_target_properties(Example1 PROPERTIES
     CXX_STANDARD_REQUIRED ON
 )
 
-# set_target_properties(Example1 PROPERTIES LINK_FLAGS /INCLUDE:"__tcmalloc")  # 暂时禁用 tcmalloc
+# set_target_properties(Example1 PROPERTIES LINK_FLAGS /INCLUDE:"__tcmalloc")  # disabled tcmalloc temporarily
 
 
 

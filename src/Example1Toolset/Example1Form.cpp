@@ -8,7 +8,6 @@ Example1Form::Example1Form(SAMGuiObjectManager* owner)
 {
 }
 
-/// Destructor.
 Example1Form::~Example1Form()
 {
 

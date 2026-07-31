@@ -27,7 +27,7 @@ Example1DXFImportDialog::Example1DXFImportDialog(Example1Form* form)
 {
 	setMinimumSize(470, 270);
 
-	/*************************DXF Path*************************************/
+	// ======== DXF Path ========
 	QGroupBox* dxfGroup = new QGroupBox(tr("DXF File"), this);
 
 	m_dxfPathEdit = new QLineEdit(dxfGroup);
@@ -48,7 +48,7 @@ Example1DXFImportDialog::Example1DXFImportDialog(Example1Form* form)
 	QVBoxLayout* paramLayout = new QVBoxLayout;
 	paramLayout->addWidget(dxfGroup);
 
-	/*************************Base Point*************************************/
+	// ======== Base Point ========
 	QGroupBox* baseGroup = new QGroupBox(tr("Base Point (DXF)"), this);
 
 	m_doubleValidator = new QDoubleValidator(baseGroup);
@@ -76,7 +76,7 @@ Example1DXFImportDialog::Example1DXFImportDialog(Example1Form* form)
 
 	paramLayout->addWidget(baseGroup);
 
-	/*************************Curve Discretization***************************/
+	// ======== Curve Discretization ========
 	QGroupBox* discretizationGroup =
 		new QGroupBox(tr("Curve Discretization"), this);
 
@@ -97,7 +97,7 @@ Example1DXFImportDialog::Example1DXFImportDialog(Example1Form* form)
 
 	paramLayout->addWidget(discretizationGroup);
 
-	/*************************Ignore Layers*******************************/
+	// ======== Ignore Layers ========
 	QGroupBox* layerGroup =
 		new QGroupBox(tr("Ignore Layers"), this);
 
@@ -116,7 +116,6 @@ Example1DXFImportDialog::Example1DXFImportDialog(Example1Form* form)
 }
 
 
-/// Destructor.
 Example1DXFImportDialog::~Example1DXFImportDialog()
 {
 

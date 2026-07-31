@@ -1,11 +1,11 @@
 /**
- * test_convert.cpp — 测试 ConversionEngine::convert() 集成流程
+ * test_convert.cpp — Tests ConversionEngine::convert() integration flow
  *
- * 覆盖: 空输入 / 混合实体 / 无效过滤 / 平移验证 / 返回值
+ * Covers: Empty input / mixed entities / invalid filtering / translation verification / return values
  *
- * convert() 是管道的核心调度函数：
- *   DxfData → [离散化+平移+过滤] → SamData
- * 不依赖 SAM SDK，所有输入输出均为纯数据类。
+ * convert() is the core dispatch function of the pipeline:
+ *   DxfData -> [tessellation + translation + filtering] -> SamData
+ * Does not depend on SAM SDK; all inputs and outputs are pure data classes.
  */
 #include <gtest/gtest.h>
 #include <cmath>

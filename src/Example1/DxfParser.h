@@ -7,6 +7,10 @@
 #include <set>
 #include <string>
 
+/// @brief Parses DXF files into DxfData entity containers.
+///
+/// Block expansion performs coordinate transform only;
+/// discretization is deferred to ConversionEngine.
 class DxfParser {
 public:
     /// Parse a DXF file into a DxfData container.

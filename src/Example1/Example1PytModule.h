@@ -16,6 +16,10 @@ class SamBuilder;
 
 // Class definition
 
+/// @brief Python-callable module that imports DXF geometry as SAM sketches.
+///
+/// Pipeline: DxfParser -> ConversionEngine -> SamBuilder.
+/// All accessible from Python via the importDxf() method.
 class Example1PytModule : public pyoModule
 {
 public:
@@ -26,6 +30,10 @@ public:
 	virtual void DefineConstants();
 
 public:
+	/// @brief Import a DXF file as a SAM sketch.
+	/// @param args Arguments: filePath (str), baseX/Y/Z (float),
+	///             curveTolerance (float, optional), ignoreLayers (str, optional).
+	/// @return Number of created entities, or nullptr on failure.
 	omuPrimitive* importDxf(omuArguments& args);
 
 private:
@@ -35,8 +43,9 @@ private:
 
 	// === DXF import helpers ===
 
-	// Stage 3: build SAM sketch and commit, auto-rollback on failure, returns created count or -1
+	/// @brief Stage 3: build SAM sketch and commit, auto-rollback on failure.
+	/// @return Number of created entities, or -1 on failure.
 	int buildSamSketch(const SamData& samData, SamBuilder& builder);
 };
 
-#endif  // #ifdef shipPytModule_h
+#endif  // #ifndef Example1PytModule_h

@@ -6,7 +6,7 @@
 #include <vector>
 #include <QString>
 
-// ---- InsertInfo — shared by DxfBlock and DxfData ----
+// ======== InsertInfo — shared by DxfBlock and DxfData ========
 
 struct InsertInfo {
     std::string blockName;
@@ -17,7 +17,7 @@ struct InsertInfo {
     double colSpace = 0, rowSpace = 0;
 };
 
-// ---- EntityType ----
+// ======== EntityType ========
 
 enum class EntityType {
     Point,
@@ -55,7 +55,7 @@ struct DxfEntityStats {
     std::size_t curveCount() const;
 };
 
-// ---- DxfEntity (abstract base) ----
+// ======== DxfEntity (abstract base) ========
 
 class DxfEntity {
 public:
@@ -72,7 +72,7 @@ private:
     EntityType type;
 };
 
-// ---- DxfPoint ----
+// ======== DxfPoint ========
 
 class DxfPoint : public DxfEntity {
 public:
@@ -95,7 +95,7 @@ private:
     double m_z = 0.0;
 };
 
-// ---- DxfLine ----
+// ======== DxfLine ========
 
 class DxfLine : public DxfEntity {
 public:
@@ -112,7 +112,7 @@ private:
     DxfPoint m_end;
 };
 
-// ---- DxfCircle ----
+// ======== DxfCircle ========
 
 class DxfCircle : public DxfEntity {
 public:
@@ -129,8 +129,8 @@ private:
     double m_radius = 0.0;
 };
 
-// ---- DxfArc ----
-// 圆弧：圆心、半径、起止角度（弧度）、方向
+// ======== DxfArc ========
+/// Circular arc defined by center, radius, start/end angles (radians), and direction.
 
 class DxfArc : public DxfEntity {
 public:
@@ -154,8 +154,9 @@ private:
     bool   m_isCCW       = true;
 };
 
-// ---- DxfEllipse ----
-// 椭圆弧：中心、长轴端点（相对中心）、短轴/长轴比例、参数范围、方向
+// ======== DxfEllipse ========
+/// Elliptical arc defined by center, major axis endpoint (relative to center),
+/// axis ratio, parameter range, and direction.
 
 class DxfEllipse : public DxfEntity {
 public:
@@ -174,15 +175,16 @@ public:
 
 private:
     DxfPoint m_center;
-    DxfPoint m_majorAxisEnd;  // 长轴端点（相对于中心）
+    DxfPoint m_majorAxisEnd;  ///< Major axis endpoint relative to center.
     double m_ratio       = 1.0;
     double m_startParam  = 0.0;
     double m_endParam    = 0.0;
     bool   m_isCCW       = true;
 };
 
-// ---- DxfLWPolyline ----
-// 轻量多段线：顶点列表 + 每段的 bulge 值，保留原始几何信息
+// ======== DxfLWPolyline ========
+/// Lightweight polyline defined by vertex list and per-segment bulge values,
+/// preserving raw geometry for tessellation.
 
 class DxfLWPolyline : public DxfEntity {
 public:
@@ -201,12 +203,12 @@ public:
 
 private:
     std::vector<DxfPoint> m_vertices;
-    std::vector<double>   m_bulges;    // bulge[i] 描述顶点i到顶点i+1的弧段
+    std::vector<double>   m_bulges;    ///< bulge[i] describes arc segment from vertex i to vertex i+1
     bool   m_closed = false;
     double m_constZ = 0.0;
 };
 
-// ---- DxfSpline ----
+// ======== DxfSpline ========
 // B-spline curve: control points, knots, weights, fit points.
 // flags bit 0=closed, bit 1=periodic, bit 2=rational.
 
@@ -251,13 +253,13 @@ private:
     double m_tgEndX    = 0.0, m_tgEndY    = 0.0, m_tgEndZ    = 0.0;
 };
 
-// ---- DxfData (container) ----
+// ======== DxfData (container) ========
 
 class DxfData {
 public:
     DxfData() = default;
 
-    // --- modifiers ---
+    // ======== modifiers ========
     void addPoint(const DxfPoint& pt);
     void addLine(const DxfLine& line);
     void addCircle(const DxfCircle& circle);
@@ -271,7 +273,7 @@ public:
     void addInsert(const InsertInfo& ins) { m_inserts.push_back(ins); }
     void clear();
 
-    // --- accessors ---
+    // ======== accessors ========
     const std::vector<DxfPoint>&       points()       const { return m_points; }
     const std::vector<DxfLine>&        lines()        const { return m_lines; }
     const std::vector<DxfCircle>&      circles()      const { return m_circles; }
@@ -289,7 +291,7 @@ public:
             m_splines.size());
     }
 
-    // --- error / validity ---
+    // ======== error / validity ========
     QString errorMessage() const { return m_errorMessage; }
     void setErrorMessage(const QString& msg) { m_errorMessage = msg; }
 
@@ -310,7 +312,7 @@ private:
     bool m_isValid = false;
 };
 
-// ---- DxfBlock — named block definition (parsed, not yet expanded) ----
+// ======== DxfBlock — named block definition (parsed, not yet expanded) ========
 
 class DxfBlock {
 public:

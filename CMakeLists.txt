@@ -6,21 +6,67 @@ set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
 project(Example)
 
-get_filename_component(current_folder_absolute ${CMAKE_CURRENT_SOURCE_DIR} DIRECTORY)
-get_filename_component(current_folder_absolute ${current_folder_absolute} DIRECTORY)
-get_filename_component(current_folder_absolute ${current_folder_absolute} DIRECTORY)
-get_filename_component(current_dir ${current_folder_absolute} DIRECTORY)
+# ---- Dependency path resolution ----
+# Priority: cmake -D<VAR>=... > environment variable > project-relative default
+#
+# Each <VAR> can be overridden at configure time:
+#   cmake -DLIBS_SAM_ROOT="C:/path/to/SAM" ..
+# or by setting the corresponding environment variable before configuring.
+#
+# Project-relative defaults assume the development layout:
+#   CMAKE_SOURCE_DIR/../../SAM
+#   CMAKE_SOURCE_DIR/../../OpenOLTranSim-main/SAMSDK
+#   CMAKE_SOURCE_DIR/../env/libdxfrw
+#   (spdlog has no sensible relative path — falls back to env or old default)
 
-# set libs
-# Default paths can be overridden via cmake -D or cmake-gui.
-set(LIBS_SAM_ROOT "D:/shixiSoftware/SAM" CACHE PATH
-    "SAM installation root directory")
-set(LIBS_SAMSDK_ROOT "D:/shixiSoftware/OpenOLTranSim-main/SAMSDK" CACHE PATH
-    "SAMSDK root directory")
-set(LIBDXFRW_ROOT "D:/shixiSoftware/Homework/env/libdxfrw" CACHE PATH
-    "libdxfrw root directory")
-set(SPDLOG_ROOT "D:/vcpkg/installed/x64-windows" CACHE PATH
-    "Root directory containing the installed shared spdlog package")
+# -- LIBS_SAM_ROOT --
+if(NOT LIBS_SAM_ROOT)
+    if(DEFINED ENV{SAM_ROOT})
+        set(LIBS_SAM_ROOT "$ENV{SAM_ROOT}" CACHE PATH
+            "SAM installation root directory")
+    else()
+        set(LIBS_SAM_ROOT "${CMAKE_SOURCE_DIR}/../../SAM" CACHE PATH
+            "SAM installation root directory")
+    endif()
+endif()
+
+# -- LIBS_SAMSDK_ROOT --
+if(NOT LIBS_SAMSDK_ROOT)
+    if(DEFINED ENV{SAMSDK_ROOT})
+        set(LIBS_SAMSDK_ROOT "$ENV{SAMSDK_ROOT}" CACHE PATH
+            "SAMSDK root directory")
+    else()
+        set(LIBS_SAMSDK_ROOT "${CMAKE_SOURCE_DIR}/../../OpenOLTranSim-main/SAMSDK" CACHE PATH
+            "SAMSDK root directory")
+    endif()
+endif()
+
+# -- LIBDXFRW_ROOT --
+if(NOT LIBDXFRW_ROOT)
+    if(DEFINED ENV{LIBDXFRW_ROOT})
+        set(LIBDXFRW_ROOT "$ENV{LIBDXFRW_ROOT}" CACHE PATH
+            "libdxfrw root directory")
+    else()
+        set(LIBDXFRW_ROOT "${CMAKE_SOURCE_DIR}/../env/libdxfrw" CACHE PATH
+            "libdxfrw root directory")
+    endif()
+endif()
+
+# -- SPDLOG_ROOT --
+if(NOT SPDLOG_ROOT)
+    if(DEFINED ENV{SPDLOG_ROOT})
+        set(SPDLOG_ROOT "$ENV{SPDLOG_ROOT}" CACHE PATH
+            "Root directory containing the installed spdlog package")
+    elseif(DEFINED ENV{VCPKG_ROOT})
+        set(SPDLOG_ROOT "$ENV{VCPKG_ROOT}/installed/x64-windows" CACHE PATH
+            "Root directory containing the installed spdlog package")
+    else()
+        set(SPDLOG_ROOT "D:/vcpkg/installed/x64-windows" CACHE PATH
+            "Root directory containing the installed spdlog package")
+    endif()
+endif()
+
+# Derived paths
 set(LIBS_PYTHON_ROOT ${LIBS_SAM_ROOT}/Python27)
 set(LIBS_QT5_ROOT ${LIBS_SAMSDK_ROOT}/ThridPartys/Qt-5.12.6-VC14-64)
 set(LIBS_TCMALLOC_ROOT ${LIBS_SAMSDK_ROOT}/ThridPartys/TCMalloc)
@@ -33,7 +79,6 @@ set(LIBDXFRW_INCLUDE_DIR "${LIBDXFRW_ROOT}/src")
 set(LIBDXFRW_LIBRARY "${LIBDXFRW_ROOT}/build/Release/dxfrw.lib")
 set(LIBDXFRW_RUNTIME "${LIBDXFRW_ROOT}/build/Release/dxfrw.dll")
 set(spdlog_DIR "${SPDLOG_ROOT}/share/spdlog")
-set(fmt_DIR "${SPDLOG_ROOT}/share/fmt")
 
 # OCCT (Open CASCADE Technology) — headers in repo, libs configurable
 set(SAM_OCCT_ROOT "${CMAKE_SOURCE_DIR}/example/OCCT" CACHE PATH

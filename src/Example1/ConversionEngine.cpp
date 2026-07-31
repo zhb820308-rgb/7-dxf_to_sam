@@ -39,7 +39,7 @@ bool ConversionEngine::convert(const DxfData& dxfData,
         outData.addCircle(DxfCircle(c, circle.radius()));
     }
 
-    // --- 辅助：将离散化后的线段平移并添加到输出 ---
+    // --- helper: translate tessellated segments and append to output ---
     auto addSegments = [&](const std::vector<DxfLine>& segments,
                            EntityType parentType, int parentId) {
         size_t segmentIndex = 0;
@@ -53,28 +53,28 @@ bool ConversionEngine::convert(const DxfData& dxfData,
         }
     };
 
-    // --- arcs (离散化 + 平移) ---
+    // --- arcs (tessellation + translation) ---
     for (const DxfArc& arc : dxfData.arcs()) {
         if (!arc.isValid()) continue;
         addSegments(GeometryUtils::tessellateArc(arc, tolerance),
                     EntityType::Arc, arc.getId());
     }
 
-    // --- lwPolylines (离散化 + 平移) ---
+    // --- lwPolylines (tessellation + translation) ---
     for (const DxfLWPolyline& poly : dxfData.lwPolylines()) {
         if (!poly.isValid()) continue;
         addSegments(GeometryUtils::tessellateLWPolyline(poly, tolerance),
                     EntityType::LWPolyline, poly.getId());
     }
 
-    // --- ellipses (离散化 + 平移) ---
+    // --- ellipses (tessellation + translation) ---
     for (const DxfEllipse& ellipse : dxfData.ellipses()) {
         if (!ellipse.isValid()) continue;
         addSegments(GeometryUtils::tessellateEllipse(ellipse, tolerance),
                     EntityType::Ellipse, ellipse.getId());
     }
 
-    // --- splines (OCCT B-spline 构建 + 离散化 + 平移) ---
+    // --- splines (OCCT B-spline construction + tessellation + translation) ---
     for (const DxfSpline& spline : dxfData.splines()) {
         if (!spline.isValid()) continue;
         addSegments(GeometryUtils::tessellateSpline(spline, tolerance),

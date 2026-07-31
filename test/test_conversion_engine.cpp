@@ -1,7 +1,7 @@
 /**
- * test_conversion_engine.cpp — 测试离散化与平移
+ * test_conversion_engine.cpp — Tests tessellation and translation
  *
- * 覆盖: GeometryUtils::tessellateArc / tessellateLWPolyline / tessellateEllipse
+ * Covers: GeometryUtils::tessellateArc / tessellateLWPolyline / tessellateEllipse
  *       + ConversionEngine::translate
  */
 #include <gtest/gtest.h>

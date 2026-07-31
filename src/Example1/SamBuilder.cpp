@@ -95,7 +95,7 @@ bool SamBuilder::beginImport(const QString& modelName) {
     m_hasBounds = false;
 
     basMdb mdb = basBasis::Instance()->Fetch();
-    m_mdb = mdb;  // 保存快照，commit 中复用
+    m_mdb = mdb;  // Save snapshot for reuse in commit()
     gmlSketchRepository& sketches = skcKGetSketchRepos(mdb, m_modelName);
 
     gslMatrix transform;
@@ -197,7 +197,7 @@ bool SamBuilder::commit() {
             m_sketch->DisplayOptions().SetSheetSize(extent);
         }
 
-        basMdb mdb = m_mdb;  // 复用 beginImport 中获取的快照
+        basMdb mdb = m_mdb;  // Reuse snapshot acquired in beginImport()
         gmlSketchRepository& sketches = skcKGetSketchRepos(mdb, m_modelName);
 
         gmlSketchWrapper wrapper(m_sketch);

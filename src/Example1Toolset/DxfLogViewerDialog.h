@@ -12,6 +12,10 @@ class QPushButton;
 class QTreeWidget;
 class QTreeWidgetItem;
 
+/// @brief Dialog for browsing and viewing DXF import log files.
+///
+/// Supports filtering by severity level and entity type, expand/collapse
+/// tree navigation, and structured display of log entries.
 class DxfLogViewerDialog : public QDialog
 {
     Q_OBJECT
@@ -20,20 +24,25 @@ public:
     explicit DxfLogViewerDialog(QWidget* parent = nullptr);
 
 private slots:
+    /// @brief Refresh the log file dropdown from the log directory.
     void refreshLogFiles();
+    /// @brief Load and display the currently selected log file.
     void loadSelectedLog();
+    /// @brief Expand all tree items.
     void expandAllItems();
+    /// @brief Collapse all tree items.
     void collapseAllItems();
 
 private:
+    /// @brief Severity level filter mode for log display.
     enum FilterMode {
-        SummaryWithDetails = 0,
-        AllLevels,
-        TraceOnly,
-        DebugOnly,
-        InfoOnly,
-        WarningOnly,
-        ErrorOnly
+        SummaryWithDetails = 0,  ///< Show summary with detailed sub-items.
+        AllLevels,               ///< Show all log entries.
+        TraceOnly,               ///< Show only trace-level entries.
+        DebugOnly,               ///< Show only debug-level entries.
+        InfoOnly,                ///< Show only info-level entries.
+        WarningOnly,             ///< Show only warning-level entries.
+        ErrorOnly                ///< Show only error-level entries.
     };
 
     QString logRootDirectory() const;

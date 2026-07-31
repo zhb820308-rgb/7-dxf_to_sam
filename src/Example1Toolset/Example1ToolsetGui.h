@@ -31,12 +31,13 @@ class Example1ToolsetGui : public SAMToolsetGui, public omiSingleton<Example1Too
     friend class omiSingleton<Example1ToolsetGui>;
 public:
 
-    // Constructor and destructor:
+	/// @brief Constructor.
     Example1ToolsetGui();
+    /// @brief Destructor.
     ~Example1ToolsetGui();
 
 private:
-    // Copy constructor and assignment operator
+    /// @brief Disallow copy.
     Example1ToolsetGui(const Example1ToolsetGui&);
 
 protected:
@@ -53,8 +54,7 @@ protected:
     virtual void createToolboxItems();
 
 private:
-	
-    
+
 private slots:
 	void onImportDxf();
 	void onViewDxfLogs();

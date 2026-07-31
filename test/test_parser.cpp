@@ -1,7 +1,7 @@
 /**
- * test_parser.cpp — 测试 DxfParser 用真实 DXF 文件解析
+ * test_parser.cpp — Tests DxfParser parsing with real DXF files
  *
- * 覆盖: parseFile() / 实体计数 / 错误路径 / 完整 parse→convert 管道
+ * Covers: parseFile() / entity count / error paths / full parse->convert pipeline
  */
 #include <gtest/gtest.h>
 
@@ -17,7 +17,7 @@
 #include "SamData.h"
 
 // ========================================================================
-//  辅助: 检查文件是否存在
+//  Helper: check if file exists
 // ========================================================================
 
 static bool fileExists(const QString& path) {
@@ -28,7 +28,7 @@ static bool fileExists(const QString& path) {
 #define TEST_DATA_DIR QStringLiteral("D:/shixiSoftware/Homework/7-dxf_to_sam/test/data")
 
 // ========================================================================
-//  文件存在性
+//  File existence
 // ========================================================================
 
 TEST(Parser, example_files_exist) {
@@ -44,7 +44,7 @@ TEST(Parser, example_files_exist) {
 }
 
 // ========================================================================
-//  错误路径
+//  Error paths
 // ========================================================================
 
 TEST(Parser, empty_path_returns_false) {
@@ -62,7 +62,7 @@ TEST(Parser, nonexistent_file_returns_false) {
 }
 
 // ========================================================================
-//  单实体文件
+//  Single entity files
 // ========================================================================
 
 TEST(Parser, line1_dxf_has_lines) {
@@ -102,7 +102,7 @@ TEST(Parser, square_dxf_has_entities) {
 }
 
 // ========================================================================
-//  弧文件
+//  Arc files
 // ========================================================================
 
 TEST(Parser, half_circle_up_dxf_has_arcs) {
@@ -126,7 +126,7 @@ TEST(Parser, part_circle_down_dxf_has_arcs) {
 }
 
 // ========================================================================
-//  椭圆文件
+//  Ellipse files
 // ========================================================================
 
 TEST(Parser, elipse_dxf_has_ellipses) {
@@ -142,7 +142,7 @@ TEST(Parser, elipse_dxf_has_ellipses) {
 }
 
 // ========================================================================
-//  多段线文件
+//  Polyline files
 // ========================================================================
 
 TEST(Parser, pline_half_circle_dxf_has_polylines) {
@@ -200,7 +200,7 @@ TEST(Parser, nonuniform_block_curves_keep_source_statistics) {
 }
 
 // ========================================================================
-//  混合实体文件
+//  Mixed entity files
 // ========================================================================
 
 TEST(Parser, circle_coner_dxf) {
@@ -220,7 +220,7 @@ TEST(Parser, line_and_circle_closed_dxf) {
 }
 
 // ========================================================================
-//  完整管道: parse → convert（不依赖 SAM SDK）
+//  Full pipeline: parse -> convert (without SAM SDK dependency)
 // ========================================================================
 
 TEST(Pipeline, line1_parse_then_convert) {
@@ -285,7 +285,7 @@ TEST(Pipeline, pline_half_circle_parse_then_convert) {
 }
 
 // ========================================================================
-//  回归: 满椭圆不应丢失
+//  Regression: full ellipse should not be lost
 // ========================================================================
 
 TEST(Regression, elipse_dxf_full_ellipse_not_lost) {
@@ -293,11 +293,11 @@ TEST(Regression, elipse_dxf_full_ellipse_not_lost) {
     DxfParser parser;
     ASSERT_TRUE(parser.parseFile(EXAMPLE_DIR + "/elipse.dxf", data));
 
-    // 应至少有一个满椭圆（ratio=1, 0→2π 或类似）
+    // Should have at least one full ellipse (ratio=1, 0->2pi or similar)
     bool hasFullEllipse = false;
     for (const auto& e : data.ellipses()) {
         double sweep = e.endParam() - e.startParam();
-        // 满椭圆 sweep ≈ 2π
+        // Full ellipse sweep ≈ 2π
         if (std::abs(std::abs(sweep) - 2.0 * M_PI) < 0.01 ||
             std::abs(std::abs(sweep) - 2.0 * M_PI) < M_PI * 0.1) {
             // Near-full: after normalization should still produce segments
@@ -320,7 +320,7 @@ TEST(Regression, elipse_dxf_full_ellipse_not_lost) {
 }
 
 // ========================================================================
-//  regression: 半圆弧正常导入
+//  Regression: half-circle arc imports normally
 // ========================================================================
 
 TEST(Regression, half_circle_arcs_produce_lines) {
@@ -339,7 +339,7 @@ TEST(Regression, half_circle_arcs_produce_lines) {
 }
 
 // ========================================================================
-//  多文件一致性
+//  Multi-file consistency
 // ========================================================================
 
 TEST(Pipeline, all_example_files_parse_and_convert) {

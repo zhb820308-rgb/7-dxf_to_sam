@@ -1,7 +1,7 @@
 /**
- * test_dxf_data.cpp — 测试 DxfData 实体有效性验证
+ * test_dxf_data.cpp — Tests DxfData entity validity validation
  *
- * 覆盖: DxfPoint / DxfLine / DxfCircle / DxfArc / DxfEllipse / DxfLWPolyline
+ * Covers: DxfPoint / DxfLine / DxfCircle / DxfArc / DxfEllipse / DxfLWPolyline
  */
 #include <gtest/gtest.h>
 #include <cmath>
