@@ -84,10 +84,6 @@ bool ConversionEngine::convert(const DxfData& dxfData,
     bool ok = !outData.lines().empty() ||
               !outData.circles().empty();
 
-    qDebug() << "[ConversionEngine] done:"
-             << "lines="  << outData.lines().size()
-             << "circles="<< outData.circles().size();
-
     return ok;
 }
 

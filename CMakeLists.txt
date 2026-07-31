@@ -32,10 +32,10 @@ set(LIBS_QTITAN_ROOT ${LIBS_SAMSDK_ROOT}/ThridPartys/Qtitan)
 set(LIBDXFRW_INCLUDE_DIR "${LIBDXFRW_ROOT}/src")
 set(LIBDXFRW_LIBRARY "${LIBDXFRW_ROOT}/build/Release/dxfrw.lib")
 set(LIBDXFRW_RUNTIME "${LIBDXFRW_ROOT}/build/Release/dxfrw.dll")
-set(spdlog_DIR "${SPDLOG_ROOT}/share/spdlog")
+set(spdlog_DIR "${SPDLOG_ROOT}/lib/cmake/spdlog")
 set(fmt_DIR "${SPDLOG_ROOT}/share/fmt")
 
-# OCCT (Open CASCADE Technology) â€” headers in repo, libs configurable
+# OCCT (Open CASCADE Technology) â€?headers in repo, libs configurable
 set(SAM_OCCT_ROOT "${CMAKE_SOURCE_DIR}/example/OCCT" CACHE PATH
     "OCCT root directory (contains inc/ and win64/vc14/lib/)")
 set(SAM_OCCT_INCLUDE_DIR "${SAM_OCCT_ROOT}/inc")
@@ -86,3 +86,6 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_INSTALL_PREFIX}/lib)
 add_subdirectory(src/Example1)
 add_subdirectory(src/Example1Toolset)
 
+# ---- Tests ----
+# enable_testing()
+# add_subdirectory(test)
