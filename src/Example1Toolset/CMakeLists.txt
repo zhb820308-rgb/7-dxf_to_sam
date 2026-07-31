@@ -23,7 +23,6 @@ link_directories(
 	${LIBS_SAMSDK_ROOT}/libs
     ${LIBS_TCMALLOC_ROOT}
     ${CMAKE_ARCHIVE_OUTPUT_DIRECTORY}
-    ${LIBDXFRW_ROOT}/build/Release
 )
 
 # source list
@@ -84,5 +83,6 @@ target_link_libraries(Example1Toolset
     SAMIngQtSAM.lib
     SAMGui.lib
     libtcmalloc_minimal.lib
-    dxfrw.lib
+    "${LIBDXFRW_LIBRARY}"
 )
+

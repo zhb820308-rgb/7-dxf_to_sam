@@ -185,6 +185,14 @@ bool SamBuilder::commit() {
         return false;
     }
 
+    // Give the UI one final cancellation point before mutating the repository.
+    if (!reportProgress(
+            QStringLiteral("Finalizing import"),
+            m_createdCount,
+            m_createdCount)) {
+        return false;
+    }
+
     // 1. Insert sketch into repository
     {
         // Fit sheet size to the imported geometry so it is not outside

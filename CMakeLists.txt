@@ -6,26 +6,86 @@ set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
 project(Example)
 
-get_filename_component(current_folder_absolute ${CMAKE_CURRENT_SOURCE_DIR} DIRECTORY)
-get_filename_component(current_folder_absolute ${current_folder_absolute} DIRECTORY)
-get_filename_component(current_folder_absolute ${current_folder_absolute} DIRECTORY)
-get_filename_component(current_dir ${current_folder_absolute} DIRECTORY)
+# ---- Dependency path resolution ----
+# Priority: cmake -D<VAR>=... > environment variable > project-relative default
+#
+# Each <VAR> can be overridden at configure time:
+#   cmake -DLIBS_SAM_ROOT="C:/path/to/SAM" ..
+# or by setting the corresponding environment variable before configuring.
+#
+# Project-relative defaults assume the development layout:
+#   CMAKE_SOURCE_DIR/../../SAM
+#   CMAKE_SOURCE_DIR/../../OpenOLTranSim-main/SAMSDK
+#   CMAKE_SOURCE_DIR/../env/libdxfrw
+#   (spdlog has no sensible relative path — falls back to env or old default)
 
-# set libs
-set(LIBS_SAM_ROOT "D:/shixi_application/SAM")
-set(LIBS_SAMSDK_ROOT "D:/shixi_application/zipfile/SAMSDK")
-set(SPDLOG_ROOT "D:/code/CADhomework/spdlog" CACHE PATH
-    "Root directory containing the installed shared spdlog package")
+# -- LIBS_SAM_ROOT --
+if(NOT LIBS_SAM_ROOT)
+    if(DEFINED ENV{SAM_ROOT})
+        set(LIBS_SAM_ROOT "$ENV{SAM_ROOT}" CACHE PATH
+            "SAM installation root directory")
+    else()
+        set(LIBS_SAM_ROOT "D:/shixi_application/SAM" CACHE PATH
+            "SAM installation root directory")
+    endif()
+endif()
+
+# -- LIBS_SAMSDK_ROOT --
+if(NOT LIBS_SAMSDK_ROOT)
+    if(DEFINED ENV{SAMSDK_ROOT})
+        set(LIBS_SAMSDK_ROOT "$ENV{SAMSDK_ROOT}" CACHE PATH
+            "SAMSDK root directory")
+    else()
+        set(LIBS_SAMSDK_ROOT "D:/shixi_application/zipfile/SAMSDK" CACHE PATH
+            "SAMSDK root directory")
+    endif()
+endif()
+
+# -- LIBDXFRW_ROOT --
+if(NOT LIBDXFRW_ROOT)
+    if(DEFINED ENV{LIBDXFRW_ROOT})
+        set(LIBDXFRW_ROOT "$ENV{LIBDXFRW_ROOT}" CACHE PATH
+            "libdxfrw root directory")
+    else()
+        set(LIBDXFRW_ROOT "D:/code/CADhomework/libdxfrw/libdxfrw" CACHE PATH
+            "libdxfrw root directory")
+    endif()
+endif()
+
+# -- SPDLOG_ROOT --
+if(NOT SPDLOG_ROOT)
+    if(DEFINED ENV{SPDLOG_ROOT})
+        set(SPDLOG_ROOT "$ENV{SPDLOG_ROOT}" CACHE PATH
+            "Root directory containing the installed spdlog package")
+    elseif(DEFINED ENV{VCPKG_ROOT})
+        set(SPDLOG_ROOT "$ENV{VCPKG_ROOT}/installed/x64-windows" CACHE PATH
+            "Root directory containing the installed spdlog package")
+    else()
+        set(SPDLOG_ROOT "D:/code/CADhomework/spdlog" CACHE PATH
+            "Root directory containing the installed spdlog package")
+    endif()
+endif()
+
+# FE libraries are included in the local SAMSDK distribution.
+if(NOT LIBS_FEASOFT_ROOT)
+    if(DEFINED ENV{FEASOFT_ROOT})
+        set(LIBS_FEASOFT_ROOT "$ENV{FEASOFT_ROOT}" CACHE PATH
+            "FEASoft installation root directory")
+    else()
+        set(LIBS_FEASOFT_ROOT "D:/shixi_application/zipfile/SAMSDK" CACHE PATH
+            "FEASoft-compatible SAMSDK root directory")
+    endif()
+endif()
+
+# Derived paths
 set(LIBS_PYTHON_ROOT ${LIBS_SAM_ROOT}/Python27)
 set(LIBS_QT5_ROOT ${LIBS_SAMSDK_ROOT}/ThridPartys/Qt-5.12.6-VC14-64)
-set(LIBS_OCCT_ROOT ${LIBS_SAMSDK_ROOT}/ThridPartys/OCCT)
 set(LIBS_TCMALLOC_ROOT ${LIBS_SAMSDK_ROOT}/ThridPartys/TCMalloc)
 set(LIBS_LEVELDB_ROOT ${LIBS_SAMSDK_ROOT}/ThridPartys/libdb)
 set(LIBS_HDF5_ROOT ${LIBS_SAMSDK_ROOT}/ThridPartys/HDF5-1.12)
 set(LIBS_CM2MeshTool_Root ${LIBS_SAMSDK_ROOT}/ThridPartys/cm2)
 set(LIBS_OC_ROOT ${LIBS_SAMSDK_ROOT}/ThridPartys/OrientCommon)
 set(LIBS_QTITAN_ROOT ${LIBS_SAMSDK_ROOT}/ThridPartys/Qtitan)
-set(LIBDXFRW_ROOT "D:/code/CADhomework/libdxfrw/libdxfrw")
 set(LIBDXFRW_INCLUDE_DIR "${LIBDXFRW_ROOT}/src")
 set(LIBDXFRW_LIBRARY "${LIBDXFRW_ROOT}/build/Release/dxfrw.lib")
 set(LIBDXFRW_RUNTIME "${LIBDXFRW_ROOT}/build/Release/dxfrw.dll")
@@ -81,4 +141,6 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_INSTALL_PREFIX}/lib)
 
 add_subdirectory(src/Example1)
 add_subdirectory(src/Example1Toolset)
+add_subdirectory(ContainerShipSection)
+add_subdirectory(ContainerShipSectionToolset/ContainerShipSectionToolset)
 

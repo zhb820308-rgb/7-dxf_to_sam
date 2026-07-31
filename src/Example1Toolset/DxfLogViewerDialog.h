@@ -5,10 +5,13 @@
 #include <QMap>
 #include <QString>
 
+class QBuffer;
 class QComboBox;
 class QLineEdit;
 class QLabel;
 class QPushButton;
+class QTextStream;
+class QTimer;
 class QTreeWidget;
 class QTreeWidgetItem;
 
@@ -22,12 +25,17 @@ class DxfLogViewerDialog : public QDialog
 
 public:
     explicit DxfLogViewerDialog(QWidget* parent = nullptr);
+    ~DxfLogViewerDialog() override;
 
 private slots:
     /// @brief Refresh the log file dropdown from the log directory.
     void refreshLogFiles();
     /// @brief Load and display the currently selected log file.
     void loadSelectedLog();
+    /// @brief Load the next bounded batch without blocking the UI.
+    void loadNextLogChunk();
+    /// @brief Stop the current background-style chunked load.
+    void cancelLoading();
     /// @brief Expand all tree items.
     void expandAllItems();
     /// @brief Collapse all tree items.
@@ -55,16 +63,24 @@ private:
     void styleItem(QTreeWidgetItem* item, const QString& level, bool isParent = false);
     QTreeWidgetItem* findOrCreateEntityItem(
         const QString& type, const QString& entityId, const QString& level);
+    void finishLoading();
 
     QComboBox* m_logFileCombo;
     QComboBox* m_levelCombo;
     QLineEdit* m_entityFilterEdit;
     QPushButton* m_refreshButton;
+    QPushButton* m_cancelLoadButton;
     QPushButton* m_expandButton;
     QPushButton* m_collapseButton;
     QLabel* m_statusLabel;
     QTreeWidget* m_logTree;
     QMap<QString, QTreeWidgetItem*> m_entityItems;
+    QTimer* m_loadTimer;
+    QBuffer* m_logBuffer;
+    QTextStream* m_logStream;
+    int m_scannedLineCount;
+    int m_displayedLineCount;
+    bool m_snapshotTruncated;
 };
 
 #endif

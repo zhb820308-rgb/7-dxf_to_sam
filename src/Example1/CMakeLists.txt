@@ -62,7 +62,7 @@ set_target_properties(Example1 PROPERTIES
     CXX_STANDARD_REQUIRED ON
 )
 
-# set_target_properties(Example1 PROPERTIES LINK_FLAGS /INCLUDE:"__tcmalloc")  # ÔÝÊ±½ûÓÃ tcmalloc
+# set_target_properties(Example1 PROPERTIES LINK_FLAGS /INCLUDE:"__tcmalloc")  # disabled tcmalloc temporarily
 
 
 
@@ -84,6 +84,7 @@ target_link_libraries(Example1
     OrientBasicCoreUtilities
     OrientBasicPrimtives
     OrientPythonInterfaces
+    SAMPythonUtilities
     SAMPythonModuleConfiguration
     SAMCommonCommand
     SAMKernelAttributesInterfaceObjects

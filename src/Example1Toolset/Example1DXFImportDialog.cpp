@@ -7,6 +7,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QComboBox>
 #include <QGroupBox>
 #include <QFormLayout>
 #include <QVBoxLayout>
@@ -110,9 +111,47 @@ Example1DXFImportDialog::Example1DXFImportDialog(Example1Form* form)
 
 	paramLayout->addWidget(layerGroup);
 
+	// ======== Import Mode ========
+	QGroupBox* importModeGroup =
+		new QGroupBox(tr("Import Mode"), this);
+
+	m_importModeCombo = new QComboBox(importModeGroup);
+	m_importModeCombo->addItem(tr("Sketch"), QStringLiteral("Sketch"));
+	m_importModeCombo->addItem(
+		tr("Finite Element"), QStringLiteral("FiniteElement"));
+	m_importModeCombo->setToolTip(
+		tr("Choose whether the DXF is imported as a sketch or a finite-element part."));
+	connect(m_importModeCombo, SIGNAL(currentIndexChanged(int)),
+		this, SLOT(onImportModeChanged(int)));
+
+	m_modelNameEdit = new QLineEdit(importModeGroup);
+	m_modelNameEdit->setText(QStringLiteral("Model-1"));
+	m_modelNameEdit->setPlaceholderText(tr("Existing model name"));
+
+	m_partNameEdit = new QLineEdit(importModeGroup);
+	m_partNameEdit->setText(QStringLiteral("DXF_ImportedPart"));
+	m_partNameEdit->setPlaceholderText(tr("New part name"));
+
+	QFormLayout* importModeLayout = new QFormLayout(importModeGroup);
+	importModeLayout->addRow(tr("Mode:"), m_importModeCombo);
+	importModeLayout->addRow(tr("Model name:"), m_modelNameEdit);
+	importModeLayout->addRow(tr("Part name:"), m_partNameEdit);
+
+	paramLayout->addWidget(importModeGroup);
+	onImportModeChanged(m_importModeCombo->currentIndex());
+
 	QHBoxLayout* contentLayout = new QHBoxLayout(contentArea);
 	contentLayout->addLayout(paramLayout);
 
+}
+
+void Example1DXFImportDialog::onImportModeChanged(int index)
+{
+	const bool isFeMode =
+		m_importModeCombo->itemData(index).toString() ==
+		QStringLiteral("FiniteElement");
+	m_modelNameEdit->setEnabled(isFeMode);
+	m_partNameEdit->setEnabled(isFeMode);
 }
 
 
@@ -214,17 +253,35 @@ void Example1DXFImportDialog::onCmdOk(int id)
 		return;
 	}
 
+	const QString importMode =
+		m_importModeCombo->currentData().toString();
+	const bool isFeMode =
+		importMode.compare(QStringLiteral("FiniteElement"), Qt::CaseInsensitive) == 0;
+	const QString modelName = m_modelNameEdit->text().trimmed();
+	const QString partName = m_partNameEdit->text().trimmed();
+	if (isFeMode && (modelName.isEmpty() || partName.isEmpty())) {
+		QMessageBox::warning(
+			this,
+			tr("Warning"),
+			tr("Finite Element mode requires both model and part names.")
+		);
+		return;
+	}
+
 	// call importDxf
 	const QString ignoreLayers = m_ignoreLayersCombo->checkedItems().join(',');
 	const QString importPath = QDir::fromNativeSeparators(
 		QFileInfo(path).absoluteFilePath());
-	omuArguments args(6);
+	omuArguments args(9);
 	args.Put(importPath);
 	args.Put(baseX);
 	args.Put(baseY);
 	args.Put(baseZ);
 	args.Put(tolerance);
 	args.Put(ignoreLayers);
+	args.Put(importMode, "importMode");
+	args.Put(modelName, "modelName");
+	args.Put(partName, "partName");
 	omuMethodCall mc("Example1", "importDxf", args);
 
 	QString cmd;

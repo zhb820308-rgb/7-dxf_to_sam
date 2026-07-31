@@ -1,0 +1,11 @@
+<RCC>
+    <qresource prefix="/">
+        <file>./resource/image/OuterHullDB.png</file>
+        <file>./resource/image/CamberDB.png</file>
+        <file>./resource/image/InnerHullDB.png</file>
+        <file>./resource/image/GriderDB.png</file>
+        <file>./resource/image/StringerDB.png</file>
+        <file>./resource/image/HatchCoamingDB.png</file>
+        <file>./resource/image/css_icon.png</file>
+    </qresource>
+</RCC>

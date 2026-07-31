@@ -4,6 +4,8 @@
 
 // Forward declarations
 class DxfData;
+class FeData;
+class PythonFiniteElementBuilder;
 class SamData;
 class SamBuilder;
 
@@ -13,6 +15,7 @@ class SamBuilder;
 
 #include <ptsKPartFragment.h>
 #include <pyoModule.h>
+#include <QString>
 
 // Class definition
 
@@ -30,9 +33,10 @@ public:
 	virtual void DefineConstants();
 
 public:
-	/// @brief Import a DXF file as a SAM sketch.
+	/// @brief Import a DXF file as a SAM sketch or finite-element part.
 	/// @param args Arguments: filePath (str), baseX/Y/Z (float),
-	///             curveTolerance (float, optional), ignoreLayers (str, optional).
+	///             curveTolerance, ignoreLayers, importMode, modelName,
+	///             partName and nodeMergeTolerance (all optional).
 	/// @return Number of created entities, or nullptr on failure.
 	omuPrimitive* importDxf(omuArguments& args);
 
@@ -43,9 +47,24 @@ private:
 
 	// === DXF import helpers ===
 
-	/// @brief Stage 3: build SAM sketch and commit, auto-rollback on failure.
-	/// @return Number of created entities, or -1 on failure.
-	int buildSamSketch(const SamData& samData, SamBuilder& builder);
+	enum class BuildStatus {
+		Success,
+		Canceled,
+		Failed
+	};
+
+	struct BuildResult {
+		BuildStatus status;
+		int createdCount;
+		QString error;
+	};
+
+	/// @brief Stage 3: build and commit, rolling back immediately on cancellation or failure.
+	BuildResult buildSamSketch(const SamData& samData, SamBuilder& builder);
+
+	/// @brief Build FE nodes and trusses, rolling back on failure.
+	int buildFePart(FeData& feData, const QString& modelName,
+		const QString& partName, PythonFiniteElementBuilder& builder);
 };
 
 #endif  // #ifndef Example1PytModule_h

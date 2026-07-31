@@ -24,3 +24,10 @@ __pycache__/
 # 其他
 .DS_Store
 .vscode/
+.env
+
+# Local/reference directories excluded from the FiniteElement branch
+build/
+doc/
+docs/
+example/

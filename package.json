@@ -1,0 +1,14 @@
+{
+  "name": "dxf-studio-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DXF Studio browser editor and AI geometry agent API",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check page/dxf.js && node --check page/app.js",
+    "test": "node tests/agent-tools.test.js && node tests/dxf-annotations.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
