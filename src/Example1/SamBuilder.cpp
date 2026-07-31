@@ -40,6 +40,8 @@ static gcuScene* currentScene(bool force) {
     return static_cast<gcuScene*>(gdyScene::GetCurrentScene(force));
 }
 
+static const int kProgressUpdateInterval = 5000;
+
 void SamBuilder::extendBounds(double x, double y) {
     if (!m_hasBounds) {
         m_minX = m_maxX = x;
@@ -134,7 +136,7 @@ int SamBuilder::createLines(const std::vector<DxfLine>& lines) {
         extendBounds(p2.GetX(), p2.GetY());
         ++count;
 
-        if (count % 1000 == 0 || count == total) {
+        if (count % kProgressUpdateInterval == 0 || count == total) {
             if (!reportProgress(QStringLiteral("Creating lines"), count, total))
                 return -1;
             QCoreApplication::processEvents();
@@ -165,7 +167,7 @@ int SamBuilder::createCircles(const std::vector<DxfCircle>& circles) {
         extendBounds(c.x() - r, c.y() - r);
         ++count;
 
-        if (count % 1000 == 0 || count == total) {
+        if (count % kProgressUpdateInterval == 0 || count == total) {
             if (!reportProgress(QStringLiteral("Creating circles"), count, total))
                 return -1;
             QCoreApplication::processEvents();

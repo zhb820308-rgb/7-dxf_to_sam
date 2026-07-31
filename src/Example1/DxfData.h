@@ -271,6 +271,10 @@ public:
     void recordGeneratedEntity(EntityType sourceType);
     void recordGeneratedSpline(const SplineKind& kind);
     void addInsert(const InsertInfo& ins) { m_inserts.push_back(ins); }
+    void reserveLines(std::size_t count);
+    void reservePoints(std::size_t count);
+    void reserveLWPolylines(std::size_t count);
+    void reserveSplines(std::size_t count);
     void clear();
 
     // ======== accessors ========

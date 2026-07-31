@@ -125,12 +125,6 @@ Example1.importDxf(r'D:\path\drawing.dxf', 0.0, 0.0, 0.0)
 importMode='Sketch'
 ```
 
-路径：
-
-```text
-DxfParser → ConversionEngine → SamData → SamBuilder
-```
-
 ### 3.2 FiniteElement 模式（当前生产路径）
 
 ```python
@@ -145,7 +139,7 @@ Example1.importDxf(
 ```
 
 | 参数 | 默认值 | 含义 |
-|---|---:|---|
+|---|---|---:|
 | `filePath` | 必填 | DXF 文件路径 |
 | `baseX/Y/Z` | 必填 | 输出坐标 = DXF 坐标 + base |
 | `curveTolerance` | 现有默认值 | 曲线离散容差 |
@@ -236,6 +230,8 @@ src\Example1\FeData.h/.cpp
 | `ARC` / `LWPOLYLINE` / `ELLIPSE` / `SPLINE` | 离散线段 + Trusses |
 
 特性：坐标偏移、节点合并、零长度过滤、重复 Truss 过滤均已实现。
+
+**FeData 空间索引优化**（2026-07-31 更新）：`addOrGetNode()` 现在使用 `m_indexTolerance` 追踪当前索引容差。容差变化时自动重建空间索引，避免了大批量节点插入时的重复重建开销。新增 `findNearbyNode()` 用于快速空间查询。
 
 ### 4.3 `FiniteElementBuilder`（保留，非生产路径）
 
@@ -334,25 +330,6 @@ session.viewports['Viewport: 1']
 
 批量优化需要先在 SAMCAE 中验证多行/批量 Python API，不要先猜测接口。
 
-### 6.4 GUI 对话框尚未支持 FE 参数
-
-`src\Example1Toolset\Example1DXFImportDialog.*` 当前只发送 Sketch 参数：
-
-```text
-filePath, baseX, baseY, baseZ, curveTolerance, ignoreLayers
-```
-
-目前 FE 通过 Python 控制台调用。后续 GUI 需要增加：
-
-```text
-Import Mode: Sketch / FiniteElement
-Model Name
-Part Name
-Node Merge Tolerance
-```
-
-这项完成后必须重新编译 `SAM.Pre.Example1Toolset.dll`。
-
 ---
 
 ## 7. 核心文件
@@ -360,16 +337,25 @@ Node Merge Tolerance
 ```text
 D:\shixi_CAE\example\
 ├── src\Example1\
-│   ├── Example1PytModule.h/.cpp             # Python 入口、模式分流
+│   ├── Example1PytModule.h/.cpp             # Python 入口、模式分流 + 输入验证
 │   ├── PythonFiniteElementBuilder.h/.cpp    # 当前 FE 生产路径
 │   ├── FiniteElementBuilder.h/.cpp          # C++ SDK 对照路径，非生产
-│   ├── FeData.h/.cpp                        # 节点/Truss 数据、去重、统计
+│   ├── FeData.h/.cpp                        # 节点/Truss 数据、去重、统计、空间索引
 │   ├── FeConversionEngine.h/.cpp            # DxfData → FeData
-│   ├── DxfParser.h/.cpp                     # DXF 解析
+│   ├── DxfParser.h/.cpp                     # DXF 解析（含 BLOCK/INSERT 展开）
+│   ├── DxfData.h/.cpp                       # 数据模型（含 DxfBlock/DxfInsert）
 │   ├── ConversionEngine.h/.cpp              # Sketch 转换
+│   ├── GeometryUtils.h/.cpp                 # 曲线离散化（OCCT）
 │   ├── SamBuilder.h/.cpp                    # Sketch 建模
 │   └── DxfImportLogger.h/.cpp               # 日志
-├── src\Example1Toolset\                    # GUI DLL，暂未支持 FE 参数
+├── src\Example1Toolset\
+│   ├── Example1DXFImportDialog.h/.cpp       # GUI 对话框（已支持 FE 参数）
+│   ├── Example1Form.h/.cpp                  # 窗体入口
+│   ├── Example1ToolsetPlugin.h/.cpp         # 插件注册
+│   ├── Example1ToolsetGui.h/.cpp            # 菜单注册
+│   ├── DxfLayerReader.h/.cpp                # 图层读取
+│   ├── MultiSelectComboBox.h/.cpp           # 多选下拉控件
+│   └── DxfLogViewerDialog.h/.cpp            # 日志查看器
 ├── example\                                # DXF 样例
 ├── bin\Release\Example1.pyd                # 部署文件
 └── build\                                  # CMake 构建目录
@@ -382,35 +368,75 @@ D:\shixi_CAE\example\
 ```powershell
 cmake -S D:\shixi_CAE\example -B D:\shixi_CAE\example\build
 cmake --build D:\shixi_CAE\example\build --config Release --target Example1
+cmake --build D:\shixi_CAE\example\build --config Release --target Example1Toolset
 ```
 
 当前成功构建产物：
 
 ```text
 D:\shixi_CAE\example\bin\Release\Example1.pyd
-最后成功编译：2026-07-31 14:57:39
+D:\shixi_CAE\example\bin\Release\SAM.Pre.Example1Toolset.dll
+最后成功编译：2026-07-31
 ```
 
-部署：完全退出 SAM → 覆盖实际加载的 `Example1.pyd` → 重启 SAM → 使用未重复的 Part 名测试。
+部署：完全退出 SAM → 覆盖实际加载的 `Example1.pyd` 和 `SAM.Pre.Example1Toolset.dll` → 重启 SAM。
 
 ---
 
-## 9. 下一步
+## 9. 近期变更（2026-07-31）
+
+### 9.1 ✅ GUI 已支持 FE 参数
+
+`Example1DXFImportDialog` 现已包含完整的 FE 模式界面：
+
+| 控件 | 说明 |
+|---|---|
+| **Import Mode** 下拉框 | Sketch / FiniteElement 二选一 |
+| **Model name** 输入框 | 仅 FE 模式启用，默认值 `Model-1` |
+| **Part name** 输入框 | 仅 FE 模式启用，默认值 `DXF_ImportedPart` |
+
+导入模式切换时自动禁用/启用 FE 专属字段。FE 模式下 Model name 和 Part name 为空时拒绝执行导入。
+
+### 9.2 ✅ 输入验证增强
+
+`Example1PytModule::importDxf()` 在解析 DXF 前新增 `std::isfinite()` 检查：
+
+- `baseX`、`baseY`、`baseZ` 必须为有限数值；
+- 无效坐标在解析开始前即返回失败，不会进入 `DxfParser` 或 `GeometryUtils` 导致崩溃。
+
+### 9.3 ✅ FeData 空间索引优化
+
+`FeData` 新增 `m_indexTolerance` 字段，追踪当前空间索引的容差：
+
+- 容差未变时，仅追加新节点到现有索引，不重建；
+- 容差变化时才触发 `rebuildIndex()`；
+- 大批量节点插入场景下减少了 O(N²) 的重复重建开销。
+
+### 9.4 ✅ (2026-07-31) 合并点合并线算法更新
+
+提交 `19d806c` 更新了合并点与合并线的算法逻辑，改善了离散化线段的拓扑质量。
+
+---
+
+## 10. 下一步
 
 | 优先级 | 任务 | 状态 |
 |---|---|---|
-| P0 | 最小 FE Part、节点、T3D2、DXF FE 导入、SAM GUI 生命周期 | **已通过** |
-| P1 | GUI 对话框增加 FE 模式、Model/Part/节点合并容差 | 未开始 |
+| P0 | 最小 FE Part、节点、T3D2、DXF FE 导入、SAM GUI 生命周期 | **✅ 已通过** |
+| P0 | GUI 对话框增加 FE 模式、Model/Part 参数 | **✅ 已通过** |
 | P1 | 验证并实现 Python Builder 失败时安全删除 Part | 未开始 |
+| P1 | FeData 空间索引性能优化 | **✅ 已通过** |
+| P1 | 输入参数边界检查（isfinite 验证） | **✅ 已通过** |
 | P2 | 批量化 Python 建模提升大型 DXF 性能 | 未开始 |
 | P2 | Material、Truss Section、截面积 | 未开始 |
 | P3 | Assembly、BC、Load、Step、Job | 未开始 |
 
 ---
 
-## 10. 新 AI 接手约束
+## 11. 新 AI 接手约束
 
 1. **不要**把生产 FE 路径改回 C++ `ptoKPartRepository::Insert()`；该路线不更新 Part Manager。
 2. **不要**在 kernel/Python 扩展中调用 GUI 的 `cmdGCommandDeliveryRole::SendCommand()`；此前会崩溃。
 3. 当前生产关键是：`mdl.Part()`、`createNode()`、`Element(... samConstants.TRUSS, intersectNodes=False)`。
 4. 新增 `.cpp` 后，CMake `file(GLOB ...)` 不会自动更新已有工程；必须重新运行 `cmake -S ... -B ...` 再构建。
+5. FE 模式现在可通过 SAM GUI 菜单操作，也可以从 Python 控制台直接调用。

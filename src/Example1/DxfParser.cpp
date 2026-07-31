@@ -138,6 +138,7 @@ static void addTransformedSegments(DxfData& output,
                                    const InsertInfo& ins,
                                    double baseX, double baseY, double baseZ)
 {
+    output.reserveLines(output.lines().size() + segments.size());
     for (const DxfLine& seg : segments) {
         if (!seg.isValid()) continue;
         DxfPoint s = transformPoint(seg.start(), ins, baseX, baseY, baseZ);
@@ -280,6 +281,11 @@ static void expandSingleBlock(DxfData& output,
     const double bx = blk.baseX(), by = blk.baseY(), bz = blk.baseZ();
 
     // --- Points: direct transform ---
+    output.reservePoints(output.points().size() + blk.points().size());
+    output.reserveLines(output.lines().size() + blk.lines().size());
+    output.reserveLWPolylines(output.lwPolylines().size() + blk.lwPolylines().size());
+    output.reserveSplines(output.splines().size() + blk.splines().size());
+
     for (const DxfPoint& pt : blk.points()) {
         if (!pt.isValid()) continue;
         output.addPoint(transformPoint(pt, ins, bx, by, bz));
@@ -331,6 +337,7 @@ static void expandSingleBlock(DxfData& output,
         [](DxfData& out, const DxfLWPolyline& poly,
            const InsertInfo& i, double x, double y, double z) {
             std::vector<DxfPoint> verts;
+            verts.reserve(poly.vertices().size());
             for (const DxfPoint& v : poly.vertices())
                 verts.push_back(transformPoint(v, i, x, y, z));
             out.addLWPolyline(DxfLWPolyline(verts, poly.bulges(),
@@ -356,9 +363,11 @@ static void expandSingleBlock(DxfData& output,
         [](DxfData& out, const DxfSpline& spline,
            const InsertInfo& i, double x, double y, double z) {
             std::vector<DxfPoint> ctrlPts;
+            ctrlPts.reserve(spline.controlPoints().size());
             for (const DxfPoint& cp : spline.controlPoints())
                 ctrlPts.push_back(transformPoint(cp, i, x, y, z));
             std::vector<DxfPoint> fitPts;
+            fitPts.reserve(spline.fitPoints().size());
             for (const DxfPoint& fp : spline.fitPoints())
                 fitPts.push_back(transformPoint(fp, i, x, y, z));
             out.addSpline(DxfSpline(ctrlPts, spline.knots(), spline.weights(), fitPts,
@@ -577,6 +586,7 @@ void DxfReader::addSpline(const DRW_Spline* data)
     }
 
     std::vector<DxfPoint> ctrlPts;
+    ctrlPts.reserve(data->ncontrol);
     for (int i = 0; i < data->ncontrol; ++i) {
         const DRW_Coord& pt = *(data->controllist[i]);
         ctrlPts.push_back(DxfPoint(pt.x, pt.y, pt.z));
@@ -586,11 +596,13 @@ void DxfReader::addSpline(const DRW_Spline* data)
 
     std::vector<double> weights;
     if (isRational) {
+        weights.reserve(data->ncontrol);
         for (int i = 0; i < data->ncontrol; ++i)
             weights.push_back(data->weightlist[i]);
     }
 
     std::vector<DxfPoint> fitPts;
+    fitPts.reserve(data->nfit);
     for (int i = 0; i < data->nfit; ++i) {
         const auto& sp = data->fitlist[i];
         if (sp && std::isfinite(sp->x) && std::isfinite(sp->y) && std::isfinite(sp->z))
