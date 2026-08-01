@@ -17,16 +17,50 @@
 #include "ConversionEngine.h"
 #include "SamData.h"
 
+#ifndef DXF_TEST_EXAMPLE_DIR
+#error "DXF_TEST_EXAMPLE_DIR must be provided by CMake"
+#endif
+
+#ifndef DXF_TEST_FIXTURE_DIR
+#error "DXF_TEST_FIXTURE_DIR must be provided by CMake"
+#endif
+
 // ========================================================================
-//  Helper: check if file exists
+//  Portable test paths and coordinate helpers
 // ========================================================================
 
 static bool fileExists(const QString& path) {
     return QFile::exists(path);
 }
 
-#define EXAMPLE_DIR QStringLiteral("D:/shixiSoftware/Homework/7-dxf_to_sam/example")
-#define TEST_DATA_DIR QStringLiteral("D:/shixiSoftware/Homework/7-dxf_to_sam/test/data")
+static const QString EXAMPLE_DIR = QString::fromUtf8(DXF_TEST_EXAMPLE_DIR);
+static const QString TEST_DATA_DIR = QString::fromUtf8(DXF_TEST_FIXTURE_DIR);
+static const double COORD_TOLERANCE = 1e-8;
+
+static void expectPointNear(const DxfPoint& actual,
+                            double expectedX,
+                            double expectedY,
+                            double expectedZ = 0.0)
+{
+    EXPECT_NEAR(actual.x(), expectedX, COORD_TOLERANCE);
+    EXPECT_NEAR(actual.y(), expectedY, COORD_TOLERANCE);
+    EXPECT_NEAR(actual.z(), expectedZ, COORD_TOLERANCE);
+}
+
+static void expectLineNear(const DxfLine& actual,
+                           double x1, double y1,
+                           double x2, double y2,
+                           double z1 = 0.0, double z2 = 0.0)
+{
+    expectPointNear(actual.start(), x1, y1, z1);
+    expectPointNear(actual.end(), x2, y2, z2);
+}
+
+static void expectAngleNear(double actual, double expected)
+{
+    EXPECT_NEAR(std::cos(actual), std::cos(expected), COORD_TOLERANCE);
+    EXPECT_NEAR(std::sin(actual), std::sin(expected), COORD_TOLERANCE);
+}
 
 // ========================================================================
 //  File existence
@@ -58,7 +92,8 @@ TEST(Parser, empty_path_returns_false) {
 TEST(Parser, nonexistent_file_returns_false) {
     DxfData data;
     DxfParser parser;
-    EXPECT_FALSE(parser.parseFile("D:/nonexistent_file_12345.dxf", data));
+    EXPECT_FALSE(parser.parseFile(
+        TEST_DATA_DIR + "/nonexistent_file_12345.dxf", data));
     EXPECT_FALSE(data.isValid());
 }
 
@@ -238,6 +273,108 @@ TEST(Parser, oversized_insert_array_is_rejected_without_partial_output) {
         << data.errorMessage().toStdString();
 }
 
+TEST(Parser, block_base_point_is_applied_to_exact_line_coordinates) {
+    const QString path = EXAMPLE_DIR + "/block_test_minimal.dxf";
+    ASSERT_TRUE(fileExists(path)) << path.toStdString();
+
+    DxfData data;
+    DxfParser parser;
+    ASSERT_TRUE(parser.parseFile(path, data))
+        << data.errorMessage().toStdString();
+
+    ASSERT_EQ(data.lines().size(), 3u);
+    expectLineNear(data.lines()[0], 1000.0, 1000.0, 1100.0, 1000.0);
+    expectLineNear(data.lines()[1], 400.0, 300.0, 410.0, 300.0);
+    expectLineNear(data.lines()[2], 400.0, 300.0, 400.0, 310.0);
+}
+
+TEST(Parser, rotated_insert_array_has_exact_grid_coordinates) {
+    const QString path = TEST_DATA_DIR + "/block_array_rotated.dxf";
+    ASSERT_TRUE(fileExists(path)) << path.toStdString();
+
+    DxfData data;
+    DxfParser parser;
+    ASSERT_TRUE(parser.parseFile(path, data))
+        << data.errorMessage().toStdString();
+
+    ASSERT_EQ(data.lines().size(), 4u);
+    expectLineNear(data.lines()[0], 10.0, 20.0, 10.0, 21.0);
+    expectLineNear(data.lines()[1], 10.0, 23.0, 10.0, 24.0);
+    expectLineNear(data.lines()[2],  6.0, 20.0,  6.0, 21.0);
+    expectLineNear(data.lines()[3],  6.0, 23.0,  6.0, 24.0);
+}
+
+// Correct-result specifications for G2 affine composition and preserved curves.
+TEST(Parser, nested_nonuniform_rotation_uses_matrix_composition) {
+    const QString path = TEST_DATA_DIR + "/block_nested_nonuniform.dxf";
+    ASSERT_TRUE(fileExists(path)) << path.toStdString();
+
+    DxfData data;
+    DxfParser parser;
+    ASSERT_TRUE(parser.parseFile(path, data))
+        << data.errorMessage().toStdString();
+
+    ASSERT_EQ(data.lines().size(), 1u);
+    expectLineNear(data.lines()[0], 0.0, 0.0, 0.0, 1.0);
+}
+
+TEST(Parser, rotated_block_updates_curve_directions) {
+    const QString path = TEST_DATA_DIR + "/block_rotated_curves.dxf";
+    ASSERT_TRUE(fileExists(path)) << path.toStdString();
+
+    DxfData data;
+    DxfParser parser;
+    ASSERT_TRUE(parser.parseFile(path, data))
+        << data.errorMessage().toStdString();
+
+    ASSERT_EQ(data.arcs().size(), 1u);
+    const DxfArc& arc = data.arcs()[0];
+    expectPointNear(arc.center(), 0.0, 0.0);
+    EXPECT_NEAR(arc.startAngle(), M_PI / 2.0, COORD_TOLERANCE);
+    EXPECT_NEAR(arc.endAngle(), M_PI, COORD_TOLERANCE);
+
+    ASSERT_EQ(data.ellipses().size(), 1u);
+    const DxfEllipse& ellipse = data.ellipses()[0];
+    expectPointNear(ellipse.center(), 0.0, 20.0);
+    expectPointNear(ellipse.majorAxisEnd(), 0.0, 5.0);
+
+    ASSERT_EQ(data.splines().size(), 1u);
+    const DxfSpline& spline = data.splines()[0];
+    ASSERT_EQ(spline.fitPoints().size(), 2u);
+    expectPointNear(spline.fitPoints()[0], 0.0, 0.0);
+    expectPointNear(spline.fitPoints()[1], 0.0, 10.0);
+    EXPECT_NEAR(spline.tgStartX(), 0.0, COORD_TOLERANCE);
+    EXPECT_NEAR(spline.tgStartY(), 1.0, COORD_TOLERANCE);
+    EXPECT_NEAR(spline.tgEndX(), -1.0, COORD_TOLERANCE);
+    EXPECT_NEAR(spline.tgEndY(), 0.0, COORD_TOLERANCE);
+}
+
+TEST(Parser, mirrored_block_reverses_curve_direction_and_preserves_insert_z) {
+    const QString path = TEST_DATA_DIR + "/block_mirrored_curves.dxf";
+    ASSERT_TRUE(fileExists(path)) << path.toStdString();
+
+    DxfData data;
+    DxfParser parser;
+    ASSERT_TRUE(parser.parseFile(path, data))
+        << data.errorMessage().toStdString();
+
+    ASSERT_EQ(data.arcs().size(), 1u);
+    const DxfArc& arc = data.arcs()[0];
+    EXPECT_NEAR(arc.radius(), 10.0, COORD_TOLERANCE);
+    expectAngleNear(arc.startAngle(), M_PI);
+    expectAngleNear(arc.endAngle(), M_PI / 2.0);
+    EXPECT_FALSE(arc.isCCW());
+
+    ASSERT_EQ(data.lwPolylines().size(), 1u);
+    const DxfLWPolyline& polyline = data.lwPolylines()[0];
+    ASSERT_EQ(polyline.vertices().size(), 2u);
+    expectPointNear(polyline.vertices()[0], 0.0, 0.0, 10.0);
+    expectPointNear(polyline.vertices()[1], -10.0, 0.0, 10.0);
+    ASSERT_EQ(polyline.bulges().size(), 1u);
+    EXPECT_DOUBLE_EQ(polyline.bulges()[0], -1.0);
+    EXPECT_DOUBLE_EQ(polyline.constZ(), 10.0);
+}
+
 // ========================================================================
 //  Mixed entity files
 // ========================================================================
@@ -397,18 +534,19 @@ TEST(Pipeline, all_example_files_parse_and_convert) {
 
     for (int i = 0; i < numFiles; ++i) {
         QString path = EXAMPLE_DIR + filenames[i];
-        if (!fileExists(path)) continue;
+        ASSERT_TRUE(fileExists(path))
+            << "Missing required fixture: " << path.toStdString();
 
         DxfData data;
         DxfParser parser;
         bool parsed = parser.parseFile(path, data);
-        EXPECT_TRUE(parsed) << "Failed to parse: " << filenames[i];
-        if (!parsed) continue;
+        ASSERT_TRUE(parsed) << "Failed to parse: " << filenames[i]
+                            << "; " << data.errorMessage().toStdString();
 
         SamData out;
         ConversionEngine engine;
         bool converted = engine.convert(data, 0, 0, 0, ConversionEngine::defaultBulgeTolerance(), out);
-        EXPECT_TRUE(converted) << "Failed to convert: " << filenames[i];
+        ASSERT_TRUE(converted) << "Failed to convert: " << filenames[i];
 
         // Every file should produce some output
         int totalOutput = static_cast<int>(

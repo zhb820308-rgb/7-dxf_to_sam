@@ -105,6 +105,10 @@ target_link_libraries(test_parser PRIVATE
     ${TEST_COMMON_LIBS}
     "${LIBDXFRW_LIBRARY}"
 )
+target_compile_definitions(test_parser PRIVATE
+    DXF_TEST_EXAMPLE_DIR="${CMAKE_SOURCE_DIR}/example"
+    DXF_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
+)
 add_test(NAME Parser COMMAND test_parser)
 
 # MSVC: UTF-8 source encoding

@@ -143,12 +143,11 @@ bool FeConversionEngine::convert(const DxfData& dxfData,
     // ---- Ellipse ----
     for (const DxfEllipse& ellipse : dxfData.ellipses()) {
         if (!ellipse.isValid()) continue;
-        DxfPoint c   = translate(ellipse.center(),       baseX, baseY, baseZ);
-        DxfPoint maj = translate(ellipse.majorAxisEnd(), baseX, baseY, baseZ);
-        DxfEllipse shifted(c,
-                           DxfPoint(maj.x() - c.x(),
-                                    maj.y() - c.y(),
-                                    maj.z() - c.z()),
+        const DxfPoint c = translate(ellipse.center(), baseX, baseY, baseZ);
+        // DXF group 11/21/31 is a vector relative to the center. Translation
+        // applies to the center only; subtracting the translated center from
+        // this vector corrupts both its direction and length.
+        DxfEllipse shifted(c, ellipse.majorAxisEnd(),
                            ellipse.ratio(),
                            ellipse.startParam(), ellipse.endParam(),
                            ellipse.isCCW());

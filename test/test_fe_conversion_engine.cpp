@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <limits>
 
 #include "DxfData.h"
@@ -52,6 +53,25 @@ TEST(FeConversionEngine, invalid_tolerances_are_rejected)
     EXPECT_FALSE(FeConversionEngine().convert(
         dxf, 0.0, 0.0, 0.0,
         0.01, -1.0, out));
+}
+
+TEST(FeConversionEngine, ellipse_major_axis_remains_relative_when_base_is_added)
+{
+    DxfData dxf;
+    dxf.addEllipse(DxfEllipse(
+        DxfPoint(10.0, 20.0, 0.0), DxfPoint(3.0, 4.0, 0.0),
+        0.5, 0.0, 2.0 * std::acos(-1.0), true));
+
+    FeData out;
+    ASSERT_TRUE(FeConversionEngine().convert(
+        dxf, 100.0, 200.0, 0.0,
+        0.1, FeConversionEngine::defaultNodeMergeTolerance(), out));
+
+    ASSERT_FALSE(out.nodes().empty());
+    // Parameter zero is center + the relative major-axis vector.
+    EXPECT_NEAR(out.nodes().front().x, 113.0, 1e-9);
+    EXPECT_NEAR(out.nodes().front().y, 224.0, 1e-9);
+    EXPECT_NEAR(out.nodes().front().z, 0.0, 1e-9);
 }
 
 TEST(FeData, incrementally_merges_many_nearby_nodes)

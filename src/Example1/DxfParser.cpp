@@ -3,6 +3,7 @@
 #include "GeometryUtils.h"
 #include "libdxfrw.h"
 #include <QDebug>
+#include <algorithm>
 #include <cstdint>
 #include <cmath>
 #include <set>
@@ -145,20 +146,19 @@ struct ExpansionBudget {
     }
 };
 
-/// Precomputed 2D affine transform for one INSERT instance:
+/// Complete affine transform from block-local coordinates to world space:
 ///   x' = m00*x + m01*y + tx
 ///   y' = m10*x + m11*y + ty
 ///   z' = scaleZ * z + offsetZ
-/// The matrix is R×S (rotation × scale), and the translation absorbs the
-/// block base point so no per-point subtraction is needed. Raw axis scales
-/// are kept for curve-preservation paths.
+/// A transform can be composed with a nested INSERT without decomposing it
+/// back into scale/rotation parameters, so shear and mirror combinations are
+/// preserved exactly.
 struct Transform2D {
     double m00 = 1.0, m01 = 0.0;
     double m10 = 0.0, m11 = 1.0;
     double tx = 0.0, ty = 0.0;
     double scaleZ = 1.0;
     double offsetZ = 0.0;
-    double scaleX = 1.0, scaleY = 1.0;
 
     static Transform2D fromInsert(const InsertInfo& ins,
                                   double bx, double by, double bz)
@@ -174,9 +174,22 @@ struct Transform2D {
         tf.ty  = ins.insertY - tf.m10 * bx - tf.m11 * by;
         tf.scaleZ  = ins.scaleZ;
         tf.offsetZ = ins.insertZ - ins.scaleZ * bz;
-        tf.scaleX  = ins.scaleX;
-        tf.scaleY  = ins.scaleY;
         return tf;
+    }
+
+    /// Return this × child: child is applied first, then this transform.
+    Transform2D composedWith(const Transform2D& child) const
+    {
+        Transform2D result;
+        result.m00 = m00 * child.m00 + m01 * child.m10;
+        result.m01 = m00 * child.m01 + m01 * child.m11;
+        result.m10 = m10 * child.m00 + m11 * child.m10;
+        result.m11 = m10 * child.m01 + m11 * child.m11;
+        result.tx = m00 * child.tx + m01 * child.ty + tx;
+        result.ty = m10 * child.tx + m11 * child.ty + ty;
+        result.scaleZ = scaleZ * child.scaleZ;
+        result.offsetZ = scaleZ * child.offsetZ + offsetZ;
+        return result;
     }
 
     DxfPoint apply(double x, double y, double z) const
@@ -190,6 +203,46 @@ struct Transform2D {
     {
         return apply(pt.x(), pt.y(), pt.z());
     }
+
+    DxfPoint applyVector(double x, double y, double z = 0.0) const
+    {
+        return DxfPoint(m00 * x + m01 * y,
+                        m10 * x + m11 * y,
+                        scaleZ * z);
+    }
+
+    DxfPoint applyVector(const DxfPoint& vector) const
+    {
+        return applyVector(vector.x(), vector.y(), vector.z());
+    }
+
+    double determinant() const { return m00 * m11 - m01 * m10; }
+    bool reversesOrientation() const { return determinant() < 0.0; }
+
+    bool isPlanarSimilarity() const
+    {
+        const double firstLength2 = m00 * m00 + m10 * m10;
+        const double secondLength2 = m01 * m01 + m11 * m11;
+        const double dot = m00 * m01 + m10 * m11;
+        const double scale = std::max({1.0, firstLength2, secondLength2});
+        return firstLength2 > 1e-24
+            && std::fabs(firstLength2 - secondLength2) <= 1e-9 * scale
+            && std::fabs(dot) <= 1e-9 * scale;
+    }
+
+    double planarScale() const
+    {
+        return std::sqrt(m00 * m00 + m10 * m10);
+    }
+
+    /// Map an unwrapped direction angle under a planar similarity transform.
+    double applyAngle(double angle) const
+    {
+        const double rotation = std::atan2(m10, m00);
+        return reversesOrientation() ? rotation - angle : rotation + angle;
+    }
+
+    double applyZ(double z) const { return scaleZ * z + offsetZ; }
 };
 
 /// Transform and append discretized segments to output.
@@ -205,12 +258,6 @@ static bool addTransformedSegments(DxfData& output,
         output.addGeneratedLine(DxfLine(tf.apply(seg.start()), tf.apply(seg.end())));
     }
     return true;
-}
-
-/// Check whether scales are approximately uniform in XY (for circle preservation).
-static bool isScaleUniformXY(const InsertInfo& ins) {
-    return std::fabs(ins.scaleX - ins.scaleY) < 1e-9
-        && std::fabs(ins.scaleX) > 1e-12;
 }
 
 /// Record the source entity before a block curve is discretized into lines.
@@ -254,46 +301,19 @@ static bool expandCurveGroup(DxfData& output,
 /// Forward declaration for recursive expansion.
 static bool expandSingleBlock(DxfData& output,
                               const DxfBlock& blk,
-                              const InsertInfo& ins,
+                              const Transform2D& tf,
                               double tolerance,
                               const std::unordered_map<std::string, DxfBlock>& blocks,
                               int depth,
                               std::unordered_set<std::string>& visiting,
                               ExpansionBudget& budget);
 
-/// Compose two INSERT transforms: outer × inner.
-/// Transforms the inner INSERT's insertion point by the outer INSERT,
-/// then combines scales (multiply) and angles (add).
-///
-/// NOTE: Scale/angle composition assumes the transforms are decomposed
-/// as (Translate × Rotate × Scale). This is correct for standard DXF
-/// INSERTs with uniform scale. Non-uniform nested transforms involving
-/// shearing or mirroring are not handled by this composition.
-static InsertInfo composeInsertTransform(const InsertInfo& outer,
-                                          const InsertInfo& inner,
-                                          const DxfPoint& nestedPos)
-{
-    InsertInfo composed;
-    composed.blockName = inner.blockName;
-    composed.insertX   = nestedPos.x();
-    composed.insertY   = nestedPos.y();
-    composed.insertZ   = nestedPos.z();
-    composed.scaleX    = outer.scaleX * inner.scaleX;
-    composed.scaleY    = outer.scaleY * inner.scaleY;
-    composed.scaleZ    = outer.scaleZ * inner.scaleZ;
-    composed.angle     = outer.angle  + inner.angle;
-    composed.colCount  = inner.colCount;
-    composed.rowCount  = inner.rowCount;
-    composed.colSpace  = inner.colSpace;
-    composed.rowSpace  = inner.rowSpace;
-    return composed;
-}
-
 /// Expand one INSERT with array (row × col) support.
 /// Generates all array instances and delegates each to expandSingleBlock.
 static bool expandInsertArray(DxfData& output,
                               const DxfBlock& blk,
                               const InsertInfo& ins,
+                              const Transform2D& parentTf,
                               double tolerance,
                               const std::unordered_map<std::string, DxfBlock>& blocks,
                               int depth,
@@ -305,10 +325,6 @@ static bool expandInsertArray(DxfData& output,
     if (!budget.consumeArray(nRows, nCols, blk.name())) return false;
 
     // Degenerate array: no real repetition.
-    if (nCols * nRows <= 1) {
-        return expandSingleBlock(output, blk, ins, tolerance, blocks, depth, visiting, budget);
-    }
-
     const double cosA = std::cos(ins.angle);
     const double sinA = std::sin(ins.angle);
 
@@ -339,7 +355,10 @@ static bool expandInsertArray(DxfData& output,
         for (int col = 0; col < nCols; ++col) {
             insCopy.insertX = curX;
             insCopy.insertY = curY;
-            if (!expandSingleBlock(output, blk, insCopy,
+            const Transform2D localTf = Transform2D::fromInsert(
+                insCopy, blk.baseX(), blk.baseY(), blk.baseZ());
+            const Transform2D worldTf = parentTf.composedWith(localTf);
+            if (!expandSingleBlock(output, blk, worldTf,
                                    tolerance, blocks, depth, visiting, budget))
                 return false;
             curX += colDx;
@@ -355,7 +374,7 @@ static bool expandInsertArray(DxfData& output,
 /// @param blocks  block definitions map, needed for recursive nested INSERT expansion
 static bool expandSingleBlock(DxfData& output,
                               const DxfBlock& blk,
-                              const InsertInfo& ins,
+                              const Transform2D& tf,
                               double tolerance,
                               const std::unordered_map<std::string, DxfBlock>& blocks,
                               int depth,
@@ -384,11 +403,7 @@ static bool expandSingleBlock(DxfData& output,
         ~VisitingGuard() { names.erase(name); }
     } guard{visiting, blk.name()};
 
-    const double bx = blk.baseX(), by = blk.baseY(), bz = blk.baseZ();
-    // Precompute the full affine transform once for this INSERT instance,
-    // eliminating per-point cos/sin and base-point subtraction.
-    const Transform2D tf = Transform2D::fromInsert(ins, bx, by, bz);
-    const bool uniformXY = isScaleUniformXY(ins);
+    const bool preserveRoundCurves = tf.isPlanarSimilarity();
 
     // --- Points: direct transform ---
     output.reservePoints(output.points().size() + blk.points().size());
@@ -414,10 +429,10 @@ static bool expandSingleBlock(DxfData& output,
     // --- Circles ---
     for (const DxfCircle& circle : blk.circles()) {
         if (!circle.isValid()) continue;
-        if (isScaleUniformXY(ins) && std::fabs(ins.scaleZ - ins.scaleX) < 1e-9) {
-            // Uniform scale → preserve as circle
+        if (preserveRoundCurves) {
+            // A planar similarity preserves circles, including mirrored ones.
             DxfPoint c = tf.apply(circle.center());
-            double   r = circle.radius() * tf.scaleX;
+            const double r = circle.radius() * tf.planarScale();
             if (r > 0.0) {
                 if (!budget.consumeEntities(1)) return false;
                 output.addCircle(DxfCircle(c, r));
@@ -434,40 +449,47 @@ static bool expandSingleBlock(DxfData& output,
     }
 
     // --- Arcs: uniform scale → preserve Arc; non-uniform → discretize ---
-    if (!expandCurveGroup(output, blk.arcs(), tf, tolerance, uniformXY, budget,
+    if (!expandCurveGroup(output, blk.arcs(), tf, tolerance, preserveRoundCurves, budget,
         GeometryUtils::tessellateArc,
         [](DxfData& out, const DxfArc& arc, const Transform2D& t) {
             out.addArc(DxfArc(t.apply(arc.center()),
-                        arc.radius() * t.scaleX,
-                        arc.startAngle(), arc.endAngle(), arc.isCCW()));
+                        arc.radius() * t.planarScale(),
+                        t.applyAngle(arc.startAngle()),
+                        t.applyAngle(arc.endAngle()),
+                        t.reversesOrientation() ? !arc.isCCW() : arc.isCCW()));
         })) return false;
 
     // --- LWPolylines: uniform scale → preserve; non-uniform → discretize ---
-    if (!expandCurveGroup(output, blk.lwPolylines(), tf, tolerance, uniformXY, budget,
+    if (!expandCurveGroup(output, blk.lwPolylines(), tf, tolerance, preserveRoundCurves, budget,
         GeometryUtils::tessellateLWPolyline,
         [](DxfData& out, const DxfLWPolyline& poly, const Transform2D& t) {
             std::vector<DxfPoint> verts;
             verts.reserve(poly.vertices().size());
             for (const DxfPoint& v : poly.vertices())
                 verts.push_back(t.apply(v));
-            out.addLWPolyline(DxfLWPolyline(verts, poly.bulges(),
-                                             poly.isClosed(), poly.constZ() * t.scaleZ));
+            std::vector<double> bulges = poly.bulges();
+            if (t.reversesOrientation()) {
+                for (double& bulge : bulges) bulge = -bulge;
+            }
+            out.addLWPolyline(DxfLWPolyline(
+                verts, bulges, poly.isClosed(), t.applyZ(poly.constZ())));
         })) return false;
 
     // --- Ellipses: uniform scale → preserve; non-uniform → discretize ---
-    if (!expandCurveGroup(output, blk.ellipses(), tf, tolerance, uniformXY, budget,
+    if (!expandCurveGroup(output, blk.ellipses(), tf, tolerance, preserveRoundCurves, budget,
         GeometryUtils::tessellateEllipse,
         [](DxfData& out, const DxfEllipse& ellipse, const Transform2D& t) {
             DxfPoint c = t.apply(ellipse.center());
-            DxfPoint m(ellipse.majorAxisEnd().x() * t.scaleX,
-                       ellipse.majorAxisEnd().y() * t.scaleY,
-                       ellipse.majorAxisEnd().z() * t.scaleZ);
+            const DxfPoint m = t.applyVector(ellipse.majorAxisEnd());
+            const bool reflected = t.reversesOrientation();
             out.addEllipse(DxfEllipse(c, m, ellipse.ratio(),
-                                       ellipse.startParam(), ellipse.endParam(), ellipse.isCCW()));
+                reflected ? -ellipse.startParam() : ellipse.startParam(),
+                reflected ? -ellipse.endParam() : ellipse.endParam(),
+                reflected ? !ellipse.isCCW() : ellipse.isCCW()));
         })) return false;
 
-    // --- Splines: uniform scale → preserve; non-uniform → discretize ---
-    if (!expandCurveGroup(output, blk.splines(), tf, tolerance, uniformXY, budget,
+    // --- Splines: preserve under similarities; tessellate under general affine transforms. ---
+    if (!expandCurveGroup(output, blk.splines(), tf, tolerance, preserveRoundCurves, budget,
         GeometryUtils::tessellateSpline,
         [](DxfData& out, const DxfSpline& spline, const Transform2D& t) {
             std::vector<DxfPoint> ctrlPts;
@@ -478,10 +500,15 @@ static bool expandSingleBlock(DxfData& output,
             fitPts.reserve(spline.fitPoints().size());
             for (const DxfPoint& fp : spline.fitPoints())
                 fitPts.push_back(t.apply(fp));
-            out.addSpline(DxfSpline(ctrlPts, spline.knots(), spline.weights(), fitPts,
-                                     spline.degree(), spline.flags(),
-                                     spline.tgStartX(), spline.tgStartY(), spline.tgStartZ(),
-                                     spline.tgEndX(), spline.tgEndY(), spline.tgEndZ()));
+            const DxfPoint startTangent = t.applyVector(
+                spline.tgStartX(), spline.tgStartY(), spline.tgStartZ());
+            const DxfPoint endTangent = t.applyVector(
+                spline.tgEndX(), spline.tgEndY(), spline.tgEndZ());
+            out.addSpline(DxfSpline(
+                ctrlPts, spline.knots(), spline.weights(), fitPts,
+                spline.degree(), spline.flags(),
+                startTangent.x(), startTangent.y(), startTangent.z(),
+                endTangent.x(), endTangent.y(), endTangent.z()));
         })) return false;
 
     // --- Nested INSERTs: recursive expansion ---
@@ -494,12 +521,9 @@ static bool expandSingleBlock(DxfData& output,
         }
         const DxfBlock& nestedBlk = it->second;
 
-        // Compose transforms: outer × inner
-        const DxfPoint nestedPos = tf.apply(nested.insertX, nested.insertY, nested.insertZ);
-        InsertInfo composed = composeInsertTransform(ins, nested, nestedPos);
-
-        // Generate nested array instances
-        if (!expandInsertArray(output, nestedBlk, composed, tolerance, blocks,
+        // Generate nested array instances in the current block coordinate
+        // system, then compose their local transforms with this world matrix.
+        if (!expandInsertArray(output, nestedBlk, nested, tf, tolerance, blocks,
                                depth + 1, visiting, budget))
             return false;
     }
@@ -527,7 +551,8 @@ static bool expandBlocks(DxfData& output,
             continue;
         }
         const DxfBlock& blk = it->second;
-        if (!expandInsertArray(output, blk, ins, tolerance, blocks, 0, visiting, budget))
+        if (!expandInsertArray(output, blk, ins, Transform2D(), tolerance,
+                               blocks, 0, visiting, budget))
             return false;
     }
     return true;
