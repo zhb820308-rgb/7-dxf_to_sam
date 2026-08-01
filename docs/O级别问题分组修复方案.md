@@ -17,18 +17,18 @@
 
 | 编号 | 问题 | 当前证据 | 状态 |
 | --- | --- | --- | --- |
-| O-01 | 错误类型仍依赖字符串比较 | Sketch 和 FE 已统一返回 `ImportBuildResult`，调用层不再比较错误文案 | 代码完成，待审批 |
+| O-01 | 错误类型仍依赖字符串比较 | Sketch 和 FE 已统一返回 `ImportBuildResult`，调用层不再比较错误文案 | 已完成（`8e18f2d`） |
 | O-02 | 多个文件职责过大 | `page/app.js`、`server.js`、`DxfParser.cpp`、`Example1PytModule.cpp` 等仍为大型多职责文件 | 待处理 |
 | O-03 | CMake 使用目录级配置和 `GLOB` | Example1 与 Toolset 仍使用全局 include/link/definition 和 `file(GLOB)` | 待处理 |
-| O-04 | 测试重复编译生产源码 | 多个测试目标重复编译 `GeometryUtils.cpp`、`DxfData.cpp`、`ConversionEngine.cpp` | 待处理 |
+| O-04 | 测试重复编译生产源码 | 生产插件和测试已链接共享的 `Example1Core` 与 `Example1DxfParser` | 代码完成，待审批 |
 | O-05 | DXF 路径使用本地 8 位编码 | `DxfParser::parseFile()` 仍通过 `toLocal8Bit()` 传递路径 | 待处理 |
-| O-06 | 前端图层统计重复扫描实体 | 已改为一次遍历建立 SAM 控制层计数索引 | 代码完成，待审批 |
+| O-06 | 前端图层统计重复扫描实体 | 已改为一次遍历建立 SAM 控制层计数索引 | 已完成（`1b3b5e2`） |
 
 其中：
 
 - `L` 为图层数量。
 - `N` 为离散后的点和线总数。
-- O-01 已有局部 `BuildStatus`，但状态来源尚未完全结构化，不能视为关闭。
+- O-04 的核心库不依赖 SAM Repository；libdxfrw 解析器使用独立静态库隔离额外依赖。
 
 ## 3. 分组原则
 
@@ -107,7 +107,7 @@ cmake --build build --config Release
 
 ## 6. OG1：O-06 前端图层统计优化
 
-**状态：代码完成，自动化验证通过，待审批提交。**
+**状态：已完成并提交（`1b3b5e2`）。**
 
 ### 6.1 问题
 
@@ -158,7 +158,7 @@ perf(web): index layer counts in one pass
 
 ## 7. OG2：O-01 结构化构建状态
 
-**状态：代码完成，自动化验证通过，待审批提交。**
+**状态：已完成并提交（`8e18f2d`）。**
 
 ### 7.1 问题
 
@@ -231,6 +231,8 @@ refactor(import): return structured build status
 
 ## 8. OG3：O-04 测试公共核心库
 
+**状态：代码完成，自动化验证通过，待审批提交。**
+
 ### 8.1 问题
 
 `test/CMakeLists.txt` 将相同生产源码重复加入多个测试目标，导致完整构建反复编译
@@ -268,6 +270,14 @@ FeConversionEngine.cpp
 ```text
 build(test): share Example1 core library
 ```
+
+### 8.5 实施与验证记录
+
+- `Example1Core` 统一编译 `DxfData`、`GeometryUtils`、Sketch/FE 转换和导入日志实现。
+- `Example1DxfParser` 单独编译 `DxfParser`，并公开 libdxfrw 链接边界。
+- `Example1` 插件和 7 个相关测试目标均链接同一生产实现，不再展开生产 `.cpp`。
+- 干净 Release 构建中，7 个生产实现文件的编译次数均由原来的 2～8 次降为 1 次。
+- 本机同口径单次干净构建从 88.69 秒降至 55.56 秒，约减少 37%；该数据仅用于方向验证，不作为跨机器性能承诺。
 
 ## 9. OG4：O-03 CMake 目标化
 
@@ -468,7 +478,7 @@ cmake --build build --config Release --target Example1 Example1Toolset
 - [X] OG0：稳定基线已建立，无关工作区修改已隔离。
 - [X] OG1/O-06：图层统计改为一次遍历并保持 SAM 图层语义。
 - [X] OG2/O-01：程序控制流不再依赖错误文案。
-- [ ] OG3/O-04：测试与生产链接共享核心实现。
+- [X] OG3/O-04：测试与生产链接共享核心实现。
 - [ ] OG4/O-03：CMake 使用目标级配置和明确源文件列表。
 - [ ] OG5/O-05：Unicode 路径通过自动化和 SAM 人工验收。
 - [ ] OG6/O-02：主要大文件按职责拆分且复杂度实际下降。
