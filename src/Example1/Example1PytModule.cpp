@@ -79,9 +79,14 @@ static QString importSummaryText(int created, const DxfEntityStats& stats)
 	}
 
 	return QStringLiteral(
-		"[importDxf] Import complete: imported entities=%1; source (after layer filter and block expansion): "
-		"lines=%2, polylines=%3, curves=%4 (circles=%5, arcs=%6, ellipses=%7, splines=%8; spline categories=[%9])")
+		"[importDxf] Import complete: imported entities=%1; source=%2, accepted=%3, rejected=%4, generated=%5; "
+		"types (after layer filter and block expansion): lines=%6, polylines=%7, curves=%8 "
+		"(circles=%9, arcs=%10, ellipses=%11, splines=%12; spline categories=[%13])")
 		.arg(created)
+		.arg(static_cast<qulonglong>(stats.sourceEntities))
+		.arg(static_cast<qulonglong>(stats.acceptedEntities))
+		.arg(static_cast<qulonglong>(stats.rejectedEntities))
+		.arg(static_cast<qulonglong>(stats.generatedEntities))
 		.arg(static_cast<qulonglong>(stats.lines))
 		.arg(static_cast<qulonglong>(stats.lwPolylines))
 		.arg(static_cast<qulonglong>(stats.curveCount()))

@@ -300,7 +300,7 @@ bool DxfParser::parseFile(const QString& filePath,
 6. 调用 `dxf.read(&reader, true)`；
 7. 将模型空间数据移动到 `outData`；
 8. 调用 `expandBlocks()` 展开所有模型空间 INSERT；
-9. 检查最终支持实体数；
+9. 检查 `acceptedEntities + generatedEntities` 和最终输出实体数；
 10. 设置 `isValid` 并返回结果。
 
 失败情况包括：
@@ -308,9 +308,11 @@ bool DxfParser::parseFile(const QString& filePath,
 - 文件路径为空；
 - 容差无效；
 - libdxfrw 读取失败；
-- 成功读取但没有任何支持的实体。
+- 成功读取但没有任何通过公共不变量检查或成功生成的实体。
 
-失败时通过 `DxfData::setErrorMessage()` 返回错误原因。
+失败时通过 `DxfData::setErrorMessage()` 返回错误原因和拒绝实体数量。实体统计
+区分源实体、接受实体、拒绝实体与 BLOCK/离散生成实体，解析成功不会再由曾经
+追加但无效的对象触发。
 
 ## 11. 最终数据流
 

@@ -5,6 +5,7 @@
  */
 #include <gtest/gtest.h>
 #include <cmath>
+#include <limits>
 #include "GeometryUtils.h"
 
 #ifndef M_PI
@@ -234,14 +235,14 @@ TEST(CalcArcSegCount, extreme_radius_small_tolerance) {
     EXPECT_LE(n, 10000);
 }
 
-TEST(NormalizeSweep, ccw_multiple_turns_preserved) {
+TEST(NormalizeSweep, ccw_multiple_turns_normalized) {
     double s = normalizeSweep(4.0 * M_PI, true);
-    EXPECT_NEAR(s, 4.0 * M_PI, 1e-9);
+    EXPECT_NEAR(s, 2.0 * M_PI, 1e-9);
 }
 
-TEST(NormalizeSweep, cw_multiple_turns_preserved) {
+TEST(NormalizeSweep, cw_multiple_turns_normalized) {
     double s = normalizeSweep(-4.0 * M_PI, false);
-    EXPECT_NEAR(s, -4.0 * M_PI, 1e-9);
+    EXPECT_NEAR(s, -2.0 * M_PI, 1e-9);
 }
 
 TEST(NormalizeSweep, ccw_exactly_pi_preserved) {
@@ -252,4 +253,48 @@ TEST(NormalizeSweep, ccw_exactly_pi_preserved) {
 TEST(NormalizeSweep, cw_exactly_minus_pi_preserved) {
     double s = normalizeSweep(-M_PI, false);
     EXPECT_NEAR(s, -M_PI, 1e-9);
+}
+
+TEST(NormalizeSweep, huge_finite_values_are_reduced_in_constant_time) {
+    const double huge = std::numeric_limits<double>::max();
+    const double ccw = normalizeSweep(huge, true);
+    const double cw = normalizeSweep(-huge, false);
+    EXPECT_TRUE(std::isfinite(ccw));
+    EXPECT_GT(ccw, 0.0);
+    EXPECT_LE(ccw, 2.0 * M_PI);
+    EXPECT_TRUE(std::isfinite(cw));
+    EXPECT_LT(cw, 0.0);
+    EXPECT_GE(cw, -2.0 * M_PI);
+}
+
+TEST(NormalizeSweep, nonfinite_values_are_rejected) {
+    EXPECT_TRUE(std::isnan(normalizeSweep(
+        std::numeric_limits<double>::infinity(), true)));
+    EXPECT_TRUE(std::isnan(normalizeSweep(
+        std::numeric_limits<double>::quiet_NaN(), false)));
+}
+
+TEST(CalcArcSegCount, nonfinite_inputs_return_safe_minimum) {
+    const double inf = std::numeric_limits<double>::infinity();
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    EXPECT_EQ(calculateArcSegmentCount(inf, M_PI, 0.01), 1);
+    EXPECT_EQ(calculateArcSegmentCount(1.0, inf, 0.01), 1);
+    EXPECT_EQ(calculateArcSegmentCount(1.0, M_PI, nan), 1);
+}
+
+TEST(CalcArcSegCount, huge_finite_ratio_is_clamped_before_integer_conversion) {
+    const int count = calculateArcSegmentCount(
+        std::numeric_limits<double>::max(), 2.0 * M_PI,
+        std::numeric_limits<double>::denorm_min());
+    EXPECT_EQ(count, 10000);
+}
+
+TEST(TessellateSpline, invalid_rational_data_fails_without_throwing) {
+    const DxfSpline invalid(
+        { DxfPoint(0, 0, 0), DxfPoint(1, 1, 0),
+          DxfPoint(2, 1, 0), DxfPoint(3, 0, 0) },
+        { 0, 0, 0, 0, 1, 1, 1, 1 },
+        { 1, 1 }, {}, 3, 4,
+        0, 0, 0, 0, 0, 0);
+    EXPECT_TRUE(tessellateSpline(invalid, 0.01).empty());
 }

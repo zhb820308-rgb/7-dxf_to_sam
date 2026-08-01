@@ -16,11 +16,15 @@
 #include <Precision.hxx>
 
 #include <cmath>
+#include <limits>
 
 namespace GeometryUtils {
 
 int calculateArcSegmentCount(double radius, double sweep, double tolerance)
 {
+    if (!std::isfinite(radius) || !std::isfinite(sweep)
+        || !std::isfinite(tolerance))
+        return 1;
     if (radius <= 0.0 || sweep <= 0.0)
         return 1;
     if (tolerance <= 0.0)
@@ -36,8 +40,16 @@ int calculateArcSegmentCount(double radius, double sweep, double tolerance)
     if (maxAngle > minAngle)
         maxAngle = minAngle;
 
-    int segments = static_cast<int>(std::ceil(sweep / maxAngle));
-    return std::max(2, std::min(segments, 10000));
+    constexpr int maxSegments = 10000;
+    if (!std::isfinite(maxAngle) || maxAngle <= 0.0)
+        return maxSegments;
+
+    const double requested = std::ceil(sweep / maxAngle);
+    if (!std::isfinite(requested) || requested >= maxSegments)
+        return maxSegments;
+    if (requested <= 2.0)
+        return 2;
+    return static_cast<int>(requested);
 }
 
 std::vector<DxfPoint> tessellateBulgeArc(
@@ -102,12 +114,18 @@ std::vector<DxfPoint> tessellateBulgeArc(
 
 double normalizeSweep(double sweep, bool isCCW)
 {
-    if (isCCW) {
-        while (sweep <= 0.0) { sweep += 2.0 * M_PI; }
-    } else {
-        while (sweep >= 0.0) { sweep -= 2.0 * M_PI; }
-    }
-    return sweep;
+    if (!std::isfinite(sweep))
+        return std::numeric_limits<double>::quiet_NaN();
+
+    const double fullTurn = 2.0 * M_PI;
+    double normalized = std::fmod(sweep, fullTurn);
+    if (normalized == 0.0)
+        return isCCW ? fullTurn : -fullTurn;
+    if (isCCW && normalized < 0.0)
+        normalized += fullTurn;
+    else if (!isCCW && normalized > 0.0)
+        normalized -= fullTurn;
+    return normalized;
 }
 
 std::vector<DxfLine> tessellateArc(const DxfArc& arc, double tolerance)
@@ -120,6 +138,10 @@ std::vector<DxfLine> tessellateArc(const DxfArc& arc, double tolerance)
     double r  = arc.radius();
     double a0 = arc.startAngle();
     double sweep = normalizeSweep(arc.endAngle() - a0, arc.isCCW());
+
+    if (!arc.isValid() || !std::isfinite(tolerance) || !std::isfinite(sweep))
+        return result;
+    if (tolerance <= 0.0) tolerance = 1.0e-6;
 
     int segments = calculateArcSegmentCount(r, std::abs(sweep), tolerance);
 
@@ -179,7 +201,7 @@ std::vector<DxfLine> tessellateEllipse(const DxfEllipse& ellipse,
     const DxfPoint& majorEnd = ellipse.majorAxisEnd();
     double majorX = majorEnd.x();
     double majorY = majorEnd.y();
-    double majorLen = std::sqrt(majorX * majorX + majorY * majorY);
+    double majorLen = std::hypot(majorX, majorY);
 
     if (majorLen <= 0.0) return result;
 
@@ -190,6 +212,10 @@ std::vector<DxfLine> tessellateEllipse(const DxfEllipse& ellipse,
     double startParam = ellipse.startParam();
     double endParam   = ellipse.endParam();
     double sweep = normalizeSweep(endParam - startParam, ellipse.isCCW());
+
+    if (!ellipse.isValid() || !std::isfinite(tolerance) || !std::isfinite(sweep))
+        return result;
+    if (tolerance <= 0.0) tolerance = 1.0e-6;
 
     const double maxRadius = (majorLen > majorLen * ratio)
         ? majorLen : majorLen * ratio;
@@ -390,6 +416,7 @@ bool discretizeByDeflection(
 std::vector<DxfLine> tessellateSpline(const DxfSpline& spline, double tolerance)
 {
     std::vector<DxfLine> result;
+    if (!spline.isValid()) return result;
 
     Handle(Geom_BSplineCurve) curve;
 
@@ -399,11 +426,17 @@ std::vector<DxfLine> tessellateSpline(const DxfSpline& spline, double tolerance)
            static_cast<int>(spline.controlPoints().size()) + spline.degree() + 1;
     const bool hasFitData = spline.fitPoints().size() >= 2;
 
-    if (hasControlData) {
-        curve = buildCurveFromControlData(spline);
-    } else if (hasFitData) {
-        curve = buildCurveFromFitPoints(spline);
-    } else {
+    try {
+        if (hasControlData) {
+            curve = buildCurveFromControlData(spline);
+        } else if (hasFitData) {
+            curve = buildCurveFromFitPoints(spline);
+        } else {
+            return result;
+        }
+    } catch (const Standard_Failure&) {
+        return result;
+    } catch (const std::exception&) {
         return result;
     }
 

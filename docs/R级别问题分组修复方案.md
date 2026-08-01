@@ -11,7 +11,7 @@ w
 基准提交：`4b48230`
 当前审查提交：`698c46b`
 制定日期：2026-08-01
-当前状态：G1、G2、H1、G3 已关闭；其余 7 项 Required 待处理
+当前状态：G1、G2、H1、G3、G4 已关闭；其余 4 项 Required 待处理
 
 ## 2. 分组原则
 
@@ -31,7 +31,7 @@ w
 |    1 | G1 测试基础（已完成） | R-11             | 建立可移植、坐标级回归测试     | 测试继续漏报几何错误         |
 |    2 | G2 几何变换（已完成） | R-01、R-02、R-04 | 统一点、向量和嵌套仿射变换     | 静默几何错误                 |
 |    3 | G3 图层语义（已完成） | R-03             | 正确实现 INSERT 图层继承与过滤 | 忽略图层失效                 |
-|    4 | G4 输入合法性         | R-06、R-09、R-10 | 在数据边界拒绝极端值和无效实体 | CPU 阻塞、异常和错误成功状态 |
+|    4 | G4 输入合法性（已完成） | R-06、R-09、R-10 | 在数据边界拒绝极端值和无效实体 | CPU 阻塞、异常和错误成功状态 |
 |    5 | G5 事务回滚           | R-05、R-12       | 保证 FE/Sketch 提交失败原子性  | 半成品 Part 或草图残留       |
 |    6 | G6 Agent 安全         | R-07、R-08       | 消除持久密钥和无界上游响应     | 密钥泄露、请求长期占用       |
 
@@ -46,7 +46,7 @@ H1 样条右值统计热修复（已完成）
         ↓
 G3 图层语义（已完成）
         ↓
-G4 输入合法性
+G4 输入合法性（已完成）
         ↓
 G5 事务回滚
 
@@ -246,6 +246,8 @@ fix(dxf): apply INSERT layer inheritance
 
 ## 7. G4：数值边界与实体不变量
 
+**状态：已完成（2026-08-01）。**
+
 ### 7.1 包含问题
 
 - R-06：极端角度和段数计算不安全。
@@ -304,6 +306,17 @@ fix(geometry): bound angle normalization
 fix(dxf): reject invalid parsed entities
 fix(spline): enforce public invariants
 ```
+
+### 7.7 实际完成内容
+
+1. `normalizeSweep()` 使用 `std::fmod()` 将有限角度归一化到单圈有向范围，非有限输入返回 NaN，不再按圈数循环。
+2. `calculateArcSegmentCount()` 在任何浮点到整数转换前检查有限性，并在浮点域将输出限制到 10,000。
+3. `DxfData` 的公共添加入口拒绝无效实体，统计 `sourceEntities`、`acceptedEntities`、`rejectedEntities`、`generatedEntities` 和拒绝原因。
+4. INSERT 展开和曲线离散产物通过独立生成入口记录，不再与模型空间原生有效实体混计。
+5. `parseFile()` 以 `acceptedEntities + generatedEntities` 和实际输出共同判定成功；仅含无效实体的文件返回失败及拒绝数量。
+6. `DxfSpline::isValid()` 统一检查 OCCT degree 上限、全部点和切向量有限、节点数量/顺序/重数、以及有理权重数量和值。
+7. 新增 `invalid_entities_only.dxf` 和 DBL_MAX、Inf、NaN、错误 degree、乱序节点、权重不足/非正等回归测试。
+8. Release 全量构建、CTest 7/7、五组 Node 测试和 diff 检查通过。
 
 ## 8. G5：FE/Sketch 事务与回滚
 
@@ -448,7 +461,7 @@ G2、G4、G5、G6 内部可以拆为多个小提交，但不应把不同组压�
 - [X] G2：R-01、R-02、R-04 已关闭。
 - [X] H1：样条右值统计回归已关闭。
 - [X] G3：R-03 已关闭。
-- [ ] G4：R-06、R-09、R-10 已关闭。
+- [X] G4：R-06、R-09、R-10 已关闭。
 - [ ] G5：R-05、R-12 已关闭，并完成 SAM GUI 验收。
 - [ ] G6：R-07、R-08 已关闭。
 - [ ] C-02 C++ 最终转换预算已补完。

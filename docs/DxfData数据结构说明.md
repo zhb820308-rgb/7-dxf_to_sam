@@ -413,6 +413,11 @@ struct SplineKind {
 
 ```cpp
 struct DxfEntityStats {
+    std::size_t sourceEntities = 0;
+    std::size_t acceptedEntities = 0;
+    std::size_t rejectedEntities = 0;
+    std::size_t generatedEntities = 0;
+    std::map<std::string, std::size_t> rejectionReasons;
     std::size_t lines = 0;
     std::size_t lwPolylines = 0;
     std::size_t circles = 0;
@@ -425,7 +430,9 @@ struct DxfEntityStats {
 };
 ```
 
-用于导入日志记录各实体数量，便于调试和文件分析。记录的是纯模型空间实体（不包含隐藏在 Block 定义中尚未展开的实体）。
+四项总量分别表示遇到的支持实体、公共不变量检查通过的模型空间实体、被拒绝
+实体以及 BLOCK 展开/曲线离散生成的最终实体。`rejectionReasons` 按原因汇总，
+类型字段继续记录过滤和块展开后的来源类型。`DxfData::add*()` 不再保存无效实体。
 
 ---
 

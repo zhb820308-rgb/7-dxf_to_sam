@@ -46,6 +46,11 @@ struct SplineKind {
 };
 
 struct DxfEntityStats {
+    std::size_t sourceEntities = 0;
+    std::size_t acceptedEntities = 0;
+    std::size_t rejectedEntities = 0;
+    std::size_t generatedEntities = 0;
+    std::map<std::string, std::size_t> rejectionReasons;
     std::size_t lines = 0;
     std::size_t lwPolylines = 0;
     std::size_t circles = 0;
@@ -282,7 +287,13 @@ public:
     void addEllipse(const DxfEllipse& ellipse);
     void addSpline(const DxfSpline& spline);
     void addSpline(DxfSpline&& spline);
+    void addGeneratedPoint(const DxfPoint& point);
     void addGeneratedLine(const DxfLine& line);
+    void addGeneratedCircle(const DxfCircle& circle);
+    void addGeneratedArc(const DxfArc& arc);
+    void addGeneratedLWPolyline(const DxfLWPolyline& poly);
+    void addGeneratedEllipse(const DxfEllipse& ellipse);
+    void addGeneratedSpline(DxfSpline&& spline);
     void recordGeneratedEntity(EntityType sourceType);
     void recordGeneratedSpline(const SplineKind& kind);
     void addInsert(const InsertInfo& ins) { m_inserts.push_back(ins); }
@@ -330,6 +341,9 @@ public:
     void setValid(bool v) { m_isValid = v; }
 
 private:
+    void recordRejected(const char* reason);
+    void recordAccepted();
+
     std::vector<DxfPoint>       m_points;
     std::vector<DxfLine>        m_lines;
     std::vector<DxfCircle>      m_circles;
@@ -365,14 +379,14 @@ public:
     const std::vector<DxfEllipse>&    ellipses()    const { return m_ellipses; }
     const std::vector<DxfSpline>&     splines()     const { return m_splines; }
 
-    void addPoint(const DxfPoint& pt)           { m_points.push_back(pt); }
-    void addLine(const DxfLine& line)           { m_lines.push_back(line); }
-    void addCircle(const DxfCircle& circle)     { m_circles.push_back(circle); }
-    void addArc(const DxfArc& arc)              { m_arcs.push_back(arc); }
-    void addLWPolyline(const DxfLWPolyline& p)  { m_lwPolylines.push_back(p); }
-    void addEllipse(const DxfEllipse& e)        { m_ellipses.push_back(e); }
-    void addSpline(const DxfSpline& s)          { m_splines.push_back(s); }
-    void addSpline(DxfSpline&& s)               { m_splines.push_back(std::move(s)); }
+    void addPoint(const DxfPoint& pt)           { if (pt.isValid()) m_points.push_back(pt); }
+    void addLine(const DxfLine& line)           { if (line.isValid()) m_lines.push_back(line); }
+    void addCircle(const DxfCircle& circle)     { if (circle.isValid()) m_circles.push_back(circle); }
+    void addArc(const DxfArc& arc)              { if (arc.isValid()) m_arcs.push_back(arc); }
+    void addLWPolyline(const DxfLWPolyline& p)  { if (p.isValid()) m_lwPolylines.push_back(p); }
+    void addEllipse(const DxfEllipse& e)        { if (e.isValid()) m_ellipses.push_back(e); }
+    void addSpline(const DxfSpline& s)          { if (s.isValid()) m_splines.push_back(s); }
+    void addSpline(DxfSpline&& s)               { if (s.isValid()) m_splines.push_back(std::move(s)); }
 
     // --- Nested INSERTs ---
     void addInsert(const InsertInfo& ins) { m_inserts.push_back(ins); }

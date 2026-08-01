@@ -159,8 +159,8 @@ DxfEllipse::DxfEllipse(const DxfPoint& center, const DxfPoint& majorAxisEnd,
 
 bool DxfEllipse::isValid() const
 {
-    double majorLen = std::sqrt(m_majorAxisEnd.x() * m_majorAxisEnd.x()
-                              + m_majorAxisEnd.y() * m_majorAxisEnd.y());
+    const double majorLen = std::hypot(
+        m_majorAxisEnd.x(), m_majorAxisEnd.y());
     return m_center.isValid()
         && m_majorAxisEnd.isValid()
         && std::isfinite(majorLen) && majorLen > 0.0
@@ -255,60 +255,188 @@ void DxfData::reserveSplines(std::size_t count)
 
 void DxfData::addPoint(const DxfPoint& pt)
 {
+    ++m_entityStats.sourceEntities;
+    if (!pt.isValid()) {
+        recordRejected("invalid point");
+        return;
+    }
     m_points.push_back(pt);
+    recordAccepted();
 }
 
 void DxfData::addLine(const DxfLine& line)
 {
+    ++m_entityStats.sourceEntities;
+    if (!line.isValid()) {
+        recordRejected("invalid line");
+        return;
+    }
     m_lines.push_back(line);
     ++m_entityStats.lines;
+    recordAccepted();
 }
 
 void DxfData::addCircle(const DxfCircle& circle)
 {
+    ++m_entityStats.sourceEntities;
+    if (!circle.isValid()) {
+        recordRejected("invalid circle");
+        return;
+    }
     m_circles.push_back(circle);
     ++m_entityStats.circles;
+    recordAccepted();
 }
 
 void DxfData::addArc(const DxfArc& arc)
 {
+    ++m_entityStats.sourceEntities;
+    if (!arc.isValid()) {
+        recordRejected("invalid arc");
+        return;
+    }
     m_arcs.push_back(arc);
     ++m_entityStats.arcs;
+    recordAccepted();
 }
 
 void DxfData::addLWPolyline(const DxfLWPolyline& poly)
 {
+    ++m_entityStats.sourceEntities;
+    if (!poly.isValid()) {
+        recordRejected("invalid lwpolyline");
+        return;
+    }
     m_lwPolylines.push_back(poly);
     ++m_entityStats.lwPolylines;
+    recordAccepted();
 }
 
 void DxfData::addEllipse(const DxfEllipse& ellipse)
 {
+    ++m_entityStats.sourceEntities;
+    if (!ellipse.isValid()) {
+        recordRejected("invalid ellipse");
+        return;
+    }
     m_ellipses.push_back(ellipse);
     ++m_entityStats.ellipses;
+    recordAccepted();
 }
 
 void DxfData::addSpline(const DxfSpline& spline)
 {
+    ++m_entityStats.sourceEntities;
+    if (!spline.isValid()) {
+        recordRejected("invalid spline");
+        return;
+    }
     m_splines.push_back(spline);
     ++m_entityStats.splineKinds[spline.kind()];
+    recordAccepted();
 }
 
 void DxfData::addSpline(DxfSpline&& spline)
 {
     const SplineKind kind = spline.kind();
+    ++m_entityStats.sourceEntities;
+    if (!spline.isValid()) {
+        recordRejected("invalid spline");
+        return;
+    }
     m_splines.push_back(std::move(spline));
     ++m_entityStats.splineKinds[kind];
+    recordAccepted();
+}
+
+void DxfData::addGeneratedPoint(const DxfPoint& point)
+{
+    if (!point.isValid()) {
+        recordRejected("invalid generated point");
+        return;
+    }
+    m_points.push_back(point);
+    ++m_entityStats.generatedEntities;
 }
 
 void DxfData::addGeneratedLine(const DxfLine& line)
 {
+    if (!line.isValid()) {
+        recordRejected("invalid generated line");
+        return;
+    }
     m_lines.push_back(line);
+    ++m_entityStats.generatedEntities;
+}
+
+void DxfData::addGeneratedCircle(const DxfCircle& circle)
+{
+    if (!circle.isValid()) {
+        recordRejected("invalid generated circle");
+        return;
+    }
+    m_circles.push_back(circle);
+    ++m_entityStats.generatedEntities;
+}
+
+void DxfData::addGeneratedArc(const DxfArc& arc)
+{
+    if (!arc.isValid()) {
+        recordRejected("invalid generated arc");
+        return;
+    }
+    m_arcs.push_back(arc);
+    ++m_entityStats.generatedEntities;
+}
+
+void DxfData::addGeneratedLWPolyline(const DxfLWPolyline& poly)
+{
+    if (!poly.isValid()) {
+        recordRejected("invalid generated lwpolyline");
+        return;
+    }
+    m_lwPolylines.push_back(poly);
+    ++m_entityStats.generatedEntities;
+}
+
+void DxfData::addGeneratedEllipse(const DxfEllipse& ellipse)
+{
+    if (!ellipse.isValid()) {
+        recordRejected("invalid generated ellipse");
+        return;
+    }
+    m_ellipses.push_back(ellipse);
+    ++m_entityStats.generatedEntities;
+}
+
+void DxfData::addGeneratedSpline(DxfSpline&& spline)
+{
+    if (!spline.isValid()) {
+        recordRejected("invalid generated spline");
+        return;
+    }
+    m_splines.push_back(std::move(spline));
+    ++m_entityStats.generatedEntities;
+}
+
+void DxfData::recordRejected(const char* reason)
+{
+    ++m_entityStats.rejectedEntities;
+    ++m_entityStats.rejectionReasons[reason];
+}
+
+void DxfData::recordAccepted()
+{
+    ++m_entityStats.acceptedEntities;
 }
 
 void DxfData::recordGeneratedEntity(EntityType sourceType)
 {
+    ++m_entityStats.sourceEntities;
     switch (sourceType) {
+    case EntityType::Line:
+        ++m_entityStats.lines;
+        break;
     case EntityType::Circle:
         ++m_entityStats.circles;
         break;
@@ -328,6 +456,7 @@ void DxfData::recordGeneratedEntity(EntityType sourceType)
 
 void DxfData::recordGeneratedSpline(const SplineKind& kind)
 {
+    ++m_entityStats.sourceEntities;
     ++m_entityStats.splineKinds[kind];
 }
 
@@ -397,15 +526,50 @@ SplineKind DxfSpline::kind() const
 
 bool DxfSpline::isValid() const
 {
-    // Must have at least one data source
-    const bool hasCtrl = m_ctrlPts.size() >= static_cast<std::size_t>(m_degree + 1)
-                      && m_knots.size() >= static_cast<std::size_t>(m_ctrlPts.size() + m_degree + 1);
-    const bool hasFit = m_fitPts.size() >= 2;
-    if (!hasCtrl && !hasFit)
+    constexpr int maxOcctDegree = 25;
+    if (m_degree < 1 || m_degree > maxOcctDegree)
         return false;
 
-    if (m_degree < 1)
+    for (const DxfPoint& point : m_ctrlPts)
+        if (!point.isValid()) return false;
+    for (const DxfPoint& point : m_fitPts)
+        if (!point.isValid()) return false;
+    for (std::size_t i = 0; i < m_knots.size(); ++i) {
+        if (!std::isfinite(m_knots[i])) return false;
+        if (i > 0 && m_knots[i] < m_knots[i - 1]) return false;
+    }
+    for (double weight : m_weights)
+        if (!std::isfinite(weight) || weight <= 0.0) return false;
+
+    const bool hasCtrl = m_ctrlPts.size() > static_cast<std::size_t>(m_degree);
+    const bool hasFit = m_fitPts.size() >= 2;
+    if (!hasCtrl && !hasFit) return false;
+
+    if (hasCtrl) {
+        constexpr double knotTolerance = 1.0e-12;
+        if (m_knots.size() != m_ctrlPts.size()
+            + static_cast<std::size_t>(m_degree) + 1)
+            return false;
+        if (std::abs(m_knots.front() - m_knots.back()) <= knotTolerance)
+            return false;
+        for (std::size_t begin = 0; begin < m_knots.size(); ) {
+            std::size_t end = begin + 1;
+            while (end < m_knots.size()
+                   && std::abs(m_knots[end] - m_knots[begin]) <= knotTolerance)
+                ++end;
+            const std::size_t multiplicity = end - begin;
+            const bool boundary = begin == 0 || end == m_knots.size();
+            const std::size_t maximum = static_cast<std::size_t>(
+                boundary ? m_degree + 1 : m_degree);
+            if (multiplicity > maximum) return false;
+            begin = end;
+        }
+        if (isRational()) {
+            if (m_weights.size() != m_ctrlPts.size()) return false;
+        }
+    } else if (isRational()) {
         return false;
+    }
 
     // Validate tangents are finite
     if (!std::isfinite(m_tgStartX) || !std::isfinite(m_tgStartY) || !std::isfinite(m_tgStartZ))

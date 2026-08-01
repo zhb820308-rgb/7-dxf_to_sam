@@ -415,6 +415,7 @@ TEST(DxfEntityStats, generated_curve_lines_do_not_count_as_source_lines) {
     EXPECT_EQ(stats.lwPolylines, 1u);
     EXPECT_EQ(stats.arcs, 1u);
     EXPECT_EQ(stats.curveCount(), 1u);
+    EXPECT_EQ(stats.generatedEntities, 2u);
 }
 
 TEST(DxfEntityStats, classifies_control_and_fit_splines_separately) {
@@ -431,7 +432,7 @@ TEST(DxfEntityStats, classifies_control_and_fit_splines_separately) {
         controlPoints, knots, {}, fitPoints, 3, 0,
         0, 0, 0, 0, 0, 0);
     DxfSpline fitSpline(
-        {}, {}, {}, fitPoints, 3, 7,
+        {}, {}, {}, fitPoints, 3, 3,
         0, 0, 0, 0, 0, 0);
 
     DxfData data;
@@ -442,7 +443,7 @@ TEST(DxfEntityStats, classifies_control_and_fit_splines_separately) {
     const SplineKind fitKind = fitSpline.kind();
     EXPECT_EQ(controlKind.construction, SplineConstruction::ControlBased);
     EXPECT_EQ(fitKind.construction, SplineConstruction::FitBased);
-    EXPECT_TRUE(fitKind.rational);
+    EXPECT_FALSE(fitKind.rational);
     EXPECT_TRUE(fitKind.periodic);
     EXPECT_TRUE(fitKind.closed);
 
@@ -469,14 +470,13 @@ TEST(DxfEntityStats, rvalue_splines_are_classified_before_they_are_moved) {
         controlPoints, knots, {}, {}, 3, 0,
         0, 0, 0, 0, 0, 0));
     data.addSpline(DxfSpline(
-        {}, {}, {}, fitPoints, 3, 7,
+        {}, {}, {}, fitPoints, 3, 3,
         0, 0, 0, 0, 0, 0));
 
     SplineKind expectedControl;
     expectedControl.construction = SplineConstruction::ControlBased;
     SplineKind expectedFit;
     expectedFit.construction = SplineConstruction::FitBased;
-    expectedFit.rational = true;
     expectedFit.periodic = true;
     expectedFit.closed = true;
 
@@ -488,4 +488,61 @@ TEST(DxfEntityStats, rvalue_splines_are_classified_before_they_are_moved) {
         EXPECT_EQ(stats.splineKinds.at(expectedControl), 1u);
     if (stats.splineKinds.count(expectedFit) != 0)
         EXPECT_EQ(stats.splineKinds.at(expectedFit), 1u);
+}
+
+TEST(DxfData, invalid_entities_are_rejected_and_counted) {
+    DxfData data;
+    data.addLine(DxfLine(DxfPoint(1, 1, 0), DxfPoint(1, 1, 0)));
+    data.addCircle(DxfCircle(DxfPoint(0, 0, 0), 0.0));
+    data.addPoint(DxfPoint(std::numeric_limits<double>::infinity(), 0, 0));
+
+    EXPECT_EQ(data.entityCount(), 0);
+    EXPECT_EQ(data.entityStats().sourceEntities, 3u);
+    EXPECT_EQ(data.entityStats().acceptedEntities, 0u);
+    EXPECT_EQ(data.entityStats().rejectedEntities, 3u);
+    EXPECT_EQ(data.entityStats().rejectionReasons.at("invalid line"), 1u);
+    EXPECT_EQ(data.entityStats().rejectionReasons.at("invalid circle"), 1u);
+    EXPECT_EQ(data.entityStats().rejectionReasons.at("invalid point"), 1u);
+}
+
+TEST(DxfSpline, enforces_control_data_invariants) {
+    const std::vector<DxfPoint> points = {
+        DxfPoint(0, 0, 0), DxfPoint(1, 1, 0),
+        DxfPoint(2, 1, 0), DxfPoint(3, 0, 0)
+    };
+    const std::vector<double> knots = { 0, 0, 0, 0, 1, 1, 1, 1 };
+    const std::vector<double> weights = { 1, 2, 2, 1 };
+    const auto spline = [&](std::vector<DxfPoint> ctrl,
+                            std::vector<double> knotValues,
+                            std::vector<double> weightValues,
+                            int degree, int flags) {
+        return DxfSpline(ctrl, knotValues, weightValues, {}, degree, flags,
+                         0, 0, 0, 0, 0, 0);
+    };
+
+    EXPECT_TRUE(spline(points, knots, weights, 3, 4).isValid());
+    EXPECT_FALSE(spline(points, knots, { 1, 2 }, 3, 4).isValid());
+    EXPECT_FALSE(spline(points, knots, { 1, 0, 2, 1 }, 3, 4).isValid());
+    EXPECT_FALSE(spline(points, { 0, 0, 0, 1, 0.5, 1, 1, 1 },
+                        weights, 3, 4).isValid());
+    EXPECT_FALSE(spline(points, knots, weights, 0, 4).isValid());
+    EXPECT_FALSE(spline(points, knots, weights, 4, 4).isValid());
+    EXPECT_FALSE(spline(points, knots, weights, 26, 4).isValid());
+    EXPECT_FALSE(spline(points, { 0, 0, 0, 0, 0, 1, 1, 1 },
+                        weights, 3, 4).isValid());
+
+    auto nonfinitePoints = points;
+    nonfinitePoints[1].setX(std::numeric_limits<double>::quiet_NaN());
+    EXPECT_FALSE(spline(nonfinitePoints, knots, weights, 3, 4).isValid());
+}
+
+TEST(DxfSpline, rejects_nonfinite_fit_points_and_tangents) {
+    std::vector<DxfPoint> fit = { DxfPoint(0, 0, 0), DxfPoint(1, 1, 0) };
+    fit[1].setY(std::numeric_limits<double>::infinity());
+    EXPECT_FALSE(DxfSpline({}, {}, {}, fit, 3, 0,
+                           0, 0, 0, 0, 0, 0).isValid());
+    EXPECT_FALSE(DxfSpline({}, {}, {},
+                           { DxfPoint(0, 0, 0), DxfPoint(1, 1, 0) },
+                           3, 0, std::numeric_limits<double>::quiet_NaN(),
+                           0, 0, 0, 0, 0).isValid());
 }

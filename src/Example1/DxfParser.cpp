@@ -314,11 +314,11 @@ static bool expandCurveGroup(DxfData& output,
         if (!e.isValid()) continue;
         const std::string& effectiveLayer = resolveEffectiveLayer(e.layer(), insertLayer);
         if (isIgnoredLayer(effectiveLayer, ignoredLayers)) continue;
+        recordGeneratedEntity(output, e);
         if (uniformXY) {
             if (!budget.consumeEntities(1)) return false;
             preserve(output, e, tf, effectiveLayer);
         } else {
-            recordGeneratedEntity(output, e);
             const std::vector<DxfLine> segments = tessellate(e, tolerance);
             if (!addTransformedSegments(output, segments, tf, effectiveLayer, budget)) return false;
         }
@@ -459,7 +459,8 @@ static bool expandSingleBlock(DxfData& output,
         if (!budget.consumeEntities(1)) return false;
         DxfPoint transformed = tf.apply(pt);
         transformed.setLayer(layer);
-        output.addPoint(transformed);
+        output.recordGeneratedEntity(EntityType::Point);
+        output.addGeneratedPoint(transformed);
     }
 
     // --- Lines: direct transform ---
@@ -472,7 +473,8 @@ static bool expandSingleBlock(DxfData& output,
         DxfPoint e = tf.apply(line.end());
         DxfLine transformed(s, e);
         transformed.setLayer(layer);
-        output.addLine(transformed);
+        output.recordGeneratedEntity(EntityType::Line);
+        output.addGeneratedLine(transformed);
     }
 
     // --- Circles ---
@@ -480,6 +482,7 @@ static bool expandSingleBlock(DxfData& output,
         if (!circle.isValid()) continue;
         const std::string& layer = resolveEffectiveLayer(circle.layer(), insertLayer);
         if (isIgnoredLayer(layer, ignoredLayers)) continue;
+        output.recordGeneratedEntity(EntityType::Circle);
         if (preserveRoundCurves) {
             // A planar similarity preserves circles, including mirrored ones.
             DxfPoint c = tf.apply(circle.center());
@@ -488,12 +491,10 @@ static bool expandSingleBlock(DxfData& output,
                 if (!budget.consumeEntities(1)) return false;
                 DxfCircle transformed(c, r);
                 transformed.setLayer(layer);
-                output.addCircle(transformed);
-            } else
-                output.recordGeneratedEntity(EntityType::Circle);
+                output.addGeneratedCircle(transformed);
+            }
         } else {
             // Non-uniform or negative scale → discretize to lines
-            output.recordGeneratedEntity(EntityType::Circle);
             std::vector<DxfLine> segs = GeometryUtils::tessellateArc(
                 DxfArc(circle.center(), circle.radius(), 0.0, 2.0 * M_PI, true),
                 tolerance);
@@ -512,7 +513,7 @@ static bool expandSingleBlock(DxfData& output,
                         t.applyAngle(arc.endAngle()),
                         t.reversesOrientation() ? !arc.isCCW() : arc.isCCW());
             transformed.setLayer(layer);
-            out.addArc(transformed);
+            out.addGeneratedArc(transformed);
         })) return false;
 
     // --- LWPolylines: uniform scale → preserve; non-uniform → discretize ---
@@ -531,7 +532,7 @@ static bool expandSingleBlock(DxfData& output,
             DxfLWPolyline transformed(
                 verts, bulges, poly.isClosed(), t.applyZ(poly.constZ()));
             transformed.setLayer(layer);
-            out.addLWPolyline(transformed);
+            out.addGeneratedLWPolyline(transformed);
         })) return false;
 
     // --- Ellipses: uniform scale → preserve; non-uniform → discretize ---
@@ -547,7 +548,7 @@ static bool expandSingleBlock(DxfData& output,
                 reflected ? -ellipse.endParam() : ellipse.endParam(),
                 reflected ? !ellipse.isCCW() : ellipse.isCCW());
             transformed.setLayer(layer);
-            out.addEllipse(transformed);
+            out.addGeneratedEllipse(transformed);
         })) return false;
 
     // --- Splines: preserve under similarities; tessellate under general affine transforms. ---
@@ -573,7 +574,7 @@ static bool expandSingleBlock(DxfData& output,
                 startTangent.x(), startTangent.y(), startTangent.z(),
                 endTangent.x(), endTangent.y(), endTangent.z());
             transformed.setLayer(layer);
-            out.addSpline(std::move(transformed));
+            out.addGeneratedSpline(std::move(transformed));
         })) return false;
 
     // --- Nested INSERTs: recursive expansion ---
@@ -947,11 +948,13 @@ bool DxfParser::parseFile(const QString& filePath, DxfData& outData,
         return false;
     }
 
-    const int total = outData.entityCount();
-    if (total == 0) {
+    const DxfEntityStats& stats = outData.entityStats();
+    const std::size_t usable = stats.acceptedEntities + stats.generatedEntities;
+    if (usable == 0 || outData.entityCount() == 0) {
         outData.setValid(false);
         outData.setErrorMessage(
-            QStringLiteral("DXF was read successfully, but no supported entities were found."));
+            QStringLiteral("DXF was read successfully, but no valid supported entities were found (%1 rejected).")
+            .arg(stats.rejectedEntities));
         return false;
     }
 

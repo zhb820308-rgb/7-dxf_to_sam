@@ -294,6 +294,18 @@ TEST(Parser, oversized_insert_array_is_rejected_without_partial_output) {
         << data.errorMessage().toStdString();
 }
 
+TEST(Parser, file_with_only_invalid_supported_entities_fails) {
+    DxfData data;
+    DxfParser parser;
+    EXPECT_FALSE(parser.parseFile(
+        TEST_DATA_DIR + "/invalid_entities_only.dxf", data));
+    EXPECT_FALSE(data.isValid());
+    EXPECT_EQ(data.entityCount(), 0);
+    EXPECT_EQ(data.entityStats().acceptedEntities, 0u);
+    EXPECT_GT(data.entityStats().rejectedEntities, 0u);
+    EXPECT_FALSE(data.errorMessage().isEmpty());
+}
+
 TEST(Parser, block_base_point_is_applied_to_exact_line_coordinates) {
     const QString path = EXAMPLE_DIR + "/block_test_minimal.dxf";
     ASSERT_TRUE(fileExists(path)) << path.toStdString();
@@ -426,6 +438,8 @@ TEST(Parser, block_layer_zero_is_filtered_by_its_effective_insert_layer) {
     // discarded merely because raw layer 0 is ignored.
     ASSERT_EQ(data.lines().size(), 9u);
     EXPECT_EQ(countLinesOnLayer(data, "0"), 0u);
+    EXPECT_EQ(data.entityStats().acceptedEntities, 2u);
+    EXPECT_EQ(data.entityStats().generatedEntities, 7u);
 
     const DxfLine* nestedInherited = findLineStartingAt(data, 10.0, 0.0);
     ASSERT_NE(nestedInherited, nullptr);
