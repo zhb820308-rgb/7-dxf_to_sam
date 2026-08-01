@@ -10,6 +10,7 @@
 #include <QProgressDialog>
 #include <QStringList>
 #include <cmath>
+#include <limits>
 #include <set>
 #include <string>
 
@@ -64,6 +65,17 @@ static void showBudgetErrorDialog(DxfImportErrorCode code,
 {
 	if (!isBudgetError(code))
 		return;
+	if (maxOutputEntities < 0)
+	{
+		QMessageBox::warning(
+			nullptr,
+			QStringLiteral("DXF Import - Expansion Safety Limit"),
+			QStringLiteral(
+				"The drawing exceeded an INSERT expansion safety limit.\n\n"
+				"Unlimited mode only removes the final output limit. "
+				"Please simplify the block structure or reduce the array size."));
+		return;
+	}
 	if (maxOutputEntities <= static_cast<int>(kSmallDrawingEntityLimit))
 	{
 		QMessageBox::warning(
@@ -354,14 +366,17 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 				.arg(nodeMergeTolerance));
 	}
 	if (maxOutputEntities != static_cast<int>(kSmallDrawingEntityLimit) &&
-		maxOutputEntities != kLargeDrawingEntityLimit)
+		maxOutputEntities != kLargeDrawingEntityLimit &&
+		maxOutputEntities != -1)
 	{
 		return failImport(logger, errorLogger, importId, pathText,
 			"validate_params", " error_code=INVALID_ARGUMENT invalid_maxOutputEntities",
 			totalTimer.elapsed(),
 			QStringLiteral("[importDxf] ERROR [INVALID_ARGUMENT]: invalid maxOutputEntities"));
 	}
-	const std::size_t outputLimit = static_cast<std::size_t>(maxOutputEntities);
+	const std::size_t outputLimit = maxOutputEntities < 0
+		? std::numeric_limits<std::size_t>::max()
+		: static_cast<std::size_t>(maxOutputEntities);
 
 	// [3/8] Stage 1: Parse DXF file
 	QElapsedTimer stageTimer;

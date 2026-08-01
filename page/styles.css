@@ -51,7 +51,7 @@ button { color: inherit; }
 .file-button input { position:absolute; opacity:0; width:1px; height:1px; pointer-events:none; }
 .profile-fieldset { margin:0 0 18px; padding:0; border:0; }
 .profile-fieldset .field-label { display:block; margin-bottom:8px; }
-.segmented-control { display:grid; grid-template-columns:1fr 1fr; gap:3px; padding:3px; background:#e9eae4; border:1px solid #dfe1d9; border-radius:8px; }
+.segmented-control { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:3px; padding:3px; background:#e9eae4; border:1px solid #dfe1d9; border-radius:8px; }
 .segmented-control label { position:relative; min-width:0; cursor:pointer; }
 .segmented-control input { position:absolute; opacity:0; pointer-events:none; }
 .segmented-control span { display:block; padding:8px 5px; border-radius:5px; color:#69736e; font-size:11px; font-weight:750; text-align:center; }

@@ -297,6 +297,17 @@ TEST(Parser, oversized_insert_array_is_rejected_without_partial_output) {
         << data.errorMessage().toStdString();
 }
 
+TEST(Parser, unlimited_output_keeps_insert_array_safety_limit) {
+    DxfData data;
+    DxfParser parser;
+
+    EXPECT_FALSE(parser.parseFile(
+        TEST_DATA_DIR + "/block_array_limit.dxf", data, 0.05, {},
+        std::numeric_limits<std::size_t>::max()));
+    EXPECT_EQ(data.errorCode(), DxfImportErrorCode::ExpansionLimit);
+    EXPECT_EQ(data.entityCount(), 0u);
+}
+
 TEST(Parser, file_with_only_invalid_supported_entities_fails) {
     DxfData data;
     DxfParser parser;

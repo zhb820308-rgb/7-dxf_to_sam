@@ -55,8 +55,11 @@
 
   function updateDrawingProfileMeta() {
     const profile = currentDrawingProfile();
+    const outputLimit = Number.isFinite(profile.maxOutputEntities)
+      ? `最多 ${profile.maxOutputEntities.toLocaleString()} 个输出图元`
+      : "不限制最终输出图元数（仍保留 INSERT 安全限制）";
     $("#profileHint").textContent =
-      `${profile.label}最多 ${profile.maxOutputEntities.toLocaleString()} 个输出图元；默认容差 ${profile.defaultTolerance}`;
+      `${profile.label}：${outputLimit}；默认容差 ${profile.defaultTolerance}`;
   }
 
   function toast(message, type = "") {

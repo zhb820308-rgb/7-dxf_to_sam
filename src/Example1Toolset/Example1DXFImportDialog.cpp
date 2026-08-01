@@ -85,8 +85,10 @@ Example1DXFImportDialog::Example1DXFImportDialog(Example1Form* form)
 		tr("Small drawing (100,000 entities)"), 100000);
 	m_drawingSizeCombo->addItem(
 		tr("Large drawing (500,000 entities)"), 500000);
+	m_drawingSizeCombo->addItem(
+		tr("Unlimited (no final output limit)"), -1);
 	m_drawingSizeCombo->setToolTip(
-		tr("The selected profile limits the final converted entity count."));
+		tr("Unlimited removes the final output limit but keeps INSERT safety limits."));
 	connect(m_drawingSizeCombo, SIGNAL(currentIndexChanged(int)),
 		this, SLOT(onDrawingSizeChanged(int)));
 	QFormLayout* drawingSizeLayout = new QFormLayout(drawingSizeGroup);
@@ -173,7 +175,7 @@ void Example1DXFImportDialog::onImportModeChanged(int index)
 void Example1DXFImportDialog::onDrawingSizeChanged(int index)
 {
 	const int profileLimit = m_drawingSizeCombo->itemData(index).toInt();
-	const bool large = profileLimit > 100000;
+	const bool large = profileLimit > 100000 || profileLimit < 0;
 	m_toleranceEdit->setText(large ? QStringLiteral("0.05")
 	                               : QStringLiteral("0.01"));
 }

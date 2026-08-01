@@ -19,6 +19,14 @@
       maxExpandedBlockInstances: 100000,
       maxOutputEntities: 500000,
       defaultTolerance: 0.05
+    }),
+    unlimited: Object.freeze({
+      label: "Unlimited",
+      maxDepth: 8,
+      maxArrayInstancesPerInsert: 100000,
+      maxExpandedBlockInstances: 100000,
+      maxOutputEntities: Number.POSITIVE_INFINITY,
+      defaultTolerance: 0.05
     })
   });
   const EXPANSION_LIMITS = EXPANSION_PROFILES.small;
@@ -385,7 +393,8 @@
     function consumeOutput(count) {
       const current = result.points.length + result.lines.length;
       if (!Number.isSafeInteger(count) || count < 0 ||
-          count > limits.maxOutputEntities - current) {
+          (Number.isFinite(limits.maxOutputEntities) &&
+           count > limits.maxOutputEntities - current)) {
         throw expansionLimit(`output exceeds ${limits.maxOutputEntities} entities`);
       }
     }

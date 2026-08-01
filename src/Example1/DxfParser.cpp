@@ -114,6 +114,7 @@ public:
 constexpr std::uint64_t kMaxArrayInstancesPerInsert = 100000;
 constexpr std::uint64_t kMaxExpandedBlockInstances = 100000;
 constexpr std::size_t kDefaultMaxOutputEntities = 100000;
+constexpr std::size_t kMaxReserveEntities = 500000;
 
 struct ExpansionBudget {
     std::uint64_t blockInstances = 0;
@@ -378,7 +379,8 @@ static bool expandInsertArray(DxfData& output,
     const std::size_t instances = static_cast<std::size_t>(nCols) * nRows;
     const auto clampReserve = [instances, &budget](std::size_t current,
                                                    std::size_t perInstance) {
-        const std::size_t limit = budget.maxOutputEntities;
+        const std::size_t limit = std::min(
+            budget.maxOutputEntities, kMaxReserveEntities);
         if (current >= limit || perInstance == 0) return current;
         const std::size_t boundedInstances = std::min(instances, limit);
         const std::size_t remaining = limit - current;

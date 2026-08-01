@@ -5,6 +5,10 @@
 #include <chrono>
 #include <cmath>
 
+namespace {
+constexpr std::size_t kMaxReserveEntities = 500000;
+}
+
 // ========================================================================
 //  Helpers
 // ========================================================================
@@ -114,7 +118,8 @@ bool FeConversionEngine::convert(const DxfData& dxfData,
         return false;
     };
 
-    const std::size_t reserveHint = std::min(entityCount, maxOutputEntities);
+    const std::size_t reserveHint = std::min(
+        std::min(entityCount, maxOutputEntities), kMaxReserveEntities);
     outData.reserve(reserveHint, reserveHint);
 
     FeConversionStats& stats = outData.stats();

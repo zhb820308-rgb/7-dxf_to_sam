@@ -68,4 +68,16 @@ assert.throws(
   (error) => error.code === "DXF_EXPANSION_LIMIT" && /output exceeds 500000/i.test(error.message)
 );
 
+const unlimitedResult = window.DXFStudio.discretize(
+  largeOutputHeavy, 0.05, "unlimited"
+);
+assert.equal(unlimitedResult.lines.length, 583338);
+assert.equal(unlimitedResult.maxOutputEntities, Number.POSITIVE_INFINITY);
+assert.throws(
+  () => window.DXFStudio.discretize(
+    parsedInsert(100001, 1), 0.05, "unlimited"
+  ),
+  (error) => error.code === "DXF_EXPANSION_LIMIT" && /instances per INSERT/i.test(error.message)
+);
+
 console.log("dxf-expansion-limits.test.js: ok");
