@@ -2,21 +2,12 @@
 #ifndef Example1PytModule_h
 #define Example1PytModule_h
 
-// Forward declarations
-class DxfData;
-class FeData;
-class PythonFiniteElementBuilder;
-class SamData;
-class SamBuilder;
-
 // Includes
 
 // Begin local includes
 
 #include <ptsKPartFragment.h>
 #include <pyoModule.h>
-#include <QString>
-#include "ImportBuildResult.h"
 
 // Class definition
 
@@ -45,15 +36,6 @@ private:
 
 	Example1PytModule(const Example1PytModule&);
 	Example1PytModule& operator=(const Example1PytModule&);
-
-	// === DXF import helpers ===
-
-	/// @brief Stage 3: build and commit, rolling back immediately on cancellation or failure.
-	ImportBuildResult buildSamSketch(const SamData& samData, SamBuilder& builder);
-
-	/// @brief Build FE nodes and trusses, rolling back on failure.
-	ImportBuildResult buildFePart(FeData& feData, const QString& modelName,
-		const QString& partName, PythonFiniteElementBuilder& builder);
 };
 
 #endif  // #ifndef Example1PytModule_h

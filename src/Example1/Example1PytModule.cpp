@@ -15,6 +15,7 @@
 #include <string>
 
 #include "DxfImportLogger.h"
+#include "DxfImportBuildService.h"
 #include "DxfImportFormatting.h"
 #include "DxfImportError.h"
 #include "DxfParser.h"
@@ -113,75 +114,6 @@ static void showSmallDrawingRecommendation(std::size_t outputEntities,
 			"The converted result contains %1 entities, which is within the small drawing limit.\n\n"
 			"For lower memory usage, consider selecting Small drawing next time.")
 			.arg(static_cast<qulonglong>(outputEntities)));
-}
-
-template <typename Builder>
-static ImportBuildResult rollbackAfterFailure(
-	Builder& builder, ImportBuildResult failure, int previouslyCreated = 0)
-{
-	failure.createdCount += previouslyCreated;
-	const ImportBuildResult cleanup = builder.rollback();
-	if (cleanup.succeeded())
-		return failure;
-
-	const QString combined = failure.message.isEmpty()
-		? cleanup.message
-		: failure.message + QStringLiteral("; ") + cleanup.message;
-	return ImportBuildResult::failure(
-		ImportBuildStatus::RollbackFailed, combined, failure.createdCount);
-}
-
-ImportBuildResult Example1PytModule::buildSamSketch(
-	const SamData& samData,
-	SamBuilder& builder)
-{
-	ImportBuildResult result = builder.beginImport();
-	if (!result.succeeded())
-		return result;
-
-	int created = 0;
-	result = builder.createLines(samData.lines());
-	if (!result.succeeded())
-		return rollbackAfterFailure(builder, result);
-	created += result.createdCount;
-
-	result = builder.createCircles(samData.circles());
-	if (!result.succeeded())
-		return rollbackAfterFailure(builder, result, created);
-	created += result.createdCount;
-
-	result = builder.commit();
-	if (!result.succeeded())
-		return rollbackAfterFailure(builder, result);
-
-	return ImportBuildResult::success(created);
-}
-
-ImportBuildResult Example1PytModule::buildFePart(
-	FeData& feData,
-	const QString& modelName,
-	const QString& partName,
-	PythonFiniteElementBuilder& builder)
-{
-	ImportBuildResult result = builder.beginImport(modelName, partName);
-	if (!result.succeeded())
-		return result;
-
-	result = builder.createNodes(feData.nodes());
-	if (!result.succeeded())
-		return rollbackAfterFailure(builder, result);
-	const int nodeCount = result.createdCount;
-
-	result = builder.createTrusses(feData.trusses());
-	if (!result.succeeded())
-		return rollbackAfterFailure(builder, result, nodeCount);
-	const int trussCount = result.createdCount;
-
-	result = builder.commit();
-	if (!result.succeeded())
-		return rollbackAfterFailure(builder, result);
-
-	return ImportBuildResult::success(nodeCount + trussCount);
 }
 
 void Example1PytModule::DefineConstants()
@@ -451,8 +383,9 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 				return false;
 			});
 
-		const ImportBuildResult buildResult = buildFePart(
-			feData, modelName, partName, builder);
+		const ImportBuildResult buildResult =
+			DxfImportBuildService::buildFePart(
+				feData, modelName, partName, builder);
 		if (!buildResult.succeeded())
 		{
 			progressDialog.close();
@@ -590,7 +523,8 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 			return false;
 		});
 
-	const ImportBuildResult buildResult = buildSamSketch(samData, builder);
+	const ImportBuildResult buildResult =
+		DxfImportBuildService::buildSamSketch(samData, builder);
 	if (buildResult.status == ImportBuildStatus::Canceled)
 	{
 		progressDialog.close();
