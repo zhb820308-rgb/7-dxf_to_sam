@@ -397,6 +397,7 @@
       const p = transformPoint(point, transform);
       result.points.push({
         id: `p${nextId++}`, x: p.x, y: p.y, layer: source.layer || "0",
+        insertLayers: (source.insertLayers || []).slice(),
         sourceType: source.originType || source.type, sourceId: source.sourceId,
         annotationKind: source.annotationKind || null,
         annotationConfidence: source.annotationConfidence ?? null,
@@ -414,6 +415,7 @@
         result.lines.push({
           id: `l${nextId++}`, x1: a.x, y1: a.y, x2: b.x, y2: b.y,
           layer: source.layer || "0", sourceType: source.originType || source.type,
+          insertLayers: (source.insertLayers || []).slice(),
           sourceId: source.sourceId,
           annotationKind: source.annotationKind || null,
           annotationConfidence: source.annotationConfidence ?? null,
@@ -519,12 +521,14 @@
       } else if (source.type === "INSERT" && blocksByName[source.name.toUpperCase()]) {
         const block = blocksByName[source.name.toUpperCase()];
         consumeInsertArray(source);
+        const insertLayers = (source.insertLayers || []).concat(source.layer || "0");
         for (let row = 0; row < source.rows; row += 1) {
           for (let column = 0; column < source.columns; column += 1) {
             const local = insertTransform(source, block, column, row, transform);
             block.entities.forEach((entity) => {
               const inherited = Object.assign({}, entity, {
                 layer: entity.layer === "0" ? source.layer : entity.layer,
+                insertLayers,
                 sourceId: source.sourceId,
                 visible: entity.visible !== false && source.visible !== false
               });
@@ -558,6 +562,18 @@
     return result;
   }
 
+  // SAM treats an INSERT layer as a control layer for its entire block
+  // reference. An entity still owns one effective layer, but disabling any
+  // ancestor INSERT layer suppresses it as well.
+  function affectsLayer(item, layer) {
+    return (item.layer || "0") === layer || (item.insertLayers || []).includes(layer);
+  }
+
+  function isLayerVisible(item, layerVisibility) {
+    if (layerVisibility[item.layer || "0"] === false) return false;
+    return !(item.insertLayers || []).some((layer) => layerVisibility[layer] === false);
+  }
+
   function colorForLayer(layer, layers) {
     const item = layers[layer];
     const index = item ? item.colorIndex : 7;
@@ -589,5 +605,8 @@
     return lines.join("\r\n");
   }
 
-  global.DXFStudio = { parseDxf, discretize, exportDxf, colorForLayer, EXPANSION_LIMITS };
+  global.DXFStudio = {
+    parseDxf, discretize, exportDxf, colorForLayer,
+    affectsLayer, isLayerVisible, EXPANSION_LIMITS
+  };
 })(window);

@@ -354,6 +354,14 @@ TEST(DxfData, entity_count_sums_correctly) {
     EXPECT_EQ(data.feEntityCount(), 4);
 }
 
+TEST(DxfPoint, layer_metadata_defaults_to_zero_and_can_be_changed) {
+    DxfPoint point(1.0, 2.0, 3.0);
+    EXPECT_EQ(point.layer(), "0");
+
+    point.setLayer("STRUCTURE");
+    EXPECT_EQ(point.layer(), "STRUCTURE");
+}
+
 TEST(DxfData, clear_resets_everything) {
     DxfData data;
     InsertInfo insert;

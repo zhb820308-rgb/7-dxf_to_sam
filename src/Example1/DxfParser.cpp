@@ -40,6 +40,12 @@ public:
         return m_ignoredLayers.count(ent.layer) != 0;
     }
 
+    /// Model-space entities can be filtered immediately. Block entities need
+    /// their INSERT context before layer 0 inheritance can be resolved.
+    bool shouldSkipDuringRead(const DRW_Entity& ent) const {
+        return m_currentBlock == nullptr && isLayerIgnored(ent);
+    }
+
     // --- Implemented entity callbacks ---
     void addLine(const DRW_Line& data) override;
     void addCircle(const DRW_Circle& data) override;
@@ -245,17 +251,35 @@ struct Transform2D {
     double applyZ(double z) const { return scaleZ * z + offsetZ; }
 };
 
+static const std::string& resolveEffectiveLayer(const std::string& sourceLayer,
+                                                const std::string& inheritedLayer)
+{
+    static const std::string defaultLayer("0");
+    if (sourceLayer.empty() || sourceLayer == "0")
+        return inheritedLayer.empty() ? defaultLayer : inheritedLayer;
+    return sourceLayer;
+}
+
+static bool isIgnoredLayer(const std::string& layer,
+                           const std::set<std::string>& ignoredLayers)
+{
+    return ignoredLayers.count(layer) != 0;
+}
+
 /// Transform and append discretized segments to output.
 static bool addTransformedSegments(DxfData& output,
                                    const std::vector<DxfLine>& segments,
                                    const Transform2D& tf,
+                                   const std::string& effectiveLayer,
                                    ExpansionBudget& budget)
 {
     if (!budget.consumeEntities(segments.size())) return false;
     output.reserveLines(output.lines().size() + segments.size());
     for (const DxfLine& seg : segments) {
         if (!seg.isValid()) continue;
-        output.addGeneratedLine(DxfLine(tf.apply(seg.start()), tf.apply(seg.end())));
+        DxfLine transformed(tf.apply(seg.start()), tf.apply(seg.end()));
+        transformed.setLayer(effectiveLayer);
+        output.addGeneratedLine(transformed);
     }
     return true;
 }
@@ -279,6 +303,8 @@ template<typename Entity, typename TessFn, typename PreserveFn>
 static bool expandCurveGroup(DxfData& output,
                              const std::vector<Entity>& entities,
                              const Transform2D& tf,
+                             const std::string& insertLayer,
+                             const std::set<std::string>& ignoredLayers,
                              double tolerance, bool uniformXY,
                              ExpansionBudget& budget,
                              TessFn tessellate,
@@ -286,13 +312,15 @@ static bool expandCurveGroup(DxfData& output,
 {
     for (const Entity& e : entities) {
         if (!e.isValid()) continue;
+        const std::string& effectiveLayer = resolveEffectiveLayer(e.layer(), insertLayer);
+        if (isIgnoredLayer(effectiveLayer, ignoredLayers)) continue;
         if (uniformXY) {
             if (!budget.consumeEntities(1)) return false;
-            preserve(output, e, tf);
+            preserve(output, e, tf, effectiveLayer);
         } else {
             recordGeneratedEntity(output, e);
             const std::vector<DxfLine> segments = tessellate(e, tolerance);
-            if (!addTransformedSegments(output, segments, tf, budget)) return false;
+            if (!addTransformedSegments(output, segments, tf, effectiveLayer, budget)) return false;
         }
     }
     return true;
@@ -302,6 +330,8 @@ static bool expandCurveGroup(DxfData& output,
 static bool expandSingleBlock(DxfData& output,
                               const DxfBlock& blk,
                               const Transform2D& tf,
+                              const std::string& insertLayer,
+                              const std::set<std::string>& ignoredLayers,
                               double tolerance,
                               const std::unordered_map<std::string, DxfBlock>& blocks,
                               int depth,
@@ -314,6 +344,8 @@ static bool expandInsertArray(DxfData& output,
                               const DxfBlock& blk,
                               const InsertInfo& ins,
                               const Transform2D& parentTf,
+                              const std::string& insertLayer,
+                              const std::set<std::string>& ignoredLayers,
                               double tolerance,
                               const std::unordered_map<std::string, DxfBlock>& blocks,
                               int depth,
@@ -365,7 +397,7 @@ static bool expandInsertArray(DxfData& output,
             const Transform2D localTf = Transform2D::fromInsert(
                 insCopy, blk.baseX(), blk.baseY(), blk.baseZ());
             const Transform2D worldTf = parentTf.composedWith(localTf);
-            if (!expandSingleBlock(output, blk, worldTf,
+            if (!expandSingleBlock(output, blk, worldTf, insertLayer, ignoredLayers,
                                    tolerance, blocks, depth, visiting, budget))
                 return false;
             curX += colDx;
@@ -382,6 +414,8 @@ static bool expandInsertArray(DxfData& output,
 static bool expandSingleBlock(DxfData& output,
                               const DxfBlock& blk,
                               const Transform2D& tf,
+                              const std::string& insertLayer,
+                              const std::set<std::string>& ignoredLayers,
                               double tolerance,
                               const std::unordered_map<std::string, DxfBlock>& blocks,
                               int depth,
@@ -420,29 +454,41 @@ static bool expandSingleBlock(DxfData& output,
 
     for (const DxfPoint& pt : blk.points()) {
         if (!pt.isValid()) continue;
+        const std::string& layer = resolveEffectiveLayer(pt.layer(), insertLayer);
+        if (isIgnoredLayer(layer, ignoredLayers)) continue;
         if (!budget.consumeEntities(1)) return false;
-        output.addPoint(tf.apply(pt));
+        DxfPoint transformed = tf.apply(pt);
+        transformed.setLayer(layer);
+        output.addPoint(transformed);
     }
 
     // --- Lines: direct transform ---
     for (const DxfLine& line : blk.lines()) {
         if (!line.isValid()) continue;
+        const std::string& layer = resolveEffectiveLayer(line.layer(), insertLayer);
+        if (isIgnoredLayer(layer, ignoredLayers)) continue;
         if (!budget.consumeEntities(1)) return false;
         DxfPoint s = tf.apply(line.start());
         DxfPoint e = tf.apply(line.end());
-        output.addLine(DxfLine(s, e));
+        DxfLine transformed(s, e);
+        transformed.setLayer(layer);
+        output.addLine(transformed);
     }
 
     // --- Circles ---
     for (const DxfCircle& circle : blk.circles()) {
         if (!circle.isValid()) continue;
+        const std::string& layer = resolveEffectiveLayer(circle.layer(), insertLayer);
+        if (isIgnoredLayer(layer, ignoredLayers)) continue;
         if (preserveRoundCurves) {
             // A planar similarity preserves circles, including mirrored ones.
             DxfPoint c = tf.apply(circle.center());
             const double r = circle.radius() * tf.planarScale();
             if (r > 0.0) {
                 if (!budget.consumeEntities(1)) return false;
-                output.addCircle(DxfCircle(c, r));
+                DxfCircle transformed(c, r);
+                transformed.setLayer(layer);
+                output.addCircle(transformed);
             } else
                 output.recordGeneratedEntity(EntityType::Circle);
         } else {
@@ -451,25 +497,29 @@ static bool expandSingleBlock(DxfData& output,
             std::vector<DxfLine> segs = GeometryUtils::tessellateArc(
                 DxfArc(circle.center(), circle.radius(), 0.0, 2.0 * M_PI, true),
                 tolerance);
-            if (!addTransformedSegments(output, segs, tf, budget)) return false;
+            if (!addTransformedSegments(output, segs, tf, layer, budget)) return false;
         }
     }
 
     // --- Arcs: uniform scale → preserve Arc; non-uniform → discretize ---
-    if (!expandCurveGroup(output, blk.arcs(), tf, tolerance, preserveRoundCurves, budget,
+    if (!expandCurveGroup(output, blk.arcs(), tf, insertLayer, ignoredLayers,
+        tolerance, preserveRoundCurves, budget,
         GeometryUtils::tessellateArc,
-        [](DxfData& out, const DxfArc& arc, const Transform2D& t) {
-            out.addArc(DxfArc(t.apply(arc.center()),
+        [](DxfData& out, const DxfArc& arc, const Transform2D& t, const std::string& layer) {
+            DxfArc transformed(t.apply(arc.center()),
                         arc.radius() * t.planarScale(),
                         t.applyAngle(arc.startAngle()),
                         t.applyAngle(arc.endAngle()),
-                        t.reversesOrientation() ? !arc.isCCW() : arc.isCCW()));
+                        t.reversesOrientation() ? !arc.isCCW() : arc.isCCW());
+            transformed.setLayer(layer);
+            out.addArc(transformed);
         })) return false;
 
     // --- LWPolylines: uniform scale → preserve; non-uniform → discretize ---
-    if (!expandCurveGroup(output, blk.lwPolylines(), tf, tolerance, preserveRoundCurves, budget,
+    if (!expandCurveGroup(output, blk.lwPolylines(), tf, insertLayer, ignoredLayers,
+        tolerance, preserveRoundCurves, budget,
         GeometryUtils::tessellateLWPolyline,
-        [](DxfData& out, const DxfLWPolyline& poly, const Transform2D& t) {
+        [](DxfData& out, const DxfLWPolyline& poly, const Transform2D& t, const std::string& layer) {
             std::vector<DxfPoint> verts;
             verts.reserve(poly.vertices().size());
             for (const DxfPoint& v : poly.vertices())
@@ -478,27 +528,33 @@ static bool expandSingleBlock(DxfData& output,
             if (t.reversesOrientation()) {
                 for (double& bulge : bulges) bulge = -bulge;
             }
-            out.addLWPolyline(DxfLWPolyline(
-                verts, bulges, poly.isClosed(), t.applyZ(poly.constZ())));
+            DxfLWPolyline transformed(
+                verts, bulges, poly.isClosed(), t.applyZ(poly.constZ()));
+            transformed.setLayer(layer);
+            out.addLWPolyline(transformed);
         })) return false;
 
     // --- Ellipses: uniform scale → preserve; non-uniform → discretize ---
-    if (!expandCurveGroup(output, blk.ellipses(), tf, tolerance, preserveRoundCurves, budget,
+    if (!expandCurveGroup(output, blk.ellipses(), tf, insertLayer, ignoredLayers,
+        tolerance, preserveRoundCurves, budget,
         GeometryUtils::tessellateEllipse,
-        [](DxfData& out, const DxfEllipse& ellipse, const Transform2D& t) {
+        [](DxfData& out, const DxfEllipse& ellipse, const Transform2D& t, const std::string& layer) {
             DxfPoint c = t.apply(ellipse.center());
             const DxfPoint m = t.applyVector(ellipse.majorAxisEnd());
             const bool reflected = t.reversesOrientation();
-            out.addEllipse(DxfEllipse(c, m, ellipse.ratio(),
+            DxfEllipse transformed(c, m, ellipse.ratio(),
                 reflected ? -ellipse.startParam() : ellipse.startParam(),
                 reflected ? -ellipse.endParam() : ellipse.endParam(),
-                reflected ? !ellipse.isCCW() : ellipse.isCCW()));
+                reflected ? !ellipse.isCCW() : ellipse.isCCW());
+            transformed.setLayer(layer);
+            out.addEllipse(transformed);
         })) return false;
 
     // --- Splines: preserve under similarities; tessellate under general affine transforms. ---
-    if (!expandCurveGroup(output, blk.splines(), tf, tolerance, preserveRoundCurves, budget,
+    if (!expandCurveGroup(output, blk.splines(), tf, insertLayer, ignoredLayers,
+        tolerance, preserveRoundCurves, budget,
         GeometryUtils::tessellateSpline,
-        [](DxfData& out, const DxfSpline& spline, const Transform2D& t) {
+        [](DxfData& out, const DxfSpline& spline, const Transform2D& t, const std::string& layer) {
             std::vector<DxfPoint> ctrlPts;
             ctrlPts.reserve(spline.controlPoints().size());
             for (const DxfPoint& cp : spline.controlPoints())
@@ -511,15 +567,19 @@ static bool expandSingleBlock(DxfData& output,
                 spline.tgStartX(), spline.tgStartY(), spline.tgStartZ());
             const DxfPoint endTangent = t.applyVector(
                 spline.tgEndX(), spline.tgEndY(), spline.tgEndZ());
-            out.addSpline(DxfSpline(
+            DxfSpline transformed(
                 ctrlPts, spline.knots(), spline.weights(), fitPts,
                 spline.degree(), spline.flags(),
                 startTangent.x(), startTangent.y(), startTangent.z(),
-                endTangent.x(), endTangent.y(), endTangent.z()));
+                endTangent.x(), endTangent.y(), endTangent.z());
+            transformed.setLayer(layer);
+            out.addSpline(std::move(transformed));
         })) return false;
 
     // --- Nested INSERTs: recursive expansion ---
     for (const InsertInfo& nested : blk.inserts()) {
+        const std::string nestedLayer = resolveEffectiveLayer(nested.layer, insertLayer);
+        if (isIgnoredLayer(nestedLayer, ignoredLayers)) continue;
         auto it = blocks.find(nested.blockName);
         if (it == blocks.end()) {
             qWarning() << "[BlockExpand] nested INSERT references unknown block:"
@@ -530,7 +590,8 @@ static bool expandSingleBlock(DxfData& output,
 
         // Generate nested array instances in the current block coordinate
         // system, then compose their local transforms with this world matrix.
-        if (!expandInsertArray(output, nestedBlk, nested, tf, tolerance, blocks,
+        if (!expandInsertArray(output, nestedBlk, nested, tf, nestedLayer, ignoredLayers,
+                               tolerance, blocks,
                                depth + 1, visiting, budget))
             return false;
     }
@@ -542,6 +603,7 @@ static bool expandSingleBlock(DxfData& output,
 static bool expandBlocks(DxfData& output,
                          const std::unordered_map<std::string, DxfBlock>& blocks,
                          const std::vector<InsertInfo>& inserts,
+                         const std::set<std::string>& ignoredLayers,
                          double tolerance,
                          ExpansionBudget& budget)
 {
@@ -552,13 +614,16 @@ static bool expandBlocks(DxfData& output,
     std::unordered_set<std::string> visiting;
 
     for (const InsertInfo& ins : inserts) {
+        const std::string insertLayer = resolveEffectiveLayer(ins.layer, "0");
+        if (isIgnoredLayer(insertLayer, ignoredLayers)) continue;
         auto it = blocks.find(ins.blockName);
         if (it == blocks.end()) {
             qWarning() << "[BlockExpand] INSERT references unknown block:" << ins.blockName.c_str() << "- skipped";
             continue;
         }
         const DxfBlock& blk = it->second;
-        if (!expandInsertArray(output, blk, ins, Transform2D(), tolerance,
+        if (!expandInsertArray(output, blk, ins, Transform2D(), insertLayer, ignoredLayers,
+                               tolerance,
                                blocks, 0, visiting, budget))
             return false;
     }
@@ -570,10 +635,11 @@ static bool expandBlocks(DxfData& output,
 // ========================================================================
 
 void DxfReader::addLine(const DRW_Line& data) {
-    if (isLayerIgnored(data)) return;
+    if (shouldSkipDuringRead(data)) return;
     DxfPoint start(data.basePoint.x, data.basePoint.y, data.basePoint.z);
     DxfPoint end(data.secPoint.x, data.secPoint.y, data.secPoint.z);
     DxfLine line(start, end);
+    line.setLayer(data.layer);
 
     if (m_currentBlock) {
         m_currentBlock->addLine(line);
@@ -584,9 +650,10 @@ void DxfReader::addLine(const DRW_Line& data) {
 
 void DxfReader::addCircle(const DRW_Circle& data)
 {
-    if (isLayerIgnored(data)) return;
+    if (shouldSkipDuringRead(data)) return;
     DxfPoint center(data.basePoint.x, data.basePoint.y, data.basePoint.z);
     DxfCircle circle(center, data.radious);
+    circle.setLayer(data.layer);
 
     if (m_currentBlock) {
         m_currentBlock->addCircle(circle);
@@ -596,7 +663,7 @@ void DxfReader::addCircle(const DRW_Circle& data)
 }
 
 void DxfReader::addArc(const DRW_Arc& data) {
-    if (isLayerIgnored(data)) return;
+    if (shouldSkipDuringRead(data)) return;
     const DRW_Coord center = data.basePoint;
     const double radius = data.radious;
 
@@ -611,6 +678,7 @@ void DxfReader::addArc(const DRW_Arc& data) {
 
     DxfPoint c(center.x, center.y, center.z);
     DxfArc arc(c, radius, start, end, data.isccw);
+    arc.setLayer(data.layer);
 
     if (m_currentBlock) {
         m_currentBlock->addArc(arc);
@@ -620,7 +688,7 @@ void DxfReader::addArc(const DRW_Arc& data) {
 }
 
 void DxfReader::addEllipse(const DRW_Ellipse& data) {
-    if (isLayerIgnored(data)) return;
+    if (shouldSkipDuringRead(data)) return;
     const double majorX = data.secPoint.x;
     const double majorY = data.secPoint.y;
     const double majorLen = std::sqrt(majorX * majorX + majorY * majorY);
@@ -632,6 +700,7 @@ void DxfReader::addEllipse(const DRW_Ellipse& data) {
     DxfPoint majorAxisEnd(data.secPoint.x, data.secPoint.y, data.secPoint.z);
     DxfEllipse ellipse(center, majorAxisEnd, data.ratio,
                         data.staparam, data.endparam, data.isccw);
+    ellipse.setLayer(data.layer);
 
     if (m_currentBlock) {
         m_currentBlock->addEllipse(ellipse);
@@ -642,7 +711,7 @@ void DxfReader::addEllipse(const DRW_Ellipse& data) {
 
 void DxfReader::addLWPolyline(const DRW_LWPolyline& data)
 {
-    if (isLayerIgnored(data)) return;
+    if (shouldSkipDuringRead(data)) return;
     const int numVerts = std::min(data.vertexnum, static_cast<int>(data.vertlist.size()));
     if (numVerts < 2) return;
 
@@ -669,6 +738,7 @@ void DxfReader::addLWPolyline(const DRW_LWPolyline& data)
     }
 
     DxfLWPolyline poly(vertices, bulges, isClosed, 0.0);
+    poly.setLayer(data.layer);
 
     if (m_currentBlock) {
         m_currentBlock->addLWPolyline(poly);
@@ -680,7 +750,7 @@ void DxfReader::addLWPolyline(const DRW_LWPolyline& data)
 void DxfReader::addSpline(const DRW_Spline* data)
 {
     if (!data) return;
-    if (isLayerIgnored(*data)) return;
+    if (shouldSkipDuringRead(*data)) return;
 
     const bool isRational = (data->flags & 4) != 0;
 
@@ -759,6 +829,7 @@ void DxfReader::addSpline(const DRW_Spline* data)
                      data->degree, data->flags,
                      tgStartX, tgStartY, tgStartZ,
                      tgEndX, tgEndY, tgEndZ);
+    spline.setLayer(data->layer);
 
     if (m_currentBlock) {
         m_currentBlock->addSpline(std::move(spline));
@@ -768,8 +839,9 @@ void DxfReader::addSpline(const DRW_Spline* data)
 }
 
 void DxfReader::addPoint(const DRW_Point& data) {
-    if (isLayerIgnored(data)) return;
+    if (shouldSkipDuringRead(data)) return;
     DxfPoint pt(data.basePoint.x, data.basePoint.y, data.basePoint.z);
+    pt.setLayer(data.layer);
     if (m_currentBlock) {
         m_currentBlock->addPoint(pt);
     } else {
@@ -803,6 +875,7 @@ void DxfReader::endBlock() {
 void DxfReader::addInsert(const DRW_Insert& data) {
     InsertInfo ins;
     ins.blockName = data.name;
+    ins.layer     = data.layer;
     ins.insertX   = data.basePoint.x;
     ins.insertY   = data.basePoint.y;
     ins.insertZ   = data.basePoint.z;
@@ -865,6 +938,7 @@ bool DxfParser::parseFile(const QString& filePath, DxfData& outData,
     // --- Expand blocks into flat DxfData ---
     ExpansionBudget expansionBudget;
     if (!expandBlocks(outData, reader.m_blocks, reader.m_modelSpaceInserts,
+                      ignoredLayers,
                       curveTolerance, expansionBudget)) {
         const QString error = expansionBudget.error.isEmpty()
             ? QStringLiteral("INSERT expansion failed") : expansionBudget.error;

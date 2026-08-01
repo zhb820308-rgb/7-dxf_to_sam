@@ -11,6 +11,7 @@
 
 struct InsertInfo {
     std::string blockName;
+    std::string layer = "0";
     double insertX = 0, insertY = 0, insertZ = 0;
     double scaleX  = 1, scaleY  = 1, scaleZ  = 1;
     double angle   = 0;  // radians
@@ -65,12 +66,15 @@ public:
 
     int getId() const { return id; }
     EntityType getType() const { return type; }
+    const std::string& layer() const { return m_layer; }
+    void setLayer(const std::string& layerName) { m_layer = layerName; }
 
     virtual bool isValid() const = 0;
 
 private:
     int id;
     EntityType type;
+    std::string m_layer = "0";
 };
 
 // ======== DxfPoint ========

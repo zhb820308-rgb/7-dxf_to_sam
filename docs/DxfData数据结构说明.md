@@ -74,15 +74,20 @@ public:
 
     int getId() const { return id; }
     EntityType getType() const { return type; }
+    const std::string& layer() const;
+    void setLayer(const std::string& layerName);
 
     virtual bool isValid() const = 0;
 private:
     int id;
     EntityType type;
+    std::string m_layer = "0";
 };
 ```
 
-每个实体都有一个全局自增 ID 和类型枚举。`isValid()` 由各派生类重写，用于在导入后、展开后、转换前过滤无效数据。
+每个实体都有一个全局自增 ID、类型枚举和原始/最终有效图层。图层默认值为
+`0`；块展开前表示 DXF 原始图层，展开后表示解析过 layer 0 继承规则的有效图层。
+`isValid()` 由各派生类重写，用于在导入后、展开后、转换前过滤无效数据。
 
 ---
 
@@ -429,6 +434,7 @@ struct DxfEntityStats {
 ```cpp
 struct InsertInfo {
     std::string blockName;
+    std::string layer = "0";
     double insertX = 0, insertY = 0, insertZ = 0;
     double scaleX  = 1, scaleY  = 1, scaleZ  = 1;
     double angle   = 0;  // radians
@@ -440,6 +446,7 @@ struct InsertInfo {
 | 字段 | 含义 |
 |---|---|
 | `blockName` | 引用的 BLOCK 名称 |
+| `layer` | INSERT 原始图层；嵌套 layer 0 继承父 INSERT 有效图层 |
 | `insertX/Y/Z` | 插入位置（世界坐标） |
 | `scaleX/Y/Z` | X/Y/Z 方向的缩放因子 |
 | `angle` | 绕 Z 轴旋转角（弧度） |

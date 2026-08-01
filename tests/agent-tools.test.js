@@ -69,4 +69,33 @@ assert.equal(relayer.changed_count, 2);
 assert.equal(geometry.points.at(-1).layer, "REVIEW");
 assert.equal(geometry.lines.at(-1).layer, "REVIEW");
 
+const insertGeometry = validateGeometry({
+  points: [],
+  lines: [{
+    id: "nested-fixed", x1: 0, y1: 0, x2: 1, y2: 0,
+    layer: "FIXED", insertLayers: ["IGNORE"]
+  }]
+});
+const insertContext = {
+  geometry: insertGeometry,
+  selectedIds: new Set(),
+  actionLog: [],
+  finished: false,
+  agentSummary: ""
+};
+assert.deepEqual(insertGeometry.lines[0].insertLayers, ["IGNORE"]);
+const controlledPage = executeAgentTool("inspect_geometry", {
+  scope: "layer", layer: "IGNORE", ids: [], offset: 0, limit: 10
+}, insertContext);
+assert.equal(controlledPage.returned, 1);
+assert.equal(controlledPage.lines[0].id, "nested-fixed");
+
+const added = executeAgentTool("add_geometry", {
+  points: [{ x: 2, y: 3, layer: "NEW" }],
+  lines: [{ x1: 2, y1: 3, x2: 4, y2: 5, layer: "NEW" }]
+}, insertContext);
+assert.equal(added.added_count, 2);
+assert.deepEqual(insertGeometry.points.at(-1).insertLayers, []);
+assert.deepEqual(insertGeometry.lines.at(-1).insertLayers, []);
+
 console.log("agent-tools.test.js: ok");

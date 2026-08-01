@@ -62,6 +62,27 @@ static void expectAngleNear(double actual, double expected)
     EXPECT_NEAR(std::sin(actual), std::sin(expected), COORD_TOLERANCE);
 }
 
+static std::size_t countLinesOnLayer(const DxfData& data,
+                                     const std::string& layer)
+{
+    std::size_t count = 0;
+    for (const DxfLine& line : data.lines()) {
+        if (line.layer() == layer) ++count;
+    }
+    return count;
+}
+
+static const DxfLine* findLineStartingAt(const DxfData& data,
+                                         double x, double y)
+{
+    for (const DxfLine& line : data.lines()) {
+        if (std::fabs(line.start().x() - x) <= COORD_TOLERANCE
+            && std::fabs(line.start().y() - y) <= COORD_TOLERANCE)
+            return &line;
+    }
+    return nullptr;
+}
+
 // ========================================================================
 //  File existence
 // ========================================================================
@@ -373,6 +394,62 @@ TEST(Parser, mirrored_block_reverses_curve_direction_and_preserves_insert_z) {
     ASSERT_EQ(polyline.bulges().size(), 1u);
     EXPECT_DOUBLE_EQ(polyline.bulges()[0], -1.0);
     EXPECT_DOUBLE_EQ(polyline.constZ(), 10.0);
+}
+
+TEST(Parser, ignored_insert_layer_suppresses_the_entire_block_reference) {
+    const QString path = TEST_DATA_DIR + "/block_layer_inheritance.dxf";
+    ASSERT_TRUE(fileExists(path)) << path.toStdString();
+
+    DxfData data;
+    DxfParser parser;
+    ASSERT_TRUE(parser.parseFile(path, data, 0.01, {"PARENT"}))
+        << data.errorMessage().toStdString();
+
+    // Two model-space lines plus the two entities from the IGNORE insert.
+    ASSERT_EQ(data.lines().size(), 4u);
+    EXPECT_EQ(countLinesOnLayer(data, "PARENT"), 0u);
+    EXPECT_EQ(countLinesOnLayer(data, "KEEP"), 1u);
+    EXPECT_EQ(countLinesOnLayer(data, "IGNORE"), 2u);
+    EXPECT_EQ(countLinesOnLayer(data, "FIXED"), 1u);
+}
+
+TEST(Parser, block_layer_zero_is_filtered_by_its_effective_insert_layer) {
+    const QString path = TEST_DATA_DIR + "/block_layer_inheritance.dxf";
+    ASSERT_TRUE(fileExists(path)) << path.toStdString();
+
+    DxfData data;
+    DxfParser parser;
+    ASSERT_TRUE(parser.parseFile(path, data, 0.01, {"0"}))
+        << data.errorMessage().toStdString();
+
+    // Layer 0 inside a block inherits its INSERT layer and must not be
+    // discarded merely because raw layer 0 is ignored.
+    ASSERT_EQ(data.lines().size(), 9u);
+    EXPECT_EQ(countLinesOnLayer(data, "0"), 0u);
+
+    const DxfLine* nestedInherited = findLineStartingAt(data, 10.0, 0.0);
+    ASSERT_NE(nestedInherited, nullptr);
+    EXPECT_EQ(nestedInherited->layer(), "PARENT");
+
+    const DxfLine* nestedExplicit = findLineStartingAt(data, 10.0, 1.0);
+    ASSERT_NE(nestedExplicit, nullptr);
+    EXPECT_EQ(nestedExplicit->layer(), "FIXED");
+}
+
+TEST(Parser, explicit_block_layer_is_filtered_without_hiding_inherited_entities) {
+    const QString path = TEST_DATA_DIR + "/block_layer_inheritance.dxf";
+    ASSERT_TRUE(fileExists(path)) << path.toStdString();
+
+    DxfData data;
+    DxfParser parser;
+    ASSERT_TRUE(parser.parseFile(path, data, 0.01, {"FIXED"}))
+        << data.errorMessage().toStdString();
+
+    ASSERT_EQ(data.lines().size(), 6u);
+    EXPECT_EQ(countLinesOnLayer(data, "FIXED"), 0u);
+    EXPECT_EQ(countLinesOnLayer(data, "PARENT"), 3u);
+    EXPECT_EQ(countLinesOnLayer(data, "IGNORE"), 2u);
+    EXPECT_EQ(countLinesOnLayer(data, "KEEP"), 1u);
 }
 
 // ========================================================================

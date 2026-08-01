@@ -132,6 +132,17 @@ function annotationMetadata(item) {
   };
 }
 
+function insertLayerMetadata(item) {
+  if (!Array.isArray(item.insertLayers)) return { insertLayers: [] };
+  return {
+    insertLayers: item.insertLayers.slice(0, 64).map((layer) => shortText(layer, "0"))
+  };
+}
+
+function affectsLayer(item, layer) {
+  return item.layer === layer || item.insertLayers.includes(layer);
+}
+
 function validateGeometry(input) {
   if (!input || !Array.isArray(input.points) || !Array.isArray(input.lines)) {
     throw Object.assign(new Error("geometry 必须包含 points 和 lines 数组"), { status: 400 });
@@ -151,6 +162,7 @@ function validateGeometry(input) {
     x: finiteNumber(point.x, "point.x"),
     y: finiteNumber(point.y, "point.y"),
     layer: shortText(point.layer, "0"),
+    ...insertLayerMetadata(point),
     sourceType: shortText(point.sourceType, "POINT", 40),
     ...annotationMetadata(point),
     visible: true
@@ -162,6 +174,7 @@ function validateGeometry(input) {
     x2: finiteNumber(line.x2, "line.x2"),
     y2: finiteNumber(line.y2, "line.y2"),
     layer: shortText(line.layer, "0"),
+    ...insertLayerMetadata(line),
     sourceType: shortText(line.sourceType, "LINE", 40),
     ...annotationMetadata(line),
     visible: true
@@ -178,12 +191,16 @@ function geometrySummary(geometry, selectedIds = new Set()) {
     maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
   };
   geometry.points.forEach((point) => {
-    layers[point.layer] = (layers[point.layer] || 0) + 1;
+    new Set([point.layer, ...point.insertLayers]).forEach((layer) => {
+      layers[layer] = (layers[layer] || 0) + 1;
+    });
     if (point.annotationKind) annotations[point.annotationKind] = (annotations[point.annotationKind] || 0) + 1;
     include(point.x, point.y);
   });
   geometry.lines.forEach((line) => {
-    layers[line.layer] = (layers[line.layer] || 0) + 1;
+    new Set([line.layer, ...line.insertLayers]).forEach((layer) => {
+      layers[layer] = (layers[layer] || 0) + 1;
+    });
     if (line.annotationKind) annotations[line.annotationKind] = (annotations[line.annotationKind] || 0) + 1;
     include(line.x1, line.y1); include(line.x2, line.y2);
   });
@@ -206,7 +223,7 @@ function matchingEntities(geometry, selectedIds, scope, layer, ids = []) {
   const match = (item) =>
     scope === "all" ||
     (scope === "selected" && selectedIds.has(item.id)) ||
-    (scope === "layer" && item.layer === layer) ||
+    (scope === "layer" && affectsLayer(item, layer)) ||
     (scope === "ids" && requestedIds.has(item.id));
   return {
     points: geometry.points.filter(match),
@@ -388,6 +405,7 @@ function executeAgentTool(name, args, context) {
       x: point.x + dx,
       y: point.y + dy,
       layer: targetLayer || point.layer,
+      insertLayers: [],
       sourceType: "AI_COPY"
     }));
     matched.lines.forEach((line) => geometry.lines.push({
@@ -398,6 +416,7 @@ function executeAgentTool(name, args, context) {
       x2: line.x2 + dx,
       y2: line.y2 + dy,
       layer: targetLayer || line.layer,
+      insertLayers: [],
       sourceType: "AI_COPY"
     }));
     actionLog.push(`复制 ${count} 个图元并平移 (${dx}, ${dy})`);
@@ -423,7 +442,8 @@ function executeAgentTool(name, args, context) {
       geometry.points.push({
         id: `ai-p-${crypto.randomBytes(6).toString("hex")}`,
         x: finiteNumber(point.x, "point.x"), y: finiteNumber(point.y, "point.y"),
-        layer: shortText(point.layer, "AI"), sourceType: "AI_POINT", visible: true
+        layer: shortText(point.layer, "AI"), insertLayers: [],
+        sourceType: "AI_POINT", visible: true
       });
     }
     for (const line of args.lines) {
@@ -431,7 +451,8 @@ function executeAgentTool(name, args, context) {
         id: `ai-l-${crypto.randomBytes(6).toString("hex")}`,
         x1: finiteNumber(line.x1, "line.x1"), y1: finiteNumber(line.y1, "line.y1"),
         x2: finiteNumber(line.x2, "line.x2"), y2: finiteNumber(line.y2, "line.y2"),
-        layer: shortText(line.layer, "AI"), sourceType: "AI_LINE", visible: true
+        layer: shortText(line.layer, "AI"), insertLayers: [],
+        sourceType: "AI_LINE", visible: true
       });
     }
     const added = args.points.length + args.lines.length;

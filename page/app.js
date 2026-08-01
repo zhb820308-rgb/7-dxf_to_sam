@@ -136,7 +136,11 @@
 
   function visible(item) {
     return state.sourceVisibility[item.sourceType] !== false &&
-      state.layerVisibility[item.layer || "0"] !== false;
+      DXFStudio.isLayerVisible(item, state.layerVisibility);
+  }
+
+  function affectedByLayer(item, layer) {
+    return DXFStudio.affectsLayer(item, layer);
   }
 
   function isSelected(kind, index) {
@@ -202,7 +206,7 @@
       const a = worldToScreen({ x: line.x1, y: line.y1 });
       const b = worldToScreen({ x: line.x2, y: line.y2 });
       const selected = isSelected("line", index);
-      const layerHighlighted = state.selectedLayer !== null && (line.layer || "0") === state.selectedLayer;
+      const layerHighlighted = state.selectedLayer !== null && affectedByLayer(line, state.selectedLayer);
       ctx.globalAlpha = state.selectedLayer === null || layerHighlighted || selected ? 1 : 0.16;
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
@@ -224,7 +228,7 @@
       if (!visible(point)) return;
       const screen = worldToScreen(point);
       const selected = isSelected("point", index);
-      const layerHighlighted = state.selectedLayer !== null && (point.layer || "0") === state.selectedLayer;
+      const layerHighlighted = state.selectedLayer !== null && affectedByLayer(point, state.selectedLayer);
       ctx.globalAlpha = state.selectedLayer === null || layerHighlighted || selected ? 1 : 0.16;
       ctx.beginPath();
       ctx.arc(screen.x, screen.y, selected ? 5 : layerHighlighted ? 4.5 : 3.2, 0, Math.PI * 2);
@@ -331,8 +335,10 @@
 
   function currentLayers() {
     const layers = new Set(["0"]);
-    state.points.forEach((item) => layers.add(item.layer || "0"));
-    state.lines.forEach((item) => layers.add(item.layer || "0"));
+    state.points.concat(state.lines).forEach((item) => {
+      layers.add(item.layer || "0");
+      (item.insertLayers || []).forEach((layer) => layers.add(layer));
+    });
     return Array.from(layers).sort((a, b) => a.localeCompare(b, "zh-CN"));
   }
 
@@ -364,8 +370,10 @@
     const layerList = $("#layerList");
     layerList.innerHTML = "";
     layers.forEach((layer) => {
-      const count = state.points.filter((item) => (item.layer || "0") === layer).length +
-        state.lines.filter((item) => (item.layer || "0") === layer).length;
+      // Match SAM ignore semantics: count every entity that this layer controls,
+      // including entities on explicit child layers inside an INSERT.
+      const count = state.points.filter((item) => affectedByLayer(item, layer)).length +
+        state.lines.filter((item) => affectedByLayer(item, layer)).length;
       const off = state.layerVisibility[layer] === false;
       const row = document.createElement("div");
       row.className = `layer-row${state.selectedLayer === layer ? " selected" : ""}`;
