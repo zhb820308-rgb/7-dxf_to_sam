@@ -158,3 +158,10 @@ void FeData::clear()
     m_index.clear();
     m_indexTolerance = -1.0;
 }
+
+void FeData::reserve(std::size_t nodeCapacity, std::size_t trussCapacity)
+{
+    m_nodes.reserve(nodeCapacity);
+    m_trusses.reserve(trussCapacity);
+    m_trussIndex.reserve(trussCapacity);
+}

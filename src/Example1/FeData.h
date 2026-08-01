@@ -64,6 +64,11 @@ public:
     // Clear all nodes, trusses, and stats.
     void clear();
 
+    // Preallocate storage when the input-size estimate is known.  This is an
+    // optimization hint only; node merging and curve tessellation may make
+    // the final counts lower or higher than these values.
+    void reserve(std::size_t nodeCapacity, std::size_t trussCapacity);
+
     // --- statistics ---
     const FeConversionStats& stats() const { return m_stats; }
     FeConversionStats&       stats()       { return m_stats; }
