@@ -20,6 +20,8 @@ set(EXAMPLE1_PARSER_SOURCES
     DxfEntityValidation.h
     DxfParser.cpp
     DxfParser.h
+    DxfReaderCallbacks.cpp
+    DxfReaderCallbacks.h
     DxfTransform.cpp
     DxfTransform.h
 )

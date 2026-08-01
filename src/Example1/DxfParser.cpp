@@ -1,7 +1,7 @@
 #include "DxfParser.h"
 
-#include "DxfEntityValidation.h"
 #include "DxfInputFile.h"
+#include "DxfReaderCallbacks.h"
 #include "DxfTransform.h"
 #include "GeometryUtils.h"
 #include "libdxfrw.h"
@@ -15,100 +15,6 @@
 #include <vector>
 
 namespace {
-
-// ========================================================================
-//  DxfReader — DRW_Interface implementation (internal, only used here)
-// ========================================================================
-
-class DxfReader : public DRW_Interface {
-public:
-    DxfData m_data;                         // final flattened output
-
-    // --- Parsing context ---
-    std::unordered_map<std::string, DxfBlock> m_blocks;
-    std::vector<InsertInfo>      m_modelSpaceInserts;
-
-    // current block being parsed (nullptr = model space)
-    DxfBlock* m_currentBlock = nullptr;
-
-    // --- Layer filter ---
-    std::set<std::string> m_ignoredLayers;
-    std::set<std::string> m_allLayers;
-
-    const std::set<std::string>& allLayers() const { return m_allLayers; }
-
-    /// Helper: returns true if the entity's layer is in the ignored set.
-    bool isLayerIgnored(const DRW_Entity& ent) const {
-        if (m_ignoredLayers.empty()) return false;
-        return m_ignoredLayers.count(ent.layer) != 0;
-    }
-
-    /// Model-space entities can be filtered immediately. Block entities need
-    /// their INSERT context before layer 0 inheritance can be resolved.
-    bool shouldSkipDuringRead(const DRW_Entity& ent) const {
-        return m_currentBlock == nullptr && isLayerIgnored(ent);
-    }
-
-    // --- Implemented entity callbacks ---
-    void addLine(const DRW_Line& data) override;
-    void addCircle(const DRW_Circle& data) override;
-    void addArc(const DRW_Arc& data) override;
-    void addEllipse(const DRW_Ellipse& data) override;
-    void addLWPolyline(const DRW_LWPolyline& data) override;
-    void addSpline(const DRW_Spline* data) override;
-    void addPoint(const DRW_Point& data) override;
-
-    // --- Block / Insert callbacks ---
-    void addBlock(const DRW_Block& data) override;
-    void endBlock() override;
-    void addInsert(const DRW_Insert& data) override;
-
-    // --- Layer callback (collect layer names) ---
-    void addLayer(const DRW_Layer& data) override;
-
-    // --- Stub callbacks (no-op) ---
-    void addHeader(const DRW_Header* data) override {}
-    void addLType(const DRW_LType& data) override {}
-    void addDimStyle(const DRW_Dimstyle& data) override {}
-    void addVport(const DRW_Vport& data) override {}
-    void addTextStyle(const DRW_Textstyle& data) override {}
-    void addAppId(const DRW_AppId& data) override {}
-    void setBlock(const int handle) override {}
-    void addRay(const DRW_Ray& data) override {}
-    void addXline(const DRW_Xline& data) override {}
-    void addPolyline(const DRW_Polyline& data) override {}
-    void addKnot(const DRW_Entity& data) override {}
-    void addTrace(const DRW_Trace& data) override {}
-    void add3dFace(const DRW_3Dface& data) override {}
-    void addSolid(const DRW_Solid& data) override {}
-    void addMText(const DRW_MText& data) override {}
-    void addText(const DRW_Text& data) override {}
-    void addDimAlign(const DRW_DimAligned* data) override {}
-    void addDimLinear(const DRW_DimLinear* data) override {}
-    void addDimRadial(const DRW_DimRadial* data) override {}
-    void addDimDiametric(const DRW_DimDiametric* data) override {}
-    void addDimAngular(const DRW_DimAngular* data) override {}
-    void addDimAngular3P(const DRW_DimAngular3p* data) override {}
-    void addDimOrdinate(const DRW_DimOrdinate* data) override {}
-    void addLeader(const DRW_Leader* data) override {}
-    void addHatch(const DRW_Hatch* data) override {}
-    void addViewport(const DRW_Viewport& data) override {}
-    void addImage(const DRW_Image* data) override {}
-    void linkImage(const DRW_ImageDef* data) override {}
-    void addComment(const char* comment) override {}
-    void addPlotSettings(const DRW_PlotSettings* data) override {}
-    void writeHeader(DRW_Header& data) override {}
-    void writeBlocks() override {}
-    void writeBlockRecords() override {}
-    void writeEntities() override {}
-    void writeLTypes() override {}
-    void writeLayers() override {}
-    void writeTextstyles() override {}
-    void writeVports() override {}
-    void writeDimstyles() override {}
-    void writeObjects() override {}
-    void writeAppId() override {}
-};
 
 // ========================================================================
 //  Block expansion helpers
@@ -540,149 +446,6 @@ static bool expandBlocks(DxfData& output,
     return true;
 }
 
-// ========================================================================
-//  DxfReader member functions — entity callbacks
-// ========================================================================
-
-void DxfReader::addLine(const DRW_Line& data) {
-    if (shouldSkipDuringRead(data)) return;
-    const DxfLine line = DxfEntityValidation::makeLine(data);
-
-    if (m_currentBlock) {
-        m_currentBlock->addLine(line);
-    } else {
-        m_data.addLine(line);
-    }
-}
-
-void DxfReader::addCircle(const DRW_Circle& data)
-{
-    if (shouldSkipDuringRead(data)) return;
-    const DxfCircle circle = DxfEntityValidation::makeCircle(data);
-
-    if (m_currentBlock) {
-        m_currentBlock->addCircle(circle);
-    } else {
-        m_data.addCircle(circle);
-    }
-}
-
-void DxfReader::addArc(const DRW_Arc& data) {
-    if (shouldSkipDuringRead(data)) return;
-    const std::optional<DxfArc> arc = DxfEntityValidation::makeArc(data);
-    if (!arc) return;
-
-    if (m_currentBlock) {
-        m_currentBlock->addArc(*arc);
-    } else {
-        m_data.addArc(*arc);
-    }
-}
-
-void DxfReader::addEllipse(const DRW_Ellipse& data) {
-    if (shouldSkipDuringRead(data)) return;
-    const std::optional<DxfEllipse> ellipse =
-        DxfEntityValidation::makeEllipse(data);
-    if (!ellipse) return;
-
-    if (m_currentBlock) {
-        m_currentBlock->addEllipse(*ellipse);
-    } else {
-        m_data.addEllipse(*ellipse);
-    }
-}
-
-void DxfReader::addLWPolyline(const DRW_LWPolyline& data)
-{
-    if (shouldSkipDuringRead(data)) return;
-    const std::optional<DxfLWPolyline> polyline =
-        DxfEntityValidation::makeLWPolyline(data);
-    if (!polyline) return;
-
-    if (m_currentBlock) {
-        m_currentBlock->addLWPolyline(*polyline);
-    } else {
-        m_data.addLWPolyline(*polyline);
-    }
-}
-
-void DxfReader::addSpline(const DRW_Spline* data)
-{
-    if (!data) return;
-    if (shouldSkipDuringRead(*data)) return;
-    std::optional<DxfSpline> spline =
-        DxfEntityValidation::makeSpline(*data);
-    if (!spline) return;
-
-    if (m_currentBlock) {
-        m_currentBlock->addSpline(std::move(*spline));
-    } else {
-        m_data.addSpline(std::move(*spline));
-    }
-}
-
-void DxfReader::addPoint(const DRW_Point& data) {
-    if (shouldSkipDuringRead(data)) return;
-    const DxfPoint point = DxfEntityValidation::makePoint(data);
-    if (m_currentBlock) {
-        m_currentBlock->addPoint(point);
-    } else {
-        m_data.addPoint(point);
-    }
-}
-
-// ========================================================================
-//  DxfReader member functions — block / insert callbacks
-// ========================================================================
-
-void DxfReader::addBlock(const DRW_Block& data) {
-    DxfBlock blk;
-    blk.setName(data.name);
-    blk.setBase(data.basePoint.x, data.basePoint.y, data.basePoint.z);
-
-    // Skip layout blocks
-    if (blk.name() == "*Model_Space" || blk.name() == "*Paper_Space" || blk.name() == "*Paper_Space0") {
-        m_currentBlock = nullptr;
-        return;
-    }
-
-    m_blocks[blk.name()] = blk;
-    m_currentBlock = &m_blocks[blk.name()];
-}
-
-void DxfReader::endBlock() {
-    m_currentBlock = nullptr;
-}
-
-void DxfReader::addInsert(const DRW_Insert& data) {
-    InsertInfo ins;
-    ins.blockName = data.name;
-    ins.layer     = data.layer;
-    ins.insertX   = data.basePoint.x;
-    ins.insertY   = data.basePoint.y;
-    ins.insertZ   = data.basePoint.z;
-    ins.scaleX    = data.xscale;
-    ins.scaleY    = data.yscale;
-    ins.scaleZ    = data.zscale;
-    ins.angle     = data.angle;
-    ins.colCount  = data.colcount;
-    ins.rowCount  = data.rowcount;
-    ins.colSpace  = data.colspace;
-    ins.rowSpace  = data.rowspace;
-
-    if (m_currentBlock) {
-        // Nested INSERT — store in parent block for recursive expansion
-        m_currentBlock->addInsert(ins);
-        return;
-    }
-
-    m_modelSpaceInserts.push_back(ins);
-}
-
-void DxfReader::addLayer(const DRW_Layer& data) {
-    m_allLayers.insert(data.name);
-}
-
 }  // namespace
 
 // ========================================================================
@@ -718,8 +481,8 @@ bool DxfParser::parseFile(const QString& filePath, DxfData& outData,
     }
 
     dxfRW dxf(inputFile.encodedPath().constData());
-    DxfReader reader;
-    reader.m_ignoredLayers = ignoredLayers;
+    DxfReaderCallbacks reader;
+    reader.setIgnoredLayers(ignoredLayers);
     if (!dxf.read(&reader, true)) {
         outData.setError(DxfImportErrorCode::ReadFailed,
             QStringLiteral("Failed to read DXF file. Error code: %1")
@@ -730,7 +493,7 @@ bool DxfParser::parseFile(const QString& filePath, DxfData& outData,
     // Model-space entities are already in the output container. Seed the
     // expansion budget with them so the limit applies to the final flattened
     // output, rather than only to entities created inside INSERT blocks.
-    const std::size_t initialEntities = reader.m_data.entityCount();
+    const std::size_t initialEntities = reader.data().entityCount();
     if (initialEntities > maxOutputEntities) {
         outData.setError(DxfImportErrorCode::ExpansionLimit,
             QStringLiteral("DXF output limit exceeded: more than %1 entities")
@@ -739,11 +502,11 @@ bool DxfParser::parseFile(const QString& filePath, DxfData& outData,
     }
 
     // --- Move parsed entities from reader to output, then expand blocks ---
-    outData = std::move(reader.m_data);
+    outData = reader.takeData();
 
     // --- Expand blocks into flat DxfData ---
     ExpansionBudget expansionBudget(initialEntities, maxOutputEntities);
-    if (!expandBlocks(outData, reader.m_blocks, reader.m_modelSpaceInserts,
+    if (!expandBlocks(outData, reader.blocks(), reader.modelSpaceInserts(),
                       ignoredLayers,
                       curveTolerance, expansionBudget)) {
         const QString error = expansionBudget.error.isEmpty()
