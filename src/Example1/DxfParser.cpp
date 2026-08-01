@@ -1,6 +1,7 @@
 #include "DxfParser.h"
 
 #include "DxfInputFile.h"
+#include "DxfTransform.h"
 #include "GeometryUtils.h"
 #include "libdxfrw.h"
 #include <QDebug>
@@ -156,105 +157,6 @@ struct ExpansionBudget {
         entities += count;
         return true;
     }
-};
-
-/// Complete affine transform from block-local coordinates to world space:
-///   x' = m00*x + m01*y + tx
-///   y' = m10*x + m11*y + ty
-///   z' = scaleZ * z + offsetZ
-/// A transform can be composed with a nested INSERT without decomposing it
-/// back into scale/rotation parameters, so shear and mirror combinations are
-/// preserved exactly.
-struct Transform2D {
-    double m00 = 1.0, m01 = 0.0;
-    double m10 = 0.0, m11 = 1.0;
-    double tx = 0.0, ty = 0.0;
-    double scaleZ = 1.0;
-    double offsetZ = 0.0;
-
-    static Transform2D fromInsert(const InsertInfo& ins,
-                                  double bx, double by, double bz)
-    {
-        Transform2D tf;
-        const double cosA = std::cos(ins.angle);
-        const double sinA = std::sin(ins.angle);
-        tf.m00 = cosA * ins.scaleX;
-        tf.m01 = -sinA * ins.scaleY;
-        tf.m10 = sinA * ins.scaleX;
-        tf.m11 = cosA * ins.scaleY;
-        tf.tx  = ins.insertX - tf.m00 * bx - tf.m01 * by;
-        tf.ty  = ins.insertY - tf.m10 * bx - tf.m11 * by;
-        tf.scaleZ  = ins.scaleZ;
-        tf.offsetZ = ins.insertZ - ins.scaleZ * bz;
-        return tf;
-    }
-
-    /// Return this × child: child is applied first, then this transform.
-    Transform2D composedWith(const Transform2D& child) const
-    {
-        Transform2D result;
-        result.m00 = m00 * child.m00 + m01 * child.m10;
-        result.m01 = m00 * child.m01 + m01 * child.m11;
-        result.m10 = m10 * child.m00 + m11 * child.m10;
-        result.m11 = m10 * child.m01 + m11 * child.m11;
-        result.tx = m00 * child.tx + m01 * child.ty + tx;
-        result.ty = m10 * child.tx + m11 * child.ty + ty;
-        result.scaleZ = scaleZ * child.scaleZ;
-        result.offsetZ = scaleZ * child.offsetZ + offsetZ;
-        return result;
-    }
-
-    DxfPoint apply(double x, double y, double z) const
-    {
-        return DxfPoint(m00 * x + m01 * y + tx,
-                        m10 * x + m11 * y + ty,
-                        scaleZ * z + offsetZ);
-    }
-
-    DxfPoint apply(const DxfPoint& pt) const
-    {
-        return apply(pt.x(), pt.y(), pt.z());
-    }
-
-    DxfPoint applyVector(double x, double y, double z = 0.0) const
-    {
-        return DxfPoint(m00 * x + m01 * y,
-                        m10 * x + m11 * y,
-                        scaleZ * z);
-    }
-
-    DxfPoint applyVector(const DxfPoint& vector) const
-    {
-        return applyVector(vector.x(), vector.y(), vector.z());
-    }
-
-    double determinant() const { return m00 * m11 - m01 * m10; }
-    bool reversesOrientation() const { return determinant() < 0.0; }
-
-    bool isPlanarSimilarity() const
-    {
-        const double firstLength2 = m00 * m00 + m10 * m10;
-        const double secondLength2 = m01 * m01 + m11 * m11;
-        const double dot = m00 * m01 + m10 * m11;
-        const double scale = std::max({1.0, firstLength2, secondLength2});
-        return firstLength2 > 1e-24
-            && std::fabs(firstLength2 - secondLength2) <= 1e-9 * scale
-            && std::fabs(dot) <= 1e-9 * scale;
-    }
-
-    double planarScale() const
-    {
-        return std::sqrt(m00 * m00 + m10 * m10);
-    }
-
-    /// Map an unwrapped direction angle under a planar similarity transform.
-    double applyAngle(double angle) const
-    {
-        const double rotation = std::atan2(m10, m00);
-        return reversesOrientation() ? rotation - angle : rotation + angle;
-    }
-
-    double applyZ(double z) const { return scaleZ * z + offsetZ; }
 };
 
 static const std::string& resolveEffectiveLayer(const std::string& sourceLayer,

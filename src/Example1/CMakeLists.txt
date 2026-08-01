@@ -18,6 +18,8 @@ set(EXAMPLE1_CORE_SOURCES
 set(EXAMPLE1_PARSER_SOURCES
     DxfParser.cpp
     DxfParser.h
+    DxfTransform.cpp
+    DxfTransform.h
 )
 set(EXAMPLE1_DXF_INPUT_SOURCES
     DxfInputFile.cpp
