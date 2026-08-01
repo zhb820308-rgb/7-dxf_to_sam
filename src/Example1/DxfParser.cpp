@@ -320,12 +320,19 @@ static bool expandInsertArray(DxfData& output,
     const double rowDy =  cosA * ins.rowSpace;
 
     // Reserve the full array output in one go, avoiding repeated realloc.
+    // Clamp the estimate to the expansion entity budget so a malicious INSERT
+    // (e.g. 100000 instances of a block with many entities) cannot force an
+    // out-of-budget multi-GB allocation before per-entity accounting kicks in.
     const std::size_t instances = static_cast<std::size_t>(nCols) * nRows;
-    output.reserveLines (output.lines().size()       + blk.lines().size()       * instances);
-    output.reservePoints(output.points().size()      + blk.points().size()      * instances);
-    output.reserveLWPolylines(output.lwPolylines().size()
-                              + blk.lwPolylines().size() * instances);
-    output.reserveSplines(output.splines().size()    + blk.splines().size()     * instances);
+    const auto clampReserve = [instances](std::size_t current, std::size_t perInstance) {
+        const std::size_t estimate = current
+            + perInstance * std::min<std::size_t>(instances, kMaxExpandedEntities);
+        return std::min(estimate, kMaxExpandedEntities);
+    };
+    output.reserveLines(clampReserve(output.lines().size(), blk.lines().size()));
+    output.reservePoints(clampReserve(output.points().size(), blk.points().size()));
+    output.reserveLWPolylines(clampReserve(output.lwPolylines().size(), blk.lwPolylines().size()));
+    output.reserveSplines(clampReserve(output.splines().size(), blk.splines().size()));
 
     // Copy the INSERT once; inner loops only touch the two doubles.
     InsertInfo insCopy = ins;
