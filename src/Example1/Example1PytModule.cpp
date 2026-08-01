@@ -3,7 +3,6 @@
 #include <omuPrimType.h>
 
 #include <QCoreApplication>
-#include <QDateTime>
 #include <QDebug>
 #include <QElapsedTimer>
 #include <QProgressDialog>
@@ -12,6 +11,7 @@
 #include <string>
 
 #include "DxfImportLogger.h"
+#include "DxfImportSession.h"
 #include "DxfImportBuildService.h"
 #include "DxfImportFeedback.h"
 #include "DxfImportFormatting.h"
@@ -94,37 +94,12 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 	}
 
 	// [2/8] Initialize logging
-	const std::string importId = QDateTime::currentDateTimeUtc()
-		.toString("yyyyMMdd_HHmmss_zzz")
-		.toStdString();
-	std::shared_ptr<spdlog::logger> logger =
-		createDxfImportLogger(importId);
-	std::shared_ptr<spdlog::logger> errorLogger = dxfErrorLogger();
-	QElapsedTimer totalTimer;
-	totalTimer.start();
-
-	// Log paths as UTF-8 so diagnostics preserve the original Unicode path.
-	// libdxfrw receives its separately adapted narrow path in DxfInputFile.
-	const std::string pathText = filePath.toUtf8().toStdString();
-	if (!logger && errorLogger)
-	{
-		errorLogger->error(
-			"[import={}] import_log_initialization_failed file=\"{}\"",
-			importId, pathText);
-	}
-	if (!logger && !errorLogger)
-	{
-		qWarning() << "[importDxf] ERROR: log system unavailable for import"
-			<< QString::fromStdString(importId);
-	}
-
-	if (logger)
-	{
-		logger->info(
-			"[import={}] started file=\"{}\" base=({}, {}, {}) curve_tolerance={} max_output_entities={}",
-			importId, pathText, baseX, baseY, baseZ, curveTolerance,
-			maxOutputEntities);
-	}
+	DxfImportSession importSession(
+		filePath, baseX, baseY, baseZ, curveTolerance, maxOutputEntities);
+	const auto& logger = importSession.logger();
+	const auto& errorLogger = importSession.errorLogger();
+	const std::string& importId = importSession.importId();
+	const std::string& pathText = importSession.pathText();
 
 	// Validate numeric inputs before parsing. Block expansion may tessellate
 	// curves, so invalid tolerances must not reach DxfParser/GeometryUtils.
@@ -137,7 +112,7 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 		return failImport(
 			logger, errorLogger, importId, pathText,
 			"validate_params", validation.detail,
-			totalTimer.elapsed(), validation.message);
+			importSession.elapsed(), validation.message);
 	}
 	const std::size_t outputLimit = validation.outputLimit;
 
@@ -157,7 +132,7 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 		std::string detail = " error_code=" + errorCode.toStdString() +
 			" error=\"" + errorMessage.toLocal8Bit().toStdString() + "\"";
 		return failImport(logger, errorLogger, importId, pathText,
-			"parse", detail, totalTimer.elapsed(),
+			"parse", detail, importSession.elapsed(),
 			QString("[importDxf] ERROR [%1]: DXF parse failed - %2")
 				.arg(errorCode, errorMessage));
 	}
@@ -190,7 +165,7 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 		return failImport(logger, errorLogger, importId, pathText,
 			"validate_mode",
 			" mode=\"" + importModeStr.toLocal8Bit().toStdString() + "\"",
-			totalTimer.elapsed(),
+			importSession.elapsed(),
 			QString("[importDxf] ERROR: unsupported importMode '%1'")
 				.arg(importModeStr));
 	}
@@ -205,7 +180,7 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 			return failImport(logger, errorLogger, importId, pathText,
 				"validate_params",
 				" missing=\"" + missingName.toLocal8Bit().toStdString() + "\"",
-				totalTimer.elapsed(),
+				importSession.elapsed(),
 				QString("[importDxf] ERROR: FE mode requires '%1'")
 					.arg(missingName));
 		}
@@ -227,7 +202,7 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 				"fe_conversion",
 				" error_code=" + errorCode.toStdString() +
 				" error=\"" + errorMessage.toLocal8Bit().toStdString() + "\"",
-				totalTimer.elapsed(),
+				importSession.elapsed(),
 				QString("[importDxf] ERROR [%1]: %2")
 					.arg(errorCode, errorMessage));
 		}
@@ -315,7 +290,7 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 				: QString("[importDxf] ERROR: FE build failed, rolling back - %1")
 					.arg(buildResult.message);
 			return failImport(logger, errorLogger, importId, pathText,
-				stage, detail, totalTimer.elapsed(), warning);
+				stage, detail, importSession.elapsed(), warning);
 		}
 		const int created = buildResult.createdCount;
 
@@ -333,10 +308,9 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 				feData.trusses().size(),
 				created,
 				stageTimer.elapsed(),
-				totalTimer.elapsed());
-			logger->flush();
+				importSession.elapsed());
 		}
-		dropDxfImportLogger(importId);
+		importSession.finish();
 		return new omuPrimNumber(created);
 	}
 
@@ -358,7 +332,7 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 			"conversion",
 			" error_code=" + errorCode.toStdString() +
 			" error=\"" + errorMessage.toLocal8Bit().toStdString() + "\"",
-			totalTimer.elapsed(),
+			importSession.elapsed(),
 			QString("[importDxf] ERROR [%1]: %2")
 				.arg(errorCode, errorMessage));
 	}
@@ -444,12 +418,11 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 				canceledStage.toLocal8Bit().toStdString(),
 				canceledCurrent,
 				canceledTotal,
-				totalTimer.elapsed());
-			logger->flush();
+				importSession.elapsed());
 		}
 		qWarning().noquote() << QString("[importDxf] IMPORT CANCELED — %1 %2/%3")
 			.arg(canceledStage).arg(canceledCurrent).arg(canceledTotal);
-		dropDxfImportLogger(importId);
+		importSession.finish();
 		return nullptr;
 	}
 
@@ -463,7 +436,7 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 			detail = " sketch=\"" +
 				builder.sketchName().toLocal8Bit().toStdString() + "\"" + detail;
 		return failImport(logger, errorLogger, importId, pathText,
-			stage, detail, totalTimer.elapsed(),
+			stage, detail, importSession.elapsed(),
 			QString("[importDxf] ERROR: build failed, rolling back — %1")
 				.arg(buildResult.message));
 	}
@@ -481,9 +454,8 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 			builder.sketchName().toLocal8Bit().toStdString(),
 			created,
 			stageTimer.elapsed(),
-			totalTimer.elapsed());
-		logger->flush();
+			importSession.elapsed());
 	}
-	dropDxfImportLogger(importId);
+	importSession.finish();
 	return new omuPrimNumber(created);
 }

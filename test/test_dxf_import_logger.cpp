@@ -21,6 +21,7 @@
 #include <cmath>
 
 #include "DxfImportLogger.h"
+#include "DxfImportSession.h"
 #include "DxfData.h"
 #include "SamData.h"
 
@@ -110,6 +111,26 @@ TEST_F(DxfImportLoggerTest, drop_removes_from_registry)
     }
     dropDxfImportLogger(importId);
     EXPECT_EQ(spdlog::get("dxf_import_" + importId), nullptr);
+}
+
+TEST(DxfImportSessionTest, preservesUnicodePathAndFinishesOnce)
+{
+    const QString filePath = QString::fromUtf8("C:/测试/图纸.dxf");
+    DxfImportSession session(filePath, 1.0, 2.0, 3.0, 0.1, 100000);
+
+    ASSERT_NE(session.logger(), nullptr);
+    EXPECT_EQ(session.pathText(), filePath.toUtf8().toStdString());
+    EXPECT_GE(session.elapsed(), 0);
+
+    const std::string importId = session.importId();
+    const QString logPath = perImportLogPath(importId);
+    session.finish();
+    EXPECT_EQ(spdlog::get("dxf_import_" + importId), nullptr);
+    EXPECT_NO_THROW(session.finish());
+
+    const std::string content = readFileContent(logPath);
+    EXPECT_NE(content.find("started file="), std::string::npos) << content;
+    QFile::remove(logPath);
 }
 
 // ============================================================================

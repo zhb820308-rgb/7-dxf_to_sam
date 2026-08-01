@@ -14,6 +14,8 @@ set(EXAMPLE1_CORE_SOURCES
     FeConversionEngine.h
     DxfImportLogger.cpp
     DxfImportLogger.h
+    DxfImportSession.cpp
+    DxfImportSession.h
     DxfImportValidation.cpp
     DxfImportValidation.h
 )
