@@ -6,10 +6,9 @@
 #include <QDebug>
 #include <QElapsedTimer>
 #include <QProgressDialog>
-#include <QStringList>
-#include <set>
 #include <string>
 
+#include "DxfImportLayers.h"
 #include "DxfImportLogger.h"
 #include "DxfImportMode.h"
 #include "DxfImportSession.h"
@@ -82,17 +81,8 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 	args.Get(maxOutputEntities, "maxOutputEntities");
 	args.End();
 
-	// Parse ignored layers
-	std::set<std::string> ignoredLayers;
-	if (!ignoreLayersStr.isEmpty()) {
-		QStringList parts = ignoreLayersStr.split(',', QString::SkipEmptyParts);
-		for (const QString& part : parts) {
-			std::string layer = part.trimmed().toStdString();
-			if (!layer.empty()) {
-				ignoredLayers.insert(layer);
-			}
-		}
-	}
+	const std::set<std::string> ignoredLayers =
+		parseIgnoredDxfLayers(ignoreLayersStr);
 
 	// [2/8] Initialize logging
 	DxfImportSession importSession(

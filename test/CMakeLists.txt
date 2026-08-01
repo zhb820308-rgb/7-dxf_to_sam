@@ -127,3 +127,13 @@ add_test(NAME DxfImportMode COMMAND test_dxf_import_mode)
 set_tests_properties(DxfImportMode PROPERTIES
     ENVIRONMENT "PATH=$<TARGET_FILE_DIR:Qt5::Core>\;$ENV{PATH}"
 )
+
+# Test 11: ignored-layer option parsing
+add_executable(test_dxf_import_layers
+    test_dxf_import_layers.cpp
+)
+target_link_libraries(test_dxf_import_layers PRIVATE ${TEST_COMMON_LIBS})
+add_test(NAME DxfImportLayers COMMAND test_dxf_import_layers)
+set_tests_properties(DxfImportLayers PROPERTIES
+    ENVIRONMENT "PATH=$<TARGET_FILE_DIR:Qt5::Core>\;$ENV{PATH}"
+)
