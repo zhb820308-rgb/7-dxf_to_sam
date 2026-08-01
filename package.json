@@ -5,8 +5,8 @@
   "description": "DXF Studio browser editor and AI geometry agent API",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check provider-request.js && node --check page/dxf.js && node --check page/agent-settings.js && node --check page/state.js && node --check page/viewport.js && node --check page/renderer.js && node --check page/selection.js && node --check page/import-controller.js && node --check page/agent-controller.js && node --check page/app.js",
-    "test": "node tests/agent-tools.test.js && node tests/dxf-annotations.test.js && node tests/dxf-layer-semantics.test.js && node tests/server-security.test.js && node tests/agent-boundaries.test.js && node tests/dxf-expansion-limits.test.js && node tests/web-editor-modules.test.js"
+    "check": "node --check server.js && node --check provider-request.js && node --check server/http-utils.js && node --check server/security.js && node --check server/geometry-tools.js && node --check server/provider-controller.js && node --check server/static-server.js && node --check server/router.js && node --check page/dxf.js && node --check page/agent-settings.js && node --check page/state.js && node --check page/viewport.js && node --check page/renderer.js && node --check page/selection.js && node --check page/import-controller.js && node --check page/agent-controller.js && node --check page/app.js",
+    "test": "node tests/agent-tools.test.js && node tests/dxf-annotations.test.js && node tests/dxf-layer-semantics.test.js && node tests/server-security.test.js && node tests/server-routes.test.js && node tests/agent-boundaries.test.js && node tests/dxf-expansion-limits.test.js && node tests/web-editor-modules.test.js"
   },
   "engines": {
     "node": ">=18"
