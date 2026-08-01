@@ -36,6 +36,8 @@ set(EXAMPLE1_DXF_INPUT_SOURCES
 set(EXAMPLE1_PLUGIN_SOURCES
     DxfImportBuildService.cpp
     DxfImportBuildService.h
+    DxfImportFeedback.cpp
+    DxfImportFeedback.h
     DxfImportFormatting.cpp
     DxfImportFormatting.h
     Example1PytModule.cpp
