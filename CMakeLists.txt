@@ -119,12 +119,15 @@ if(NOT EXISTS "${spdlog_DIR}/spdlogConfig.cmake")
         "Set SPDLOG_ROOT to the spdlog root directory.")
 endif()
 
-add_compile_definitions(NEW_GUI_FRAME)
-add_compile_definitions(NEW_RENDER_FRAME)
+add_library(ExampleProjectOptions INTERFACE)
+target_compile_definitions(ExampleProjectOptions INTERFACE
+    NEW_GUI_FRAME
+    NEW_RENDER_FRAME
+)
 
-# MSVC: treat source files as UTF-8 (no BOM required)
+# MSVC: treat project source files as UTF-8 (no BOM required).
 if(MSVC)
-    add_compile_options("/utf-8")
+    target_compile_options(ExampleProjectOptions INTERFACE "/utf-8")
 endif()
 
 set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} ${LIBS_QT5_ROOT}/lib/cmake/Qt5)

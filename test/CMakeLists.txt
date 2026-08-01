@@ -16,11 +16,6 @@ FetchContent_MakeAvailable(googletest)
 find_package(Qt5Core REQUIRED)
 
 # ---- Common test dependencies ----
-link_directories(${SAM_OCCT_LIB_DIR})
-set(TEST_COMMON_INCLUDE_DIRS
-    ${CMAKE_SOURCE_DIR}/src/Example1
-    ${SAM_OCCT_INCLUDE_DIR}
-)
 set(TEST_COMMON_LIBS
     GTest::gtest_main
     Example1Core
@@ -32,7 +27,6 @@ set(TEST_COMMON_LIBS
 add_executable(test_geometry_utils
     test_geometry_utils.cpp
 )
-target_include_directories(test_geometry_utils PRIVATE ${TEST_COMMON_INCLUDE_DIRS})
 target_link_libraries(test_geometry_utils PRIVATE ${TEST_COMMON_LIBS})
 add_test(NAME GeometryUtils COMMAND test_geometry_utils)
 
@@ -40,7 +34,6 @@ add_test(NAME GeometryUtils COMMAND test_geometry_utils)
 add_executable(test_dxf_data
     test_dxf_data.cpp
 )
-target_include_directories(test_dxf_data PRIVATE ${TEST_COMMON_INCLUDE_DIRS})
 target_link_libraries(test_dxf_data PRIVATE ${TEST_COMMON_LIBS})
 add_test(NAME DxfData COMMAND test_dxf_data)
 
@@ -48,7 +41,6 @@ add_test(NAME DxfData COMMAND test_dxf_data)
 add_executable(test_conversion_engine
     test_conversion_engine.cpp
 )
-target_include_directories(test_conversion_engine PRIVATE ${TEST_COMMON_INCLUDE_DIRS})
 target_link_libraries(test_conversion_engine PRIVATE ${TEST_COMMON_LIBS})
 add_test(NAME ConversionEngine COMMAND test_conversion_engine)
 
@@ -56,7 +48,6 @@ add_test(NAME ConversionEngine COMMAND test_conversion_engine)
 add_executable(test_convert
     test_convert.cpp
 )
-target_include_directories(test_convert PRIVATE ${TEST_COMMON_INCLUDE_DIRS})
 target_link_libraries(test_convert PRIVATE ${TEST_COMMON_LIBS})
 add_test(NAME Convert COMMAND test_convert)
 
@@ -64,18 +55,12 @@ add_test(NAME Convert COMMAND test_convert)
 add_executable(test_fe_conversion_engine
     test_fe_conversion_engine.cpp
 )
-target_include_directories(test_fe_conversion_engine PRIVATE ${TEST_COMMON_INCLUDE_DIRS})
 target_link_libraries(test_fe_conversion_engine PRIVATE ${TEST_COMMON_LIBS})
 add_test(NAME FeConversionEngine COMMAND test_fe_conversion_engine)
 
 # Test 6: DxfParser integration (needs dxfrw.lib + real DXF files)
 add_executable(test_parser
     test_parser.cpp
-)
-target_include_directories(test_parser PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/Example1
-    ${LIBDXFRW_INCLUDE_DIR}
-    ${SAM_OCCT_INCLUDE_DIR}
 )
 target_link_libraries(test_parser PRIVATE
     ${TEST_COMMON_LIBS}
@@ -87,11 +72,6 @@ target_compile_definitions(test_parser PRIVATE
 )
 add_test(NAME Parser COMMAND test_parser)
 
-# MSVC: UTF-8 source encoding
-if(MSVC)
-    add_compile_options("/utf-8")
-endif()
-
 # ---- Runtime: ensure Qt5 DLLs are in PATH for test executables ----
 set_tests_properties(
     GeometryUtils DxfData ConversionEngine Convert FeConversionEngine Parser
@@ -102,9 +82,6 @@ set_tests_properties(
 # Test 7: DxfImportLogger (needs QCoreApplication + spdlog, custom main)
 add_executable(test_dxf_import_logger
     test_dxf_import_logger.cpp
-)
-target_include_directories(test_dxf_import_logger PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/Example1
 )
 target_link_libraries(test_dxf_import_logger PRIVATE
     GTest::gtest
@@ -121,7 +98,11 @@ add_executable(test_import_transaction test_import_transaction.cpp)
 target_include_directories(test_import_transaction PRIVATE
     ${CMAKE_SOURCE_DIR}/src/Example1
 )
-target_link_libraries(test_import_transaction PRIVATE GTest::gtest_main Qt5::Core)
+target_link_libraries(test_import_transaction PRIVATE
+    GTest::gtest_main
+    Qt5::Core
+    ExampleProjectOptions
+)
 add_test(NAME ImportTransaction COMMAND test_import_transaction)
 set_tests_properties(ImportTransaction PROPERTIES
     ENVIRONMENT "PATH=$<TARGET_FILE_DIR:Qt5::Core>\;$ENV{PATH}"

@@ -1,12 +1,25 @@
-set(CMAKE_AUTOMOC ON) 
-set(CMAKE_INCLUDE_CURRENT_DIR ON) 
+set(EXAMPLE1_TOOLSET_SOURCES
+    DxfLayerReader.cpp
+    DxfLayerReader.h
+    DxfLogViewerDialog.cpp
+    DxfLogViewerDialog.h
+    Example1DB.cpp
+    Example1DB.h
+    Example1DXFImportDialog.cpp
+    Example1DXFImportDialog.h
+    Example1Form.cpp
+    Example1Form.h
+    Example1ToolsetGui.cpp
+    Example1ToolsetGui.h
+    Example1ToolsetPlugin.cpp
+    Example1ToolsetPlugin.h
+    MultiSelectComboBox.cpp
+    MultiSelectComboBox.h
+)
 
-# directories
-include_directories(
-    ${LIBS_QT5_ROOT}/include
-    ${LIBS_QT5_ROOT}/include/QtCore
-    ${LIBS_QT5_ROOT}/include/QtGui
-    ${LIBS_QT5_ROOT}/include/QtWidgets
+add_library(Example1Toolset SHARED ${EXAMPLE1_TOOLSET_SOURCES})
+target_include_directories(Example1Toolset PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${LIBS_QTITAN_ROOT}/include
     ${LIBS_PYTHON_ROOT}/include
     ${LIBS_OC_ROOT}/include
@@ -14,75 +27,41 @@ include_directories(
     ${LIBS_SAMSDK_ROOT}/include/guiProject
     ${LIBDXFRW_INCLUDE_DIR}
 )
-  
-link_directories(
-    ${LIBS_QT5_ROOT}/lib
+target_link_directories(Example1Toolset PRIVATE
     ${LIBS_QTITAN_ROOT}/lib
     ${LIBS_PYTHON_ROOT}/libs
     ${LIBS_OC_ROOT}/lib
-	${LIBS_SAMSDK_ROOT}/libs
+    ${LIBS_SAMSDK_ROOT}/libs
     ${LIBS_TCMALLOC_ROOT}
     ${CMAKE_ARCHIVE_OUTPUT_DIRECTORY}
 )
-
-# source list
-file(GLOB TARGET_SRC
-	"${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
-	"${CMAKE_CURRENT_SOURCE_DIR}/*.h"
-	"${CMAKE_CURRENT_SOURCE_DIR}/*.T"
-    )
-     
-# Moc Qt headers
-set(HEADERS
-)
-
-QT5_WRAP_CPP(HEADERS_MOC ${HEADERS})
-QT5_ADD_RESOURCES(RESOUCES_RCC ${RESOUCES})
-
-
-# add filters
-source_group("Generated Files" FILES
-    ${HEADERS_MOC}
-)
-
-# dynamic library
-add_library(Example1Toolset SHARED
-    ${TARGET_SRC}
-    ${HEADERS_MOC}
-    ${RESOUCES_RCC}
-)
-
-# compiler settings
-set_property(TARGET Example1Toolset
-    PROPERTY COMPILE_DEFINITIONS _CRT_SECURE_NO_WARNINGS _CRT_NON_CONFORMING_SWPRINTFS
-)
-
-set_target_properties(Example1Toolset PROPERTIES LINK_FLAGS /INCLUDE:"__tcmalloc")
-
-
-
-add_definitions(
-    -DUNICODE
-    -D_UNICODE
-    -DQT_NO_DEBUG
+target_compile_definitions(Example1Toolset PRIVATE
+    _CRT_SECURE_NO_WARNINGS
+    _CRT_NON_CONFORMING_SWPRINTFS
+    UNICODE
+    _UNICODE
+    QT_NO_DEBUG
 )
 
 set_target_properties(Example1Toolset PROPERTIES
+    AUTOMOC ON
     OUTPUT_NAME "SAM.Pre.Example1Toolset"
+    SUFFIX ".dll"
 )
 
-# linker settings
-set_target_properties(Example1Toolset PROPERTIES
-    SUFFIX ".dll")
+if(MSVC)
+    target_link_options(Example1Toolset PRIVATE "/INCLUDE:__tcmalloc")
+endif()
 
 target_link_libraries(Example1Toolset
-    Qt5Core.lib
-    Qt5Widgets.lib
-    Qt5Gui.lib
-    OrientBasicPrimtives.lib
-    SAMIngQtSAM.lib
-    SAMGui.lib
-    libtcmalloc_minimal.lib
+    ExampleProjectOptions
+    Qt5::Core
+    Qt5::Widgets
+    Qt5::Gui
+    OrientBasicPrimtives
+    SAMIngQtSAM
+    SAMGui
+    libtcmalloc_minimal
     "${LIBDXFRW_LIBRARY}"
 )
 

@@ -19,8 +19,8 @@
 | --- | --- | --- | --- |
 | O-01 | 错误类型仍依赖字符串比较 | Sketch 和 FE 已统一返回 `ImportBuildResult`，调用层不再比较错误文案 | 已完成（`8e18f2d`） |
 | O-02 | 多个文件职责过大 | `page/app.js`、`server.js`、`DxfParser.cpp`、`Example1PytModule.cpp` 等仍为大型多职责文件 | 待处理 |
-| O-03 | CMake 使用目录级配置和 `GLOB` | Example1 与 Toolset 仍使用全局 include/link/definition 和 `file(GLOB)` | 待处理 |
-| O-04 | 测试重复编译生产源码 | 生产插件和测试已链接共享的 `Example1Core` 与 `Example1DxfParser` | 代码完成，待审批 |
+| O-03 | CMake 使用目录级配置和 `GLOB` | 活动目标已改用目标级配置和明确源文件列表 | 代码完成，待审批 |
+| O-04 | 测试重复编译生产源码 | 生产插件和测试已链接共享的 `Example1Core` 与 `Example1DxfParser` | 已完成（`a74448f`） |
 | O-05 | DXF 路径使用本地 8 位编码 | `DxfParser::parseFile()` 仍通过 `toLocal8Bit()` 传递路径 | 待处理 |
 | O-06 | 前端图层统计重复扫描实体 | 已改为一次遍历建立 SAM 控制层计数索引 | 已完成（`1b3b5e2`） |
 
@@ -231,7 +231,7 @@ refactor(import): return structured build status
 
 ## 8. OG3：O-04 测试公共核心库
 
-**状态：代码完成，自动化验证通过，待审批提交。**
+**状态：已完成并提交（`a74448f`）。**
 
 ### 8.1 问题
 
@@ -281,6 +281,8 @@ build(test): share Example1 core library
 
 ## 9. OG4：O-03 CMake 目标化
 
+**状态：代码完成，自动化验证通过，待审批提交。**
+
 ### 9.1 实施步骤
 
 1. 用 `target_include_directories()` 替换目录级 `include_directories()`。
@@ -311,6 +313,14 @@ ctest --test-dir build-clean -C Release --output-on-failure
 ```text
 build(cmake): scope Example1 target settings
 ```
+
+### 9.4 实施与验证记录
+
+- 根级公共宏与 MSVC UTF-8 选项收敛到 `ExampleProjectOptions` 接口目标。
+- Example1、Example1Toolset 和测试均改用目标级 include、link、definition 与 option。
+- Example1 与 Toolset 使用明确 `.cpp/.h` 列表，活动 CMake 文件不再使用 `file(GLOB)`。
+- 使用 Visual Studio 2017 x64 在独立目录完成全新 Release 配置、构建和 CTest 8/8。
+- `EXAMPLE1_BUILD_TESTS=OFF` 时未获取或配置 Google Test；ContainerShip 关闭时未参与配置。
 
 ## 10. OG5：O-05 Unicode DXF 路径
 
@@ -479,7 +489,7 @@ cmake --build build --config Release --target Example1 Example1Toolset
 - [X] OG1/O-06：图层统计改为一次遍历并保持 SAM 图层语义。
 - [X] OG2/O-01：程序控制流不再依赖错误文案。
 - [X] OG3/O-04：测试与生产链接共享核心实现。
-- [ ] OG4/O-03：CMake 使用目标级配置和明确源文件列表。
+- [X] OG4/O-03：CMake 使用目标级配置和明确源文件列表。
 - [ ] OG5/O-05：Unicode 路径通过自动化和 SAM 人工验收。
 - [ ] OG6/O-02：主要大文件按职责拆分且复杂度实际下降。
 - [ ] 所有 Node 和 C++ 自动化测试通过。
@@ -489,18 +499,17 @@ cmake --build build --config Release --target Example1 Example1Toolset
 
 ## 14. 提交数量建议
 
-O 系列建议拆成 8～10 个提交：
+O 系列建议拆成 7～9 个提交：
 
 1. O-06 图层统计。
 2. O-01 结构化状态。
 3. O-04 公共核心库。
-4. O-03 Example1 CMake 目标化。
-5. O-03 Toolset 与测试 CMake 目标化。
-6. O-05 Unicode 路径。
-7. O-02 Parser 拆分。
-8. O-02 导入编排拆分。
-9. O-02 Web 拆分。
-10. O-02 Server 拆分。
+4. O-03 Example1、Toolset 与测试 CMake 目标化。
+5. O-05 Unicode 路径。
+6. O-02 Parser 拆分。
+7. O-02 导入编排拆分。
+8. O-02 Web 拆分。
+9. O-02 Server 拆分。
 
 不建议把全部 O 系列压缩为一个大提交，也不建议在文件拆分过程中顺便修改几何、
 事务或安全行为。
