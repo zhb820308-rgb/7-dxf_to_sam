@@ -9,14 +9,13 @@
 #include <QElapsedTimer>
 #include <QProgressDialog>
 #include <QStringList>
-#include <cmath>
-#include <limits>
 #include <set>
 #include <string>
 
 #include "DxfImportLogger.h"
 #include "DxfImportBuildService.h"
 #include "DxfImportFormatting.h"
+#include "DxfImportValidation.h"
 #include "DxfImportError.h"
 #include "DxfParser.h"
 #include "ConversionEngine.h"
@@ -53,9 +52,6 @@ Example1PytModule::~Example1PytModule()
 //  DXF import helpers
 // ========================================================================
 
-constexpr std::size_t kSmallDrawingEntityLimit = 100000;
-constexpr int kLargeDrawingEntityLimit = 500000;
-
 static bool isBudgetError(DxfImportErrorCode code)
 {
 	return code == DxfImportErrorCode::ExpansionLimit ||
@@ -78,7 +74,8 @@ static void showBudgetErrorDialog(DxfImportErrorCode code,
 				"Please simplify the block structure or reduce the array size."));
 		return;
 	}
-	if (maxOutputEntities <= static_cast<int>(kSmallDrawingEntityLimit))
+	if (maxOutputEntities <= static_cast<int>(
+		DxfImportValidation::kSmallDrawingEntityLimit))
 	{
 		QMessageBox::warning(
 			nullptr,
@@ -101,8 +98,9 @@ static void showBudgetErrorDialog(DxfImportErrorCode code,
 static void showSmallDrawingRecommendation(std::size_t outputEntities,
 	int maxOutputEntities)
 {
-	if (maxOutputEntities == static_cast<int>(kSmallDrawingEntityLimit) ||
-		outputEntities > kSmallDrawingEntityLimit)
+	if (maxOutputEntities == static_cast<int>(
+			DxfImportValidation::kSmallDrawingEntityLimit) ||
+		outputEntities > DxfImportValidation::kSmallDrawingEntityLimit)
 	{
 		return;
 	}
@@ -197,44 +195,18 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 
 	// Validate numeric inputs before parsing. Block expansion may tessellate
 	// curves, so invalid tolerances must not reach DxfParser/GeometryUtils.
-	if (!std::isfinite(baseX) ||
-		!std::isfinite(baseY) ||
-		!std::isfinite(baseZ))
+	const DxfImportValidation::Result validation =
+		DxfImportValidation::validate(
+			baseX, baseY, baseZ, curveTolerance,
+			nodeMergeTolerance, maxOutputEntities);
+	if (!validation.valid)
 	{
-		return failImport(logger, errorLogger, importId, pathText,
-			"validate_params", " invalid_base_coordinates",
-			totalTimer.elapsed(),
-			QStringLiteral(
-				"[importDxf] ERROR: base coordinates must be finite"));
+		return failImport(
+			logger, errorLogger, importId, pathText,
+			"validate_params", validation.detail,
+			totalTimer.elapsed(), validation.message);
 	}
-	if (!std::isfinite(curveTolerance) || curveTolerance <= 0.0)
-	{
-		return failImport(logger, errorLogger, importId, pathText,
-			"validate_params", " invalid_curveTolerance",
-			totalTimer.elapsed(),
-			QString("[importDxf] ERROR: invalid curveTolerance %1")
-				.arg(curveTolerance));
-	}
-	if (!std::isfinite(nodeMergeTolerance) || nodeMergeTolerance < 0.0)
-	{
-		return failImport(logger, errorLogger, importId, pathText,
-			"validate_params", " invalid_nodeMergeTolerance",
-			totalTimer.elapsed(),
-			QString("[importDxf] ERROR: invalid nodeMergeTolerance %1")
-				.arg(nodeMergeTolerance));
-	}
-	if (maxOutputEntities != static_cast<int>(kSmallDrawingEntityLimit) &&
-		maxOutputEntities != kLargeDrawingEntityLimit &&
-		maxOutputEntities != -1)
-	{
-		return failImport(logger, errorLogger, importId, pathText,
-			"validate_params", " error_code=INVALID_ARGUMENT invalid_maxOutputEntities",
-			totalTimer.elapsed(),
-			QStringLiteral("[importDxf] ERROR [INVALID_ARGUMENT]: invalid maxOutputEntities"));
-	}
-	const std::size_t outputLimit = maxOutputEntities < 0
-		? std::numeric_limits<std::size_t>::max()
-		: static_cast<std::size_t>(maxOutputEntities);
+	const std::size_t outputLimit = validation.outputLimit;
 
 	// [3/8] Stage 1: Parse DXF file
 	QElapsedTimer stageTimer;

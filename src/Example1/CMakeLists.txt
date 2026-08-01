@@ -14,6 +14,8 @@ set(EXAMPLE1_CORE_SOURCES
     FeConversionEngine.h
     DxfImportLogger.cpp
     DxfImportLogger.h
+    DxfImportValidation.cpp
+    DxfImportValidation.h
 )
 set(EXAMPLE1_PARSER_SOURCES
     DxfBlockExpansion.cpp

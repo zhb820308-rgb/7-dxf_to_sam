@@ -107,3 +107,13 @@ add_test(NAME ImportTransaction COMMAND test_import_transaction)
 set_tests_properties(ImportTransaction PROPERTIES
     ENVIRONMENT "PATH=$<TARGET_FILE_DIR:Qt5::Core>\;$ENV{PATH}"
 )
+
+# Test 9: import numeric parameters and output budget validation
+add_executable(test_dxf_import_validation
+    test_dxf_import_validation.cpp
+)
+target_link_libraries(test_dxf_import_validation PRIVATE ${TEST_COMMON_LIBS})
+add_test(NAME DxfImportValidation COMMAND test_dxf_import_validation)
+set_tests_properties(DxfImportValidation PROPERTIES
+    ENVIRONMENT "PATH=$<TARGET_FILE_DIR:Qt5::Core>\;$ENV{PATH}"
+)
