@@ -445,3 +445,39 @@ TEST(DxfEntityStats, classifies_control_and_fit_splines_separately) {
     EXPECT_EQ(stats.splineCount(), 2u);
     EXPECT_EQ(stats.curveCount(), 2u);
 }
+
+TEST(DxfEntityStats, rvalue_splines_are_classified_before_they_are_moved) {
+    const std::vector<DxfPoint> controlPoints = {
+        DxfPoint(0, 0, 0), DxfPoint(1, 1, 0),
+        DxfPoint(2, 1, 0), DxfPoint(3, 0, 0)
+    };
+    const std::vector<double> knots = { 0, 0, 0, 0, 1, 1, 1, 1 };
+    const std::vector<DxfPoint> fitPoints = {
+        DxfPoint(0, 0, 0), DxfPoint(1, 1, 0), DxfPoint(2, 0, 0)
+    };
+
+    DxfData data;
+    data.addSpline(DxfSpline(
+        controlPoints, knots, {}, {}, 3, 0,
+        0, 0, 0, 0, 0, 0));
+    data.addSpline(DxfSpline(
+        {}, {}, {}, fitPoints, 3, 7,
+        0, 0, 0, 0, 0, 0));
+
+    SplineKind expectedControl;
+    expectedControl.construction = SplineConstruction::ControlBased;
+    SplineKind expectedFit;
+    expectedFit.construction = SplineConstruction::FitBased;
+    expectedFit.rational = true;
+    expectedFit.periodic = true;
+    expectedFit.closed = true;
+
+    const DxfEntityStats& stats = data.entityStats();
+    ASSERT_EQ(stats.splineKinds.size(), 2u);
+    EXPECT_EQ(stats.splineKinds.count(expectedControl), 1u);
+    EXPECT_EQ(stats.splineKinds.count(expectedFit), 1u);
+    if (stats.splineKinds.count(expectedControl) != 0)
+        EXPECT_EQ(stats.splineKinds.at(expectedControl), 1u);
+    if (stats.splineKinds.count(expectedFit) != 0)
+        EXPECT_EQ(stats.splineKinds.at(expectedFit), 1u);
+}

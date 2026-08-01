@@ -296,8 +296,9 @@ void DxfData::addSpline(const DxfSpline& spline)
 
 void DxfData::addSpline(DxfSpline&& spline)
 {
+    const SplineKind kind = spline.kind();
     m_splines.push_back(std::move(spline));
-    ++m_entityStats.splineKinds[spline.kind()];
+    ++m_entityStats.splineKinds[kind];
 }
 
 void DxfData::addGeneratedLine(const DxfLine& line)
@@ -379,22 +380,19 @@ DxfSpline::DxfSpline(std::vector<DxfPoint>&& ctrlPts,
 
 SplineKind DxfSpline::kind() const
 {
-    if (m_kindValid)
-        return m_kind;
-
     const bool hasControlData =
         static_cast<int>(m_ctrlPts.size()) > m_degree
         && static_cast<int>(m_knots.size()) >=
            static_cast<int>(m_ctrlPts.size()) + m_degree + 1;
 
-    m_kind.construction = hasControlData
+    SplineKind result;
+    result.construction = hasControlData
         ? SplineConstruction::ControlBased
         : SplineConstruction::FitBased;
-    m_kind.rational = isRational();
-    m_kind.periodic = isPeriodic();
-    m_kind.closed = isClosed();
-    m_kindValid = true;
-    return m_kind;
+    result.rational = isRational();
+    result.periodic = isPeriodic();
+    result.closed = isClosed();
+    return result;
 }
 
 bool DxfSpline::isValid() const

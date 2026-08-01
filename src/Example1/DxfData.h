@@ -248,8 +248,6 @@ public:
     double tgEndX()   const { return m_tgEndX; }
     double tgEndY()   const { return m_tgEndY; }
     double tgEndZ()   const { return m_tgEndZ; }
-    /// Cached kind: computed once lazily, so DxfData entity-stat accounting
-    /// does not re-scan ctrlPts/knots for every pushed/expanded spline.
     SplineKind kind() const;
 
     bool isValid() const override;
@@ -263,8 +261,6 @@ private:
     int    m_flags     = 0;
     double m_tgStartX  = 0.0, m_tgStartY  = 0.0, m_tgStartZ  = 0.0;
     double m_tgEndX    = 0.0, m_tgEndY    = 0.0, m_tgEndZ    = 0.0;
-    mutable SplineKind m_kind{};
-    mutable bool       m_kindValid = false;
 };
 
 // ======== DxfData (container) ========
