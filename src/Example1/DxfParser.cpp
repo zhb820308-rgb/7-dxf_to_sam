@@ -1,5 +1,6 @@
 #include "DxfParser.h"
 
+#include "DxfEntityValidation.h"
 #include "DxfInputFile.h"
 #include "DxfTransform.h"
 #include "GeometryUtils.h"
@@ -545,10 +546,7 @@ static bool expandBlocks(DxfData& output,
 
 void DxfReader::addLine(const DRW_Line& data) {
     if (shouldSkipDuringRead(data)) return;
-    DxfPoint start(data.basePoint.x, data.basePoint.y, data.basePoint.z);
-    DxfPoint end(data.secPoint.x, data.secPoint.y, data.secPoint.z);
-    DxfLine line(start, end);
-    line.setLayer(data.layer);
+    const DxfLine line = DxfEntityValidation::makeLine(data);
 
     if (m_currentBlock) {
         m_currentBlock->addLine(line);
@@ -560,9 +558,7 @@ void DxfReader::addLine(const DRW_Line& data) {
 void DxfReader::addCircle(const DRW_Circle& data)
 {
     if (shouldSkipDuringRead(data)) return;
-    DxfPoint center(data.basePoint.x, data.basePoint.y, data.basePoint.z);
-    DxfCircle circle(center, data.radious);
-    circle.setLayer(data.layer);
+    const DxfCircle circle = DxfEntityValidation::makeCircle(data);
 
     if (m_currentBlock) {
         m_currentBlock->addCircle(circle);
@@ -573,86 +569,40 @@ void DxfReader::addCircle(const DRW_Circle& data)
 
 void DxfReader::addArc(const DRW_Arc& data) {
     if (shouldSkipDuringRead(data)) return;
-    const DRW_Coord center = data.basePoint;
-    const double radius = data.radious;
-
-    if (!std::isfinite(center.x) || !std::isfinite(center.y) || !std::isfinite(center.z))
-        return;
-    if (!std::isfinite(radius) || radius <= 0.0)
-        return;
-    double start = data.staangle;
-    double end = data.endangle;
-    if (!std::isfinite(start) || !std::isfinite(end))
-        return;
-
-    DxfPoint c(center.x, center.y, center.z);
-    DxfArc arc(c, radius, start, end, data.isccw);
-    arc.setLayer(data.layer);
+    const std::optional<DxfArc> arc = DxfEntityValidation::makeArc(data);
+    if (!arc) return;
 
     if (m_currentBlock) {
-        m_currentBlock->addArc(arc);
+        m_currentBlock->addArc(*arc);
     } else {
-        m_data.addArc(arc);
+        m_data.addArc(*arc);
     }
 }
 
 void DxfReader::addEllipse(const DRW_Ellipse& data) {
     if (shouldSkipDuringRead(data)) return;
-    const double majorX = data.secPoint.x;
-    const double majorY = data.secPoint.y;
-    const double majorLen = std::sqrt(majorX * majorX + majorY * majorY);
-
-    if (majorLen <= 0.0) return;
-    if (!std::isfinite(data.ratio) || data.ratio <= 0.0) return;
-
-    DxfPoint center(data.basePoint.x, data.basePoint.y, data.basePoint.z);
-    DxfPoint majorAxisEnd(data.secPoint.x, data.secPoint.y, data.secPoint.z);
-    DxfEllipse ellipse(center, majorAxisEnd, data.ratio,
-                        data.staparam, data.endparam, data.isccw);
-    ellipse.setLayer(data.layer);
+    const std::optional<DxfEllipse> ellipse =
+        DxfEntityValidation::makeEllipse(data);
+    if (!ellipse) return;
 
     if (m_currentBlock) {
-        m_currentBlock->addEllipse(ellipse);
+        m_currentBlock->addEllipse(*ellipse);
     } else {
-        m_data.addEllipse(ellipse);
+        m_data.addEllipse(*ellipse);
     }
 }
 
 void DxfReader::addLWPolyline(const DRW_LWPolyline& data)
 {
     if (shouldSkipDuringRead(data)) return;
-    const int numVerts = std::min(data.vertexnum, static_cast<int>(data.vertlist.size()));
-    if (numVerts < 2) return;
-
-    const bool isClosed = (data.flags & 1) != 0;
-
-    std::vector<DxfPoint> vertices;
-    std::vector<double>   bulges;
-    vertices.reserve(numVerts);
-    bulges.reserve(isClosed ? numVerts : numVerts - 1);
-
-    for (int i = 0; i < numVerts; ++i) {
-        const DRW_Vertex2D& v = *data.vertlist[i];
-        vertices.push_back(DxfPoint(v.x, v.y, 0.0));
-    }
-
-    if (isClosed) {
-        for (int i = 0; i < numVerts; ++i) {
-            bulges.push_back(data.vertlist[i]->bulge);
-        }
-    } else {
-        for (int i = 0; i < numVerts - 1; ++i) {
-            bulges.push_back(data.vertlist[i]->bulge);
-        }
-    }
-
-    DxfLWPolyline poly(vertices, bulges, isClosed, 0.0);
-    poly.setLayer(data.layer);
+    const std::optional<DxfLWPolyline> polyline =
+        DxfEntityValidation::makeLWPolyline(data);
+    if (!polyline) return;
 
     if (m_currentBlock) {
-        m_currentBlock->addLWPolyline(poly);
+        m_currentBlock->addLWPolyline(*polyline);
     } else {
-        m_data.addLWPolyline(poly);
+        m_data.addLWPolyline(*polyline);
     }
 }
 
@@ -660,101 +610,24 @@ void DxfReader::addSpline(const DRW_Spline* data)
 {
     if (!data) return;
     if (shouldSkipDuringRead(*data)) return;
-
-    const bool isRational = (data->flags & 4) != 0;
-
-    const bool hasControlData =
-        data->ncontrol > 0
-        && static_cast<int>(data->controllist.size()) >= data->ncontrol
-        && data->degree >= 1
-        && data->ncontrol > data->degree;
-
-    const bool hasFitData =
-        data->nfit >= 2
-        && static_cast<int>(data->fitlist.size()) >= data->nfit;
-
-    if (!hasControlData && !hasFitData)
-        return;
-
-    // --- Control data: validation + assembly in a single pass ---
-    std::vector<DxfPoint> ctrlPts;
-    std::vector<double>   knots;
-    std::vector<double>   weights;
-    if (hasControlData) {
-        const int numCtrl = data->ncontrol;
-        const int degree  = data->degree;
-        const std::vector<double>& srcKnots = data->knotslist;
-        const int expectedKnotCount = numCtrl + degree + 1;
-
-        if (static_cast<int>(srcKnots.size()) != expectedKnotCount)
-            return;
-
-        knots.reserve(expectedKnotCount);
-        for (int i = 0; i < expectedKnotCount; ++i) {
-            const double k = srcKnots[i];
-            if (!std::isfinite(k) || (i > 0 && k < knots.back()))
-                return;
-            knots.push_back(k);
-        }
-
-        ctrlPts.reserve(numCtrl);
-        for (int i = 0; i < numCtrl; ++i) {
-            const auto& point = data->controllist[i];
-            if (!point || !std::isfinite(point->x)
-                || !std::isfinite(point->y) || !std::isfinite(point->z))
-                return;
-            ctrlPts.push_back(DxfPoint(point->x, point->y, point->z));
-        }
-
-        if (isRational) {
-            if (static_cast<int>(data->weightlist.size()) < numCtrl)
-                return;
-            weights.reserve(numCtrl);
-            for (int i = 0; i < numCtrl; ++i) {
-                const double w = data->weightlist[i];
-                if (!std::isfinite(w) || w <= 0.0)
-                    return;
-                weights.push_back(w);
-            }
-        }
-    }
-
-    // --- Fit data: validation + assembly in a single pass ---
-    std::vector<DxfPoint> fitPts;
-    fitPts.reserve(data->nfit);
-    for (int i = 0; i < data->nfit; ++i) {
-        const auto& sp = data->fitlist[i];
-        if (sp && std::isfinite(sp->x) && std::isfinite(sp->y) && std::isfinite(sp->z))
-            fitPts.push_back(DxfPoint(sp->x, sp->y, sp->z));
-    }
-
-    double tgStartX = data->tgStart.x, tgStartY = data->tgStart.y, tgStartZ = data->tgStart.z;
-    double tgEndX   = data->tgEnd.x,   tgEndY   = data->tgEnd.y,   tgEndZ   = data->tgEnd.z;
-
-    // Move-assemble: transfers ownership of the local containers, and the
-    // rvalue addSpline moves the spline into the output — no deep copies here.
-    DxfSpline spline(std::move(ctrlPts), std::move(knots),
-                     std::move(weights), std::move(fitPts),
-                     data->degree, data->flags,
-                     tgStartX, tgStartY, tgStartZ,
-                     tgEndX, tgEndY, tgEndZ);
-    spline.setLayer(data->layer);
+    std::optional<DxfSpline> spline =
+        DxfEntityValidation::makeSpline(*data);
+    if (!spline) return;
 
     if (m_currentBlock) {
-        m_currentBlock->addSpline(std::move(spline));
+        m_currentBlock->addSpline(std::move(*spline));
     } else {
-        m_data.addSpline(std::move(spline));
+        m_data.addSpline(std::move(*spline));
     }
 }
 
 void DxfReader::addPoint(const DRW_Point& data) {
     if (shouldSkipDuringRead(data)) return;
-    DxfPoint pt(data.basePoint.x, data.basePoint.y, data.basePoint.z);
-    pt.setLayer(data.layer);
+    const DxfPoint point = DxfEntityValidation::makePoint(data);
     if (m_currentBlock) {
-        m_currentBlock->addPoint(pt);
+        m_currentBlock->addPoint(point);
     } else {
-        m_data.addPoint(pt);
+        m_data.addPoint(point);
     }
 }
 
