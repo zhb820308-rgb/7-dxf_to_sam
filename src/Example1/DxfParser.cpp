@@ -103,47 +103,62 @@ public:
 //  Block expansion helpers
 // ========================================================================
 
-/// Transform a point by an insert's translation / rotation / scale.
-static DxfPoint transformPoint(const DxfPoint& pt,
-                               const InsertInfo& ins,
-                               double blockBaseX, double blockBaseY, double blockBaseZ)
-{
-    double x = pt.x() - blockBaseX;
-    double y = pt.y() - blockBaseY;
-    double z = pt.z() - blockBaseZ;
+/// Precomputed 2D affine transform for one INSERT instance:
+///   x' = m00*x + m01*y + tx
+///   y' = m10*x + m11*y + ty
+///   z' = scaleZ * z + offsetZ
+/// The matrix is R×S (rotation × scale), and the translation absorbs the
+/// block base point so no per-point subtraction is needed. Raw axis scales
+/// are kept for curve-preservation paths.
+struct Transform2D {
+    double m00 = 1.0, m01 = 0.0;
+    double m10 = 0.0, m11 = 1.0;
+    double tx = 0.0, ty = 0.0;
+    double scaleZ = 1.0;
+    double offsetZ = 0.0;
+    double scaleX = 1.0, scaleY = 1.0;
 
-    x *= ins.scaleX;
-    y *= ins.scaleY;
-    z *= ins.scaleZ;
-
-    if (std::fabs(ins.angle) > 1e-12) {
+    static Transform2D fromInsert(const InsertInfo& ins,
+                                  double bx, double by, double bz)
+    {
+        Transform2D tf;
         const double cosA = std::cos(ins.angle);
         const double sinA = std::sin(ins.angle);
-        const double rx = x * cosA - y * sinA;
-        const double ry = x * sinA + y * cosA;
-        x = rx;
-        y = ry;
+        tf.m00 = cosA * ins.scaleX;
+        tf.m01 = -sinA * ins.scaleY;
+        tf.m10 = sinA * ins.scaleX;
+        tf.m11 = cosA * ins.scaleY;
+        tf.tx  = ins.insertX - tf.m00 * bx - tf.m01 * by;
+        tf.ty  = ins.insertY - tf.m10 * bx - tf.m11 * by;
+        tf.scaleZ  = ins.scaleZ;
+        tf.offsetZ = ins.insertZ - ins.scaleZ * bz;
+        tf.scaleX  = ins.scaleX;
+        tf.scaleY  = ins.scaleY;
+        return tf;
     }
 
-    x += ins.insertX;
-    y += ins.insertY;
-    z += ins.insertZ;
+    DxfPoint apply(double x, double y, double z) const
+    {
+        return DxfPoint(m00 * x + m01 * y + tx,
+                        m10 * x + m11 * y + ty,
+                        scaleZ * z + offsetZ);
+    }
 
-    return DxfPoint(x, y, z);
-}
+    DxfPoint apply(const DxfPoint& pt) const
+    {
+        return apply(pt.x(), pt.y(), pt.z());
+    }
+};
 
 /// Transform and append discretized segments to output.
 static void addTransformedSegments(DxfData& output,
                                    const std::vector<DxfLine>& segments,
-                                   const InsertInfo& ins,
-                                   double baseX, double baseY, double baseZ)
+                                   const Transform2D& tf)
 {
     output.reserveLines(output.lines().size() + segments.size());
     for (const DxfLine& seg : segments) {
         if (!seg.isValid()) continue;
-        DxfPoint s = transformPoint(seg.start(), ins, baseX, baseY, baseZ);
-        DxfPoint e = transformPoint(seg.end(),   ins, baseX, baseY, baseZ);
-        output.addGeneratedLine(DxfLine(s, e));
+        output.addGeneratedLine(DxfLine(tf.apply(seg.start()), tf.apply(seg.end())));
     }
 }
 
@@ -171,8 +186,7 @@ static void recordGeneratedEntity(DxfData& output, const DxfSpline& spline)
 template<typename Entity, typename TessFn, typename PreserveFn>
 static void expandCurveGroup(DxfData& output,
                              const std::vector<Entity>& entities,
-                             const InsertInfo& ins,
-                             double bx, double by, double bz,
+                             const Transform2D& tf,
                              double tolerance, bool uniformXY,
                              TessFn tessellate,
                              PreserveFn preserve)
@@ -180,10 +194,10 @@ static void expandCurveGroup(DxfData& output,
     for (const Entity& e : entities) {
         if (!e.isValid()) continue;
         if (uniformXY) {
-            preserve(output, e, ins, bx, by, bz);
+            preserve(output, e, tf);
         } else {
             recordGeneratedEntity(output, e);
-            addTransformedSegments(output, tessellate(e, tolerance), ins, bx, by, bz);
+            addTransformedSegments(output, tessellate(e, tolerance), tf);
         }
     }
 }
@@ -237,19 +251,50 @@ static void expandInsertArray(DxfData& output,
 {
     const int nCols = std::max(1, ins.colCount);
     const int nRows = std::max(1, ins.rowCount);
+
+    // Degenerate array: no real repetition.
+    if (nCols * nRows <= 1) {
+        expandSingleBlock(output, blk, ins, tolerance, blocks, depth, visiting);
+        return;
+    }
+
     const double cosA = std::cos(ins.angle);
     const double sinA = std::sin(ins.angle);
+
+    // One-step increments along the rotated array grid.
+    // pos(row,col) = insertion + col * colVec + row * rowVec
+    const double colDx = cosA * ins.colSpace;
+    const double colDy = sinA * ins.colSpace;
+    const double rowDx = -sinA * ins.rowSpace;
+    const double rowDy =  cosA * ins.rowSpace;
+
+    // Reserve the full array output in one go, avoiding repeated realloc.
+    const std::size_t instances = static_cast<std::size_t>(nCols) * nRows;
+    output.reserveLines (output.lines().size()       + blk.lines().size()       * instances);
+    output.reservePoints(output.points().size()      + blk.points().size()      * instances);
+    output.reserveLWPolylines(output.lwPolylines().size()
+                              + blk.lwPolylines().size() * instances);
+    output.reserveSplines(output.splines().size()    + blk.splines().size()     * instances);
+
+    // Copy the INSERT once; inner loops only touch the two doubles.
+    InsertInfo insCopy = ins;
+
+    // Walk the grid with pure additions (no per-cell multiply/rotate).
+    double baseX = ins.insertX;
+    double baseY = ins.insertY;
     for (int row = 0; row < nRows; ++row) {
+        double curX = baseX;
+        double curY = baseY;
         for (int col = 0; col < nCols; ++col) {
-            // Array spacing in INSERT's local coordinate system,
-            // rotated to world direction.
-            const double ox = col * ins.colSpace;
-            const double oy = row * ins.rowSpace;
-            InsertInfo insCopy = ins;
-            insCopy.insertX += cosA * ox - sinA * oy;
-            insCopy.insertY += sinA * ox + cosA * oy;
-            expandSingleBlock(output, blk, insCopy, tolerance, blocks, depth, visiting);
+            insCopy.insertX = curX;
+            insCopy.insertY = curY;
+            expandSingleBlock(output, blk, insCopy,
+                              tolerance, blocks, depth, visiting);
+            curX += colDx;
+            curY += colDy;
         }
+        baseX += rowDx;
+        baseY += rowDy;
     }
 }
 
@@ -279,6 +324,10 @@ static void expandSingleBlock(DxfData& output,
     visiting.insert(blk.name());
 
     const double bx = blk.baseX(), by = blk.baseY(), bz = blk.baseZ();
+    // Precompute the full affine transform once for this INSERT instance,
+    // eliminating per-point cos/sin and base-point subtraction.
+    const Transform2D tf = Transform2D::fromInsert(ins, bx, by, bz);
+    const bool uniformXY = isScaleUniformXY(ins);
 
     // --- Points: direct transform ---
     output.reservePoints(output.points().size() + blk.points().size());
@@ -288,14 +337,14 @@ static void expandSingleBlock(DxfData& output,
 
     for (const DxfPoint& pt : blk.points()) {
         if (!pt.isValid()) continue;
-        output.addPoint(transformPoint(pt, ins, bx, by, bz));
+        output.addPoint(tf.apply(pt));
     }
 
     // --- Lines: direct transform ---
     for (const DxfLine& line : blk.lines()) {
         if (!line.isValid()) continue;
-        DxfPoint s = transformPoint(line.start(), ins, bx, by, bz);
-        DxfPoint e = transformPoint(line.end(),   ins, bx, by, bz);
+        DxfPoint s = tf.apply(line.start());
+        DxfPoint e = tf.apply(line.end());
         output.addLine(DxfLine(s, e));
     }
 
@@ -304,8 +353,8 @@ static void expandSingleBlock(DxfData& output,
         if (!circle.isValid()) continue;
         if (isScaleUniformXY(ins) && std::fabs(ins.scaleZ - ins.scaleX) < 1e-9) {
             // Uniform scale → preserve as circle
-            DxfPoint c = transformPoint(circle.center(), ins, bx, by, bz);
-            double   r = circle.radius() * ins.scaleX;
+            DxfPoint c = tf.apply(circle.center());
+            double   r = circle.radius() * tf.scaleX;
             if (r > 0.0)
                 output.addCircle(DxfCircle(c, r));
             else
@@ -316,60 +365,55 @@ static void expandSingleBlock(DxfData& output,
             std::vector<DxfLine> segs = GeometryUtils::tessellateArc(
                 DxfArc(circle.center(), circle.radius(), 0.0, 2.0 * M_PI, true),
                 tolerance);
-            addTransformedSegments(output, segs, ins, bx, by, bz);
+            addTransformedSegments(output, segs, tf);
         }
     }
 
     // --- Arcs: uniform scale → preserve Arc; non-uniform → discretize ---
-    const bool uniformXY = isScaleUniformXY(ins);
-    expandCurveGroup(output, blk.arcs(), ins, bx, by, bz, tolerance, uniformXY,
+    expandCurveGroup(output, blk.arcs(), tf, tolerance, uniformXY,
         GeometryUtils::tessellateArc,
-        [](DxfData& out, const DxfArc& arc,
-           const InsertInfo& i, double x, double y, double z) {
-            out.addArc(DxfArc(transformPoint(arc.center(), i, x, y, z),
-                        arc.radius() * i.scaleX,
+        [](DxfData& out, const DxfArc& arc, const Transform2D& t) {
+            out.addArc(DxfArc(t.apply(arc.center()),
+                        arc.radius() * t.scaleX,
                         arc.startAngle(), arc.endAngle(), arc.isCCW()));
         });
 
     // --- LWPolylines: uniform scale → preserve; non-uniform → discretize ---
-    expandCurveGroup(output, blk.lwPolylines(), ins, bx, by, bz, tolerance, uniformXY,
+    expandCurveGroup(output, blk.lwPolylines(), tf, tolerance, uniformXY,
         GeometryUtils::tessellateLWPolyline,
-        [](DxfData& out, const DxfLWPolyline& poly,
-           const InsertInfo& i, double x, double y, double z) {
+        [](DxfData& out, const DxfLWPolyline& poly, const Transform2D& t) {
             std::vector<DxfPoint> verts;
             verts.reserve(poly.vertices().size());
             for (const DxfPoint& v : poly.vertices())
-                verts.push_back(transformPoint(v, i, x, y, z));
+                verts.push_back(t.apply(v));
             out.addLWPolyline(DxfLWPolyline(verts, poly.bulges(),
-                                             poly.isClosed(), poly.constZ() * i.scaleZ));
+                                             poly.isClosed(), poly.constZ() * t.scaleZ));
         });
 
     // --- Ellipses: uniform scale → preserve; non-uniform → discretize ---
-    expandCurveGroup(output, blk.ellipses(), ins, bx, by, bz, tolerance, uniformXY,
+    expandCurveGroup(output, blk.ellipses(), tf, tolerance, uniformXY,
         GeometryUtils::tessellateEllipse,
-        [](DxfData& out, const DxfEllipse& ellipse,
-           const InsertInfo& i, double x, double y, double z) {
-            DxfPoint c = transformPoint(ellipse.center(), i, x, y, z);
-            DxfPoint m(ellipse.majorAxisEnd().x() * i.scaleX,
-                       ellipse.majorAxisEnd().y() * i.scaleY,
-                       ellipse.majorAxisEnd().z() * i.scaleZ);
+        [](DxfData& out, const DxfEllipse& ellipse, const Transform2D& t) {
+            DxfPoint c = t.apply(ellipse.center());
+            DxfPoint m(ellipse.majorAxisEnd().x() * t.scaleX,
+                       ellipse.majorAxisEnd().y() * t.scaleY,
+                       ellipse.majorAxisEnd().z() * t.scaleZ);
             out.addEllipse(DxfEllipse(c, m, ellipse.ratio(),
                                        ellipse.startParam(), ellipse.endParam(), ellipse.isCCW()));
         });
 
     // --- Splines: uniform scale → preserve; non-uniform → discretize ---
-    expandCurveGroup(output, blk.splines(), ins, bx, by, bz, tolerance, uniformXY,
+    expandCurveGroup(output, blk.splines(), tf, tolerance, uniformXY,
         GeometryUtils::tessellateSpline,
-        [](DxfData& out, const DxfSpline& spline,
-           const InsertInfo& i, double x, double y, double z) {
+        [](DxfData& out, const DxfSpline& spline, const Transform2D& t) {
             std::vector<DxfPoint> ctrlPts;
             ctrlPts.reserve(spline.controlPoints().size());
             for (const DxfPoint& cp : spline.controlPoints())
-                ctrlPts.push_back(transformPoint(cp, i, x, y, z));
+                ctrlPts.push_back(t.apply(cp));
             std::vector<DxfPoint> fitPts;
             fitPts.reserve(spline.fitPoints().size());
             for (const DxfPoint& fp : spline.fitPoints())
-                fitPts.push_back(transformPoint(fp, i, x, y, z));
+                fitPts.push_back(t.apply(fp));
             out.addSpline(DxfSpline(ctrlPts, spline.knots(), spline.weights(), fitPts,
                                      spline.degree(), spline.flags(),
                                      spline.tgStartX(), spline.tgStartY(), spline.tgStartZ(),
@@ -387,9 +431,7 @@ static void expandSingleBlock(DxfData& output,
         const DxfBlock& nestedBlk = it->second;
 
         // Compose transforms: outer × inner
-        const DxfPoint nestedPos = transformPoint(
-            DxfPoint(nested.insertX, nested.insertY, nested.insertZ),
-            ins, bx, by, bz);
+        const DxfPoint nestedPos = tf.apply(nested.insertX, nested.insertY, nested.insertZ);
         InsertInfo composed = composeInsertTransform(ins, nested, nestedPos);
 
         // Generate nested array instances

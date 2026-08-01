@@ -90,6 +90,11 @@ set(LIBDXFRW_INCLUDE_DIR "${LIBDXFRW_ROOT}/src")
 set(LIBDXFRW_LIBRARY "${LIBDXFRW_ROOT}/build/Release/dxfrw.lib")
 set(LIBDXFRW_RUNTIME "${LIBDXFRW_ROOT}/build/Release/dxfrw.dll")
 set(spdlog_DIR "${SPDLOG_ROOT}/share/spdlog")
+if(NOT EXISTS "${spdlog_DIR}/spdlogConfig.cmake" AND
+   EXISTS "${SPDLOG_ROOT}/lib/cmake/spdlog/spdlogConfig.cmake")
+    # Standard CMake install layout used by upstream spdlog builds.
+    set(spdlog_DIR "${SPDLOG_ROOT}/lib/cmake/spdlog")
+endif()
 
 # OCCT (Open CASCADE Technology) — headers in repo, libs configurable
 set(SAM_OCCT_ROOT "${CMAKE_SOURCE_DIR}/example/OCCT" CACHE PATH
