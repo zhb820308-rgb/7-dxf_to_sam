@@ -46,6 +46,8 @@ set(EXAMPLE1_PLUGIN_SOURCES
     DxfImportFeedback.h
     DxfImportFormatting.cpp
     DxfImportFormatting.h
+    DxfImportOrchestrator.cpp
+    DxfImportOrchestrator.h
     DxfImportProgress.cpp
     DxfImportProgress.h
     Example1PytModule.cpp
