@@ -9,7 +9,8 @@ enum class DxfImportErrorCode {
     ExpansionLimit,
     ConversionLimit,
     NoSupportedEntities,
-    ConversionFailed
+    ConversionFailed,
+    Canceled
 };
 
 #endif

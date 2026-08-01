@@ -4,9 +4,16 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <limits>
 
 namespace {
 constexpr std::size_t kMaxReserveEntities = 500000;
+
+int progressTotal(std::size_t count)
+{
+    return static_cast<int>(std::min(
+        count, static_cast<std::size_t>(std::numeric_limits<int>::max())));
+}
 }
 
 // ========================================================================
@@ -17,6 +24,12 @@ DxfPoint FeConversionEngine::translate(const DxfPoint& pt,
                                         double bx, double by, double bz)
 {
     return DxfPoint(pt.x() + bx, pt.y() + by, pt.z() + bz);
+}
+
+bool FeConversionEngine::reportProgress(
+    const QString& stage, int current, int total) const
+{
+    return !m_progressCallback || m_progressCallback(stage, current, total);
 }
 
 // Feed a segment (DxfLine) into FeData — merges nodes and adds a
@@ -124,103 +137,169 @@ bool FeConversionEngine::convert(const DxfData& dxfData,
 
     FeConversionStats& stats = outData.stats();
 
+    const int pointTotal = progressTotal(dxfData.points().size());
+    const int lineTotal = progressTotal(
+        dxfData.lines().size()
+        + dxfData.circles().size()
+        + dxfData.arcs().size()
+        + dxfData.lwPolylines().size()
+        + dxfData.ellipses().size()
+        + dxfData.splines().size());
+    auto cancelConversion = [&]() {
+        outData.clear();
+        outData.setError(
+            DxfImportErrorCode::Canceled,
+            QStringLiteral("FE conversion canceled"));
+        return false;
+    };
+    auto reportMergeProgress = [&](
+        const QString& stage, int current, int total) {
+        if (current != 0 && current % 1000 != 0 && current != total)
+            return true;
+        return reportProgress(stage, current, total);
+    };
+
     // ---- POINT → standalone nodes (no truss) ----
+    int pointCurrent = 0;
+    if (!reportMergeProgress(
+            QStringLiteral("Merging FE points"), 0, pointTotal))
+        return cancelConversion();
     for (const DxfPoint& pt : dxfData.points()) {
-        if (!pt.isValid()) continue;
-        DxfPoint tp = translate(pt, baseX, baseY, baseZ);
-        outData.addOrGetNode(tp.x(), tp.y(), tp.z(), nodeMergeTolerance);
-        if (outData.nodes().size() + outData.trusses().size() > maxOutputEntities)
-            return failLimit();
-        ++stats.pointsProcessed;
+        if (pt.isValid()) {
+            DxfPoint tp = translate(pt, baseX, baseY, baseZ);
+            outData.addOrGetNode(tp.x(), tp.y(), tp.z(), nodeMergeTolerance);
+            if (outData.nodes().size() + outData.trusses().size() > maxOutputEntities)
+                return failLimit();
+            ++stats.pointsProcessed;
+        }
+        ++pointCurrent;
+        if (!reportMergeProgress(
+                QStringLiteral("Merging FE points"),
+                pointCurrent, pointTotal))
+            return cancelConversion();
     }
 
     // ---- LINE → direct truss ----
+    int lineCurrent = 0;
+    if (!reportMergeProgress(
+            QStringLiteral("Merging FE lines"), 0, lineTotal))
+        return cancelConversion();
     for (const DxfLine& line : dxfData.lines()) {
-        if (!line.isValid()) continue;
-        DxfPoint s = translate(line.start(), baseX, baseY, baseZ);
-        DxfPoint e = translate(line.end(),   baseX, baseY, baseZ);
-        if (!feedSegment(outData, s, e, nodeMergeTolerance, maxOutputEntities))
-            return failLimit();
-        ++stats.linesProcessed;
+        if (line.isValid()) {
+            DxfPoint s = translate(line.start(), baseX, baseY, baseZ);
+            DxfPoint e = translate(line.end(),   baseX, baseY, baseZ);
+            if (!feedSegment(outData, s, e, nodeMergeTolerance, maxOutputEntities))
+                return failLimit();
+            ++stats.linesProcessed;
+        }
+        ++lineCurrent;
+        if (!reportMergeProgress(
+                QStringLiteral("Merging FE lines"), lineCurrent, lineTotal))
+            return cancelConversion();
     }
 
     // ---- CIRCLE → closed tessellation chain ----
     for (const DxfCircle& circle : dxfData.circles()) {
-        if (!circle.isValid()) continue;
-        DxfPoint c = translate(circle.center(), baseX, baseY, baseZ);
-        DxfArc equiv(c, circle.radius(), 0.0, 2.0 * M_PI, true);
-        auto segments = GeometryUtils::tessellateArc(equiv, curveTolerance);
-        if (!feedSegments(outData, segments, nodeMergeTolerance, maxOutputEntities))
-            return failLimit();
-        ++stats.circlesDiscretized;
+        if (circle.isValid()) {
+            DxfPoint c = translate(circle.center(), baseX, baseY, baseZ);
+            DxfArc equiv(c, circle.radius(), 0.0, 2.0 * M_PI, true);
+            auto segments = GeometryUtils::tessellateArc(equiv, curveTolerance);
+            if (!feedSegments(outData, segments, nodeMergeTolerance, maxOutputEntities))
+                return failLimit();
+            ++stats.circlesDiscretized;
+        }
+        ++lineCurrent;
+        if (!reportMergeProgress(
+                QStringLiteral("Merging FE lines"), lineCurrent, lineTotal))
+            return cancelConversion();
     }
 
     // ---- ARC ----
     for (const DxfArc& arc : dxfData.arcs()) {
-        if (!arc.isValid()) continue;
-        DxfPoint c = translate(arc.center(), baseX, baseY, baseZ);
-        DxfArc shifted(c, arc.radius(),
-                       arc.startAngle(), arc.endAngle(), arc.isCCW());
-        if (!feedSegments(outData,
-                          GeometryUtils::tessellateArc(shifted, curveTolerance),
-                          nodeMergeTolerance, maxOutputEntities))
-            return failLimit();
-        ++stats.arcsDiscretized;
+        if (arc.isValid()) {
+            DxfPoint c = translate(arc.center(), baseX, baseY, baseZ);
+            DxfArc shifted(c, arc.radius(),
+                           arc.startAngle(), arc.endAngle(), arc.isCCW());
+            if (!feedSegments(outData,
+                              GeometryUtils::tessellateArc(shifted, curveTolerance),
+                              nodeMergeTolerance, maxOutputEntities))
+                return failLimit();
+            ++stats.arcsDiscretized;
+        }
+        ++lineCurrent;
+        if (!reportMergeProgress(
+                QStringLiteral("Merging FE lines"), lineCurrent, lineTotal))
+            return cancelConversion();
     }
 
     // ---- LWPolyline ----
     for (const DxfLWPolyline& poly : dxfData.lwPolylines()) {
-        if (!poly.isValid()) continue;
-        std::vector<DxfPoint> verts;
-        for (const DxfPoint& v : poly.vertices())
-            verts.push_back(translate(v, baseX, baseY, baseZ));
-        DxfLWPolyline shifted(verts, poly.bulges(),
-                              poly.isClosed(), poly.constZ() + baseZ);
-        if (!feedSegments(outData,
-                          GeometryUtils::tessellateLWPolyline(shifted,
-                                                              curveTolerance),
-                          nodeMergeTolerance, maxOutputEntities))
-            return failLimit();
-        ++stats.lwPolylinesDiscretized;
+        if (poly.isValid()) {
+            std::vector<DxfPoint> verts;
+            for (const DxfPoint& v : poly.vertices())
+                verts.push_back(translate(v, baseX, baseY, baseZ));
+            DxfLWPolyline shifted(verts, poly.bulges(),
+                                  poly.isClosed(), poly.constZ() + baseZ);
+            if (!feedSegments(outData,
+                              GeometryUtils::tessellateLWPolyline(shifted,
+                                                                  curveTolerance),
+                              nodeMergeTolerance, maxOutputEntities))
+                return failLimit();
+            ++stats.lwPolylinesDiscretized;
+        }
+        ++lineCurrent;
+        if (!reportMergeProgress(
+                QStringLiteral("Merging FE lines"), lineCurrent, lineTotal))
+            return cancelConversion();
     }
 
     // ---- Ellipse ----
     for (const DxfEllipse& ellipse : dxfData.ellipses()) {
-        if (!ellipse.isValid()) continue;
-        const DxfPoint c = translate(ellipse.center(), baseX, baseY, baseZ);
-        // DXF group 11/21/31 is a vector relative to the center. Translation
-        // applies to the center only; subtracting the translated center from
-        // this vector corrupts both its direction and length.
-        DxfEllipse shifted(c, ellipse.majorAxisEnd(),
-                           ellipse.ratio(),
-                           ellipse.startParam(), ellipse.endParam(),
-                           ellipse.isCCW());
-        if (!feedSegments(outData,
-                          GeometryUtils::tessellateEllipse(shifted,
-                                                            curveTolerance),
-                          nodeMergeTolerance, maxOutputEntities))
-            return failLimit();
-        ++stats.ellipsesDiscretized;
+        if (ellipse.isValid()) {
+            const DxfPoint c = translate(ellipse.center(), baseX, baseY, baseZ);
+            // DXF group 11/21/31 is a vector relative to the center. Translation
+            // applies to the center only; subtracting the translated center from
+            // this vector corrupts both its direction and length.
+            DxfEllipse shifted(c, ellipse.majorAxisEnd(),
+                               ellipse.ratio(),
+                               ellipse.startParam(), ellipse.endParam(),
+                               ellipse.isCCW());
+            if (!feedSegments(outData,
+                              GeometryUtils::tessellateEllipse(shifted,
+                                                                curveTolerance),
+                              nodeMergeTolerance, maxOutputEntities))
+                return failLimit();
+            ++stats.ellipsesDiscretized;
+        }
+        ++lineCurrent;
+        if (!reportMergeProgress(
+                QStringLiteral("Merging FE lines"), lineCurrent, lineTotal))
+            return cancelConversion();
     }
 
     // ---- Spline ----
     for (const DxfSpline& spline : dxfData.splines()) {
-        if (!spline.isValid()) continue;
-        std::vector<DxfPoint> ctrlPts;
-        for (const DxfPoint& p : spline.controlPoints())
-            ctrlPts.push_back(translate(p, baseX, baseY, baseZ));
-        std::vector<DxfPoint> fitPts;
-        for (const DxfPoint& p : spline.fitPoints())
-            fitPts.push_back(translate(p, baseX, baseY, baseZ));
-        DxfSpline shifted(ctrlPts, spline.knots(), spline.weights(),
-                          fitPts, spline.degree(), spline.flags(),
-                          spline.tgStartX(), spline.tgStartY(), spline.tgStartZ(),
-                          spline.tgEndX(),   spline.tgEndY(),   spline.tgEndZ());
-        if (!feedSegments(outData,
-                          GeometryUtils::tessellateSpline(shifted, curveTolerance),
-                          nodeMergeTolerance, maxOutputEntities))
-            return failLimit();
-        ++stats.splinesDiscretized;
+        if (spline.isValid()) {
+            std::vector<DxfPoint> ctrlPts;
+            for (const DxfPoint& p : spline.controlPoints())
+                ctrlPts.push_back(translate(p, baseX, baseY, baseZ));
+            std::vector<DxfPoint> fitPts;
+            for (const DxfPoint& p : spline.fitPoints())
+                fitPts.push_back(translate(p, baseX, baseY, baseZ));
+            DxfSpline shifted(ctrlPts, spline.knots(), spline.weights(),
+                              fitPts, spline.degree(), spline.flags(),
+                              spline.tgStartX(), spline.tgStartY(), spline.tgStartZ(),
+                              spline.tgEndX(),   spline.tgEndY(),   spline.tgEndZ());
+            if (!feedSegments(outData,
+                              GeometryUtils::tessellateSpline(shifted, curveTolerance),
+                              nodeMergeTolerance, maxOutputEntities))
+                return failLimit();
+            ++stats.splinesDiscretized;
+        }
+        ++lineCurrent;
+        if (!reportMergeProgress(
+                QStringLiteral("Merging FE lines"), lineCurrent, lineTotal))
+            return cancelConversion();
     }
 
     stats.totalInputEntities = stats.pointsProcessed

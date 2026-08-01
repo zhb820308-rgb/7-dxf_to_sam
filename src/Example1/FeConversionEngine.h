@@ -4,6 +4,7 @@
 #include "DxfData.h"
 #include "FeData.h"
 #include <cstddef>
+#include <functional>
 
 // Converts DxfData (parsed DXF geometry) into FeData (nodes + truss
 // elements).  No SAM SDK dependency.
@@ -21,7 +22,14 @@
 // (output = DXF + base).
 class FeConversionEngine {
 public:
+    using ProgressCallback = std::function<bool(
+        const QString& stage, int current, int total)>;
+
     FeConversionEngine() = default;
+
+    void setProgressCallback(const ProgressCallback& callback) {
+        m_progressCallback = callback;
+    }
 
     // Convert a parsed DXF dataset into nodes and truss elements.
     //
@@ -46,8 +54,13 @@ public:
     static double defaultNodeMergeTolerance() { return 1e-6; }
 
 private:
+    bool reportProgress(
+        const QString& stage, int current, int total) const;
+
     static DxfPoint translate(const DxfPoint& pt,
                               double bx, double by, double bz);
+
+    ProgressCallback m_progressCallback;
 };
 
 #endif // FeConversionEngine_h

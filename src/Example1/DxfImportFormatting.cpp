@@ -36,6 +36,7 @@ QString errorCodeText(DxfImportErrorCode code)
 	case DxfImportErrorCode::ConversionLimit: return QStringLiteral("CONVERSION_LIMIT");
 	case DxfImportErrorCode::NoSupportedEntities: return QStringLiteral("NO_SUPPORTED_ENTITIES");
 	case DxfImportErrorCode::ConversionFailed: return QStringLiteral("CONVERSION_FAILED");
+	case DxfImportErrorCode::Canceled: return QStringLiteral("CANCELED");
 	case DxfImportErrorCode::None: break;
 	}
 	return QStringLiteral("NONE");

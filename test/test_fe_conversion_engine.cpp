@@ -2,6 +2,8 @@
 
 #include <cmath>
 #include <limits>
+#include <tuple>
+#include <vector>
 
 #include "DxfData.h"
 #include "FeConversionEngine.h"
@@ -84,6 +86,61 @@ TEST(FeConversionEngine, final_nodes_and_trusses_share_budget) {
         dxf, 0.0, 0.0, 0.0,
         0.01, FeConversionEngine::defaultNodeMergeTolerance(), out, 2));
     EXPECT_EQ(out.errorCode(), DxfImportErrorCode::ConversionLimit);
+    EXPECT_TRUE(out.nodes().empty());
+    EXPECT_TRUE(out.trusses().empty());
+}
+
+TEST(FeConversionEngine, reports_point_and_line_merge_progress)
+{
+    DxfData dxf;
+    dxf.addPoint(DxfPoint(2.0, 3.0, 0.0));
+    dxf.addLine(DxfLine(
+        DxfPoint(0.0, 0.0, 0.0), DxfPoint(1.0, 0.0, 0.0)));
+
+    std::vector<std::tuple<QString, int, int>> updates;
+    FeConversionEngine engine;
+    engine.setProgressCallback(
+        [&updates](const QString& stage, int current, int total) {
+            updates.emplace_back(stage, current, total);
+            return true;
+        });
+
+    FeData out;
+    ASSERT_TRUE(engine.convert(
+        dxf, 0.0, 0.0, 0.0, 0.01,
+        FeConversionEngine::defaultNodeMergeTolerance(), out));
+
+    ASSERT_EQ(updates.size(), 4u);
+    EXPECT_EQ(std::get<0>(updates[0]), QStringLiteral("Merging FE points"));
+    EXPECT_EQ(std::get<1>(updates[0]), 0);
+    EXPECT_EQ(std::get<2>(updates[0]), 1);
+    EXPECT_EQ(std::get<0>(updates[1]), QStringLiteral("Merging FE points"));
+    EXPECT_EQ(std::get<1>(updates[1]), 1);
+    EXPECT_EQ(std::get<0>(updates[2]), QStringLiteral("Merging FE lines"));
+    EXPECT_EQ(std::get<1>(updates[2]), 0);
+    EXPECT_EQ(std::get<2>(updates[2]), 1);
+    EXPECT_EQ(std::get<0>(updates[3]), QStringLiteral("Merging FE lines"));
+    EXPECT_EQ(std::get<1>(updates[3]), 1);
+}
+
+TEST(FeConversionEngine, cancellation_clears_partial_conversion)
+{
+    DxfData dxf;
+    dxf.addPoint(DxfPoint(2.0, 3.0, 0.0));
+    dxf.addLine(DxfLine(
+        DxfPoint(0.0, 0.0, 0.0), DxfPoint(1.0, 0.0, 0.0)));
+
+    FeConversionEngine engine;
+    engine.setProgressCallback(
+        [](const QString& stage, int, int) {
+            return stage != QStringLiteral("Merging FE lines");
+        });
+
+    FeData out;
+    EXPECT_FALSE(engine.convert(
+        dxf, 0.0, 0.0, 0.0, 0.01,
+        FeConversionEngine::defaultNodeMergeTolerance(), out));
+    EXPECT_EQ(out.errorCode(), DxfImportErrorCode::Canceled);
     EXPECT_TRUE(out.nodes().empty());
     EXPECT_TRUE(out.trusses().empty());
 }
