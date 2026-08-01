@@ -106,13 +106,17 @@ public:
 
 constexpr std::uint64_t kMaxArrayInstancesPerInsert = 100000;
 constexpr std::uint64_t kMaxExpandedBlockInstances = 100000;
-// Match the Web/server geometry ceiling so both import paths reject the same scale.
-constexpr std::size_t kMaxExpandedEntities = 100000;
+constexpr std::size_t kDefaultMaxOutputEntities = 100000;
 
 struct ExpansionBudget {
     std::uint64_t blockInstances = 0;
     std::size_t entities = 0;
+    std::size_t maxOutputEntities = kDefaultMaxOutputEntities;
     QString error;
+
+    explicit ExpansionBudget(std::size_t initialEntities = 0,
+                             std::size_t outputLimit = kDefaultMaxOutputEntities)
+        : entities(initialEntities), maxOutputEntities(outputLimit) {}
 
     bool consumeArray(int rows, int columns, const std::string& blockName)
     {
@@ -135,9 +139,9 @@ struct ExpansionBudget {
 
     bool consumeEntities(std::size_t count)
     {
-        if (count > kMaxExpandedEntities || entities > kMaxExpandedEntities - count) {
-            error = QStringLiteral("INSERT expansion limit exceeded: more than %1 generated entities")
-                .arg(kMaxExpandedEntities);
+        if (count > maxOutputEntities || entities > maxOutputEntities - count) {
+            error = QStringLiteral("INSERT expansion limit exceeded: more than %1 output entities")
+                .arg(static_cast<qulonglong>(maxOutputEntities));
             return false;
         }
         entities += count;
@@ -350,11 +354,6 @@ static bool expandSingleBlock(DxfData& output,
     const double bx = blk.baseX(), by = blk.baseY(), bz = blk.baseZ();
 
     // --- Points: direct transform ---
-    output.reservePoints(output.points().size() + blk.points().size());
-    output.reserveLines(output.lines().size() + blk.lines().size());
-    output.reserveLWPolylines(output.lwPolylines().size() + blk.lwPolylines().size());
-    output.reserveSplines(output.splines().size() + blk.splines().size());
-
     for (const DxfPoint& pt : blk.points()) {
         if (!pt.isValid()) continue;
         if (!budget.consumeEntities(1)) return false;
@@ -769,15 +768,22 @@ void DxfReader::addLayer(const DRW_Layer& data) {
 
 bool DxfParser::parseFile(const QString& filePath, DxfData& outData,
                           double curveTolerance,
-                          const std::set<std::string>& ignoredLayers) {
+                          const std::set<std::string>& ignoredLayers,
+                          std::size_t maxOutputEntities) {
     outData = DxfData();
     if (filePath.isEmpty()) {
-        outData.setErrorMessage(QStringLiteral("DXF file is empty"));
+        outData.setError(DxfImportErrorCode::InvalidArgument,
+                         QStringLiteral("DXF file is empty"));
         return false;
     }
     if (!std::isfinite(curveTolerance) || curveTolerance <= 0.0) {
-        outData.setErrorMessage(
+        outData.setError(DxfImportErrorCode::InvalidArgument,
             QStringLiteral("curveTolerance must be finite and greater than zero"));
+        return false;
+    }
+    if (maxOutputEntities == 0) {
+        outData.setError(DxfImportErrorCode::InvalidArgument,
+                         QStringLiteral("maxOutputEntities must be greater than zero"));
         return false;
     }
 
@@ -786,9 +792,20 @@ bool DxfParser::parseFile(const QString& filePath, DxfData& outData,
     DxfReader reader;
     reader.m_ignoredLayers = ignoredLayers;
     if (!dxf.read(&reader, true)) {
-        outData.setErrorMessage(
+        outData.setError(DxfImportErrorCode::ReadFailed,
             QStringLiteral("Failed to read DXF file. Error code: %1")
             .arg(static_cast<int>(dxf.getError())));
+        return false;
+    }
+
+    // Model-space entities are already in the output container. Seed the
+    // expansion budget with them so the limit applies to the final flattened
+    // output, rather than only to entities created inside INSERT blocks.
+    const std::size_t initialEntities = reader.m_data.entityCount();
+    if (initialEntities > maxOutputEntities) {
+        outData.setError(DxfImportErrorCode::ExpansionLimit,
+            QStringLiteral("DXF output limit exceeded: more than %1 entities")
+            .arg(static_cast<qulonglong>(maxOutputEntities)));
         return false;
     }
 
@@ -796,20 +813,28 @@ bool DxfParser::parseFile(const QString& filePath, DxfData& outData,
     outData = std::move(reader.m_data);
 
     // --- Expand blocks into flat DxfData ---
-    ExpansionBudget expansionBudget;
+    ExpansionBudget expansionBudget(initialEntities, maxOutputEntities);
     if (!expandBlocks(outData, reader.m_blocks, reader.m_modelSpaceInserts,
                       curveTolerance, expansionBudget)) {
         const QString error = expansionBudget.error.isEmpty()
             ? QStringLiteral("INSERT expansion failed") : expansionBudget.error;
         outData.clear();
-        outData.setErrorMessage(error);
+        outData.setError(DxfImportErrorCode::ExpansionLimit, error);
         return false;
     }
 
-    const int total = outData.entityCount();
+    if (outData.entityCount() > maxOutputEntities) {
+        outData.clear();
+        outData.setError(DxfImportErrorCode::ExpansionLimit,
+            QStringLiteral("DXF output limit exceeded: more than %1 entities")
+            .arg(static_cast<qulonglong>(maxOutputEntities)));
+        return false;
+    }
+
+    const std::size_t total = outData.entityCount();
     if (total == 0) {
         outData.setValid(false);
-        outData.setErrorMessage(
+        outData.setError(DxfImportErrorCode::NoSupportedEntities,
             QStringLiteral("DXF was read successfully, but no supported entities were found."));
         return false;
     }

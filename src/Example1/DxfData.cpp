@@ -226,6 +226,7 @@ void DxfData::clear()
     m_inserts.clear();
     m_entityStats = DxfEntityStats();
     m_errorMessage.clear();
+    m_errorCode = DxfImportErrorCode::None;
     m_isValid = false;
 }
 

@@ -4,6 +4,7 @@
 
 #include "DxfData.h"
 #include <QString>
+#include <cstddef>
 #include <set>
 #include <string>
 
@@ -23,7 +24,8 @@ public:
     /// @return true on success; on failure outData.errorMessage() is set
     bool parseFile(const QString& filePath, DxfData& outData,
                    double curveTolerance = 0.01,
-                   const std::set<std::string>& ignoredLayers = {});
+                   const std::set<std::string>& ignoredLayers = {},
+                   std::size_t maxOutputEntities = 100000);
 };
 
 #endif

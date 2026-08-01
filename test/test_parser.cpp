@@ -11,6 +11,9 @@
 
 #include <QFile>
 #include <QDebug>
+#include <QDir>
+#include <QTemporaryFile>
+#include <QTextStream>
 #include <cmath>
 #include <limits>
 #include "DxfParser.h"
@@ -235,6 +238,38 @@ TEST(Parser, oversized_insert_array_is_rejected_without_partial_output) {
     EXPECT_FALSE(data.isValid());
     EXPECT_EQ(data.entityCount(), 0);
     EXPECT_TRUE(data.errorMessage().contains("limit", Qt::CaseInsensitive))
+        << data.errorMessage().toStdString();
+}
+
+TEST(Parser, model_space_entities_count_toward_output_limit) {
+    QTemporaryFile file(QDir::tempPath() + "/dxf-budget-XXXXXX.dxf");
+    ASSERT_TRUE(file.open());
+
+    QTextStream stream(&file);
+    stream << "0\nSECTION\n2\nHEADER\n0\nENDSEC\n"
+              "0\nSECTION\n2\nBLOCKS\n"
+              "0\nBLOCK\n8\n0\n2\nBUDGET_CELL\n70\n0\n10\n0\n20\n0\n30\n0\n"
+              "0\nLINE\n8\n0\n10\n0\n20\n0\n30\n0\n11\n1\n21\n0\n31\n0\n"
+              "0\nLINE\n8\n0\n10\n0\n20\n1\n30\n0\n11\n1\n21\n1\n31\n0\n"
+              "0\nENDBLK\n8\n0\n0\nENDSEC\n"
+              "0\nSECTION\n2\nENTITIES\n";
+    for (int index = 0; index < 99999; ++index) {
+        stream << "0\nLINE\n8\n0\n10\n" << index << "\n20\n0\n30\n0\n"
+                   "11\n" << (index + 1) << "\n21\n0\n31\n0\n";
+    }
+    stream << "0\nINSERT\n8\n0\n2\nBUDGET_CELL\n10\n0\n20\n0\n30\n0\n"
+              "41\n1\n42\n1\n43\n1\n70\n1\n71\n1\n"
+              "0\nENDSEC\n0\nEOF\n";
+    stream.flush();
+    const QString path = file.fileName();
+    file.close();
+
+    DxfData data;
+    DxfParser parser;
+    EXPECT_FALSE(parser.parseFile(path, data));
+    EXPECT_FALSE(data.isValid());
+    EXPECT_EQ(data.entityCount(), 0u);
+    EXPECT_TRUE(data.errorMessage().contains("output", Qt::CaseInsensitive))
         << data.errorMessage().toStdString();
 }
 

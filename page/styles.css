@@ -49,6 +49,15 @@ button { color: inherit; }
 .btn.large { height:46px; padding:0 24px; font-size:14px; }
 .btn.full { width:100%; margin-top:12px; }
 .file-button input { position:absolute; opacity:0; width:1px; height:1px; pointer-events:none; }
+.profile-fieldset { margin:0 0 18px; padding:0; border:0; }
+.profile-fieldset .field-label { display:block; margin-bottom:8px; }
+.segmented-control { display:grid; grid-template-columns:1fr 1fr; gap:3px; padding:3px; background:#e9eae4; border:1px solid #dfe1d9; border-radius:8px; }
+.segmented-control label { position:relative; min-width:0; cursor:pointer; }
+.segmented-control input { position:absolute; opacity:0; pointer-events:none; }
+.segmented-control span { display:block; padding:8px 5px; border-radius:5px; color:#69736e; font-size:11px; font-weight:750; text-align:center; }
+.segmented-control input:checked + span { background:white; color:var(--ink); box-shadow:0 1px 4px rgba(23,32,29,.12); }
+.segmented-control input:focus-visible + span { outline:2px solid var(--green-dark); outline-offset:1px; }
+.profile-hint { margin:8px 0 0; }
 .workspace { height:calc(100% - 96px); display:grid; grid-template-columns:246px minmax(320px,1fr) 286px; }
 .sidebar { background:var(--panel); overflow:auto; scrollbar-width:thin; }
 .left-panel { border-right:1px solid var(--line); }

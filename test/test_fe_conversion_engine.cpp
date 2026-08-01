@@ -54,6 +54,21 @@ TEST(FeConversionEngine, invalid_tolerances_are_rejected)
         0.01, -1.0, out));
 }
 
+TEST(FeConversionEngine, final_nodes_and_trusses_share_budget)
+{
+    DxfData dxf;
+    dxf.addLine(DxfLine(
+        DxfPoint(0.0, 0.0, 0.0), DxfPoint(1.0, 0.0, 0.0)));
+
+    FeData out;
+    EXPECT_FALSE(FeConversionEngine().convert(
+        dxf, 0.0, 0.0, 0.0,
+        0.01, FeConversionEngine::defaultNodeMergeTolerance(), out, 2));
+    EXPECT_EQ(out.errorCode(), DxfImportErrorCode::ConversionLimit);
+    EXPECT_TRUE(out.nodes().empty());
+    EXPECT_TRUE(out.trusses().empty());
+}
+
 TEST(FeData, incrementally_merges_many_nearby_nodes)
 {
     FeData data;

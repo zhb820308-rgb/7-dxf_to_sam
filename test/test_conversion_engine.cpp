@@ -188,6 +188,19 @@ TEST(Translate, negative_offset) {
     EXPECT_DOUBLE_EQ(result.z(), 15.0);
 }
 
+TEST(ConversionBudget, tessellated_output_is_limited)
+{
+    DxfData data;
+    data.addCircle(DxfCircle(DxfPoint(0, 0, 0), 100.0));
+
+    SamData output;
+    EXPECT_FALSE(ConversionEngine().convert(
+        data, 0, 0, 0, 0.01, output, 10));
+    EXPECT_EQ(output.errorCode(), DxfImportErrorCode::ConversionLimit);
+    EXPECT_TRUE(output.lines().empty());
+    EXPECT_TRUE(output.circles().empty());
+}
+
 // ========================================================================
 //  boundary / edge cases
 // ========================================================================

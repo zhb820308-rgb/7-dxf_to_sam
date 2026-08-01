@@ -77,6 +77,24 @@ Example1DXFImportDialog::Example1DXFImportDialog(Example1Form* form)
 
 	paramLayout->addWidget(baseGroup);
 
+	// ======== Drawing Size / Output Budget ========
+	QGroupBox* drawingSizeGroup =
+		new QGroupBox(tr("Drawing Size"), this);
+	m_drawingSizeCombo = new QComboBox(drawingSizeGroup);
+	m_drawingSizeCombo->addItem(
+		tr("Small drawing (100,000 entities)"), 100000);
+	m_drawingSizeCombo->addItem(
+		tr("Large drawing (500,000 entities)"), 500000);
+	m_drawingSizeCombo->addItem(
+		tr("Unlimited drawing (large drawing tolerance)"), -1);
+	m_drawingSizeCombo->setToolTip(
+		tr("Unlimited mode uses the large drawing tolerance and removes the output entity limit."));
+	connect(m_drawingSizeCombo, SIGNAL(currentIndexChanged(int)),
+		this, SLOT(onDrawingSizeChanged(int)));
+	QFormLayout* drawingSizeLayout = new QFormLayout(drawingSizeGroup);
+	drawingSizeLayout->addRow(tr("Profile:"), m_drawingSizeCombo);
+	paramLayout->addWidget(drawingSizeGroup);
+
 	// ======== Curve Discretization ========
 	QGroupBox* discretizationGroup =
 		new QGroupBox(tr("Curve Discretization"), this);
@@ -152,6 +170,14 @@ void Example1DXFImportDialog::onImportModeChanged(int index)
 		QStringLiteral("FiniteElement");
 	m_modelNameEdit->setEnabled(isFeMode);
 	m_partNameEdit->setEnabled(isFeMode);
+}
+
+void Example1DXFImportDialog::onDrawingSizeChanged(int index)
+{
+	const int profileLimit = m_drawingSizeCombo->itemData(index).toInt();
+	const bool large = profileLimit > 100000 || profileLimit < 0;
+	m_toleranceEdit->setText(large ? QStringLiteral("0.05")
+	                               : QStringLiteral("0.01"));
 }
 
 
@@ -259,6 +285,8 @@ void Example1DXFImportDialog::onCmdOk(int id)
 		importMode.compare(QStringLiteral("FiniteElement"), Qt::CaseInsensitive) == 0;
 	const QString modelName = m_modelNameEdit->text().trimmed();
 	const QString partName = m_partNameEdit->text().trimmed();
+	const int maxOutputEntities =
+		m_drawingSizeCombo->currentData().toInt();
 	if (isFeMode && (modelName.isEmpty() || partName.isEmpty())) {
 		QMessageBox::warning(
 			this,
@@ -272,7 +300,7 @@ void Example1DXFImportDialog::onCmdOk(int id)
 	const QString ignoreLayers = m_ignoreLayersCombo->checkedItems().join(',');
 	const QString importPath = QDir::fromNativeSeparators(
 		QFileInfo(path).absoluteFilePath());
-	omuArguments args(9);
+	omuArguments args(10);
 	args.Put(importPath);
 	args.Put(baseX);
 	args.Put(baseY);
@@ -282,6 +310,7 @@ void Example1DXFImportDialog::onCmdOk(int id)
 	args.Put(importMode, "importMode");
 	args.Put(modelName, "modelName");
 	args.Put(partName, "partName");
+	args.Put(maxOutputEntities, "maxOutputEntities");
 	omuMethodCall mc("Example1", "importDxf", args);
 
 	QString cmd;

@@ -3,6 +3,7 @@
 
 #include "DxfData.h"
 #include "SamData.h"
+#include <cstddef>
 
 /// @brief Geometry conversion engine.
 ///
@@ -25,7 +26,8 @@ public:
     bool convert(const DxfData& dxfData,
                  double baseX, double baseY, double baseZ,
                  double tolerance,
-                 SamData& outData) const;
+                 SamData& outData,
+                 std::size_t maxOutputEntities = 100000) const;
 
     /// @brief Default bulge/chord-height tolerance for curve tessellation.
     static double defaultBulgeTolerance() { return 0.01; }

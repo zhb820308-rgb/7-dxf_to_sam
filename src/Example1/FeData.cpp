@@ -155,6 +155,8 @@ void FeData::clear()
     m_trusses.clear();
     m_trussIndex.clear();
     m_stats = FeConversionStats{};
+    m_errorCode = DxfImportErrorCode::None;
+    m_errorMessage.clear();
     m_index.clear();
     m_indexTolerance = -1.0;
 }

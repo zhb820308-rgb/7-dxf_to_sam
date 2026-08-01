@@ -52,4 +52,20 @@ assert.throws(
   (error) => error.code === "DXF_EXPANSION_LIMIT" && /output exceeds/i.test(error.message)
 );
 
+const largeResult = window.DXFStudio.discretize(outputHeavy, 0.05, "large");
+assert.equal(largeResult.lines.length, 100002);
+assert.equal(largeResult.maxOutputEntities, 500000);
+
+const largeOutputHeavy = parsedInsert(83334, 1);
+for (let index = 0; index < 6; index += 1) {
+  largeOutputHeavy.blocks.CELL.entities.push({
+    type: "LINE", layer: "0", visible: true,
+    start: { x: 0, y: index + 1 }, end: { x: 1, y: index + 1 }
+  });
+}
+assert.throws(
+  () => window.DXFStudio.discretize(largeOutputHeavy, 0.05, "large"),
+  (error) => error.code === "DXF_EXPANSION_LIMIT" && /output exceeds 500000/i.test(error.message)
+);
+
 console.log("dxf-expansion-limits.test.js: ok");

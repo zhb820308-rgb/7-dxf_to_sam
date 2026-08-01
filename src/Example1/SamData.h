@@ -42,12 +42,23 @@ public:
         m_lines.clear();
         m_circles.clear();
         m_curveSegments.clear();
+        m_errorCode = DxfImportErrorCode::None;
+        m_errorMessage.clear();
+    }
+
+    DxfImportErrorCode errorCode() const { return m_errorCode; }
+    QString errorMessage() const { return m_errorMessage; }
+    void setError(DxfImportErrorCode code, const QString& message) {
+        m_errorCode = code;
+        m_errorMessage = message;
     }
 
 private:
     std::vector<DxfLine>   m_lines;
     std::vector<DxfCircle> m_circles;
     std::vector<CurveSegmentSource> m_curveSegments;
+    DxfImportErrorCode m_errorCode = DxfImportErrorCode::None;
+    QString m_errorMessage;
 };
 
 #endif

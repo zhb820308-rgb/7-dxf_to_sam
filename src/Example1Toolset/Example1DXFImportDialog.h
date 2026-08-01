@@ -26,6 +26,7 @@ private slots:
     void onBrowse();
     void onDxfPathEditingFinished();
     void onImportModeChanged(int index);
+    void onDrawingSizeChanged(int index);
 
 private:
     QLineEdit* m_dxfPathEdit;
@@ -33,6 +34,7 @@ private:
     QLineEdit* m_baseYEdit;
     QLineEdit* m_baseZEdit;
     QLineEdit* m_toleranceEdit;
+    QComboBox* m_drawingSizeCombo;
     QLineEdit* m_modelNameEdit;
     QLineEdit* m_partNameEdit;
     MultiSelectComboBox* m_ignoreLayersCombo;
