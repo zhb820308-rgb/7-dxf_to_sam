@@ -1,4 +1,5 @@
 #include "ImportTransaction.h"
+#include "ImportBuildResult.h"
 
 #include <gtest/gtest.h>
 
@@ -97,4 +98,28 @@ TEST(ImportTransaction, RejectsInvalidTransitions)
     EXPECT_FALSE(transaction.startWriting());
     EXPECT_FALSE(transaction.startCommitting());
     EXPECT_FALSE(transaction.markCommitted());
+}
+
+TEST(ImportBuildResult, SuccessCarriesCreatedCount)
+{
+    const ImportBuildResult result = ImportBuildResult::success(42);
+    EXPECT_TRUE(result.succeeded());
+    EXPECT_EQ(result.status, ImportBuildStatus::Success);
+    EXPECT_EQ(result.createdCount, 42);
+    EXPECT_TRUE(result.message.isEmpty());
+}
+
+TEST(ImportBuildResult, StatusDoesNotDependOnMessageText)
+{
+    const ImportBuildResult canceled = ImportBuildResult::failure(
+        ImportBuildStatus::Canceled, QStringLiteral("localized cancellation"), 7);
+    const ImportBuildResult createFailed = ImportBuildResult::failure(
+        ImportBuildStatus::CreateFailed,
+        QStringLiteral("import canceled by user"), 3);
+
+    EXPECT_FALSE(canceled.succeeded());
+    EXPECT_EQ(canceled.status, ImportBuildStatus::Canceled);
+    EXPECT_EQ(canceled.createdCount, 7);
+    EXPECT_EQ(createFailed.status, ImportBuildStatus::CreateFailed);
+    EXPECT_EQ(createFailed.createdCount, 3);
 }

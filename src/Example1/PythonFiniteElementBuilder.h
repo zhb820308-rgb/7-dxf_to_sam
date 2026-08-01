@@ -2,6 +2,7 @@
 #define PythonFiniteElementBuilder_h
 
 #include "ImportTransaction.h"
+#include "ImportBuildResult.h"
 
 #include <QString>
 #include <functional>
@@ -20,11 +21,11 @@ public:
 
     ~PythonFiniteElementBuilder();
 
-    bool beginImport(const QString& modelName, const QString& partName);
-    int createNodes(const std::vector<FeNode>& nodes);
-    int createTrusses(const std::vector<FeTruss>& trusses);
-    bool commit();
-    bool rollback();
+    ImportBuildResult beginImport(const QString& modelName, const QString& partName);
+    ImportBuildResult createNodes(const std::vector<FeNode>& nodes);
+    ImportBuildResult createTrusses(const std::vector<FeTruss>& trusses);
+    ImportBuildResult commit();
+    ImportBuildResult rollback();
 
     void setProgressCallback(const ProgressCallback& callback)
     {

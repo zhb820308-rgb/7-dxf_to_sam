@@ -17,7 +17,7 @@
 
 | 编号 | 问题 | 当前证据 | 状态 |
 | --- | --- | --- | --- |
-| O-01 | 错误类型仍依赖字符串比较 | Sketch 和 FE 路径仍比较 `import canceled by user`、`already exists` 等文本 | 待处理 |
+| O-01 | 错误类型仍依赖字符串比较 | Sketch 和 FE 已统一返回 `ImportBuildResult`，调用层不再比较错误文案 | 代码完成，待审批 |
 | O-02 | 多个文件职责过大 | `page/app.js`、`server.js`、`DxfParser.cpp`、`Example1PytModule.cpp` 等仍为大型多职责文件 | 待处理 |
 | O-03 | CMake 使用目录级配置和 `GLOB` | Example1 与 Toolset 仍使用全局 include/link/definition 和 `file(GLOB)` | 待处理 |
 | O-04 | 测试重复编译生产源码 | 多个测试目标重复编译 `GeometryUtils.cpp`、`DxfData.cpp`、`ConversionEngine.cpp` | 待处理 |
@@ -158,6 +158,8 @@ perf(web): index layer counts in one pass
 
 ## 7. OG2：O-01 结构化构建状态
 
+**状态：代码完成，自动化验证通过，待审批提交。**
+
 ### 7.1 问题
 
 当前代码已有局部 `BuildStatus`，但 Builder 仍主要返回整数或布尔值，并由调用方
@@ -217,6 +219,15 @@ error.contains(QStringLiteral("already exists"))
 ```text
 refactor(import): return structured build status
 ```
+
+### 7.6 实施验证记录
+
+- 新增共享 `ImportBuildStatus` 与 `ImportBuildResult`。
+- Sketch 和 FE 的 begin、create、commit、rollback 均返回结构化结果。
+- 调用层不再比较 `import canceled by user`、`already exists` 等文本。
+- 回滚失败优先返回 `RollbackFailed`，并组合原始错误与清理错误。
+- Sketch 回滚失败保留已创建数量，只有清理成功后才归零。
+- 测试验证状态不受本地化或误导性错误文案影响。
 
 ## 8. OG3：O-04 测试公共核心库
 
@@ -456,7 +467,7 @@ cmake --build build --config Release --target Example1 Example1Toolset
 
 - [X] OG0：稳定基线已建立，无关工作区修改已隔离。
 - [X] OG1/O-06：图层统计改为一次遍历并保持 SAM 图层语义。
-- [ ] OG2/O-01：程序控制流不再依赖错误文案。
+- [X] OG2/O-01：程序控制流不再依赖错误文案。
 - [ ] OG3/O-04：测试与生产链接共享核心实现。
 - [ ] OG4/O-03：CMake 使用目标级配置和明确源文件列表。
 - [ ] OG5/O-05：Unicode 路径通过自动化和 SAM 人工验收。

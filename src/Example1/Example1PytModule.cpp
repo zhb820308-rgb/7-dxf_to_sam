@@ -134,6 +134,36 @@ static QString importErrorCodeText(DxfImportErrorCode code)
 	return QStringLiteral("NONE");
 }
 
+static const char* importBuildStage(ImportBuildStatus status)
+{
+	switch (status)
+	{
+	case ImportBuildStatus::Canceled: return "canceled";
+	case ImportBuildStatus::BeginFailed: return "begin_import";
+	case ImportBuildStatus::CreateFailed: return "create";
+	case ImportBuildStatus::CommitFailed: return "commit";
+	case ImportBuildStatus::RollbackFailed: return "rollback";
+	case ImportBuildStatus::Success: break;
+	}
+	return "build";
+}
+
+template <typename Builder>
+static ImportBuildResult rollbackAfterFailure(
+	Builder& builder, ImportBuildResult failure, int previouslyCreated = 0)
+{
+	failure.createdCount += previouslyCreated;
+	const ImportBuildResult cleanup = builder.rollback();
+	if (cleanup.succeeded())
+		return failure;
+
+	const QString combined = failure.message.isEmpty()
+		? cleanup.message
+		: failure.message + QStringLiteral("; ") + cleanup.message;
+	return ImportBuildResult::failure(
+		ImportBuildStatus::RollbackFailed, combined, failure.createdCount);
+}
+
 static QString splineKindText(const SplineKind& kind)
 {
 	const QString construction = kind.construction == SplineConstruction::ControlBased
@@ -178,86 +208,57 @@ static QString importSummaryText(int created, const DxfEntityStats& stats)
 		.arg(splineCategories.join(QStringLiteral(", ")));
 }
 
-Example1PytModule::BuildResult Example1PytModule::buildSamSketch(
+ImportBuildResult Example1PytModule::buildSamSketch(
 	const SamData& samData,
 	SamBuilder& builder)
 {
-	if (!builder.beginImport())
-	{
-		return {BuildStatus::Failed, 0, builder.lastError()};
-	}
+	ImportBuildResult result = builder.beginImport();
+	if (!result.succeeded())
+		return result;
 
 	int created = 0;
-	int result = builder.createLines(samData.lines());
-	if (result < 0)
-	{
-		const QString error = builder.lastError();
-		builder.rollback();
-		const BuildStatus status =
-			error == QStringLiteral("import canceled by user")
-				? BuildStatus::Canceled
-				: BuildStatus::Failed;
-		return {status, created, error};
-	}
-	created += result;
+	result = builder.createLines(samData.lines());
+	if (!result.succeeded())
+		return rollbackAfterFailure(builder, result);
+	created += result.createdCount;
 
 	result = builder.createCircles(samData.circles());
-	if (result < 0)
-	{
-		const QString error = builder.lastError();
-		builder.rollback();
-		const BuildStatus status =
-			error == QStringLiteral("import canceled by user")
-				? BuildStatus::Canceled
-				: BuildStatus::Failed;
-		return {status, created, error};
-	}
-	created += result;
+	if (!result.succeeded())
+		return rollbackAfterFailure(builder, result, created);
+	created += result.createdCount;
 
-	if (!builder.commit())
-	{
-		const QString error = builder.lastError();
-		builder.rollback();
-		const BuildStatus status =
-			error == QStringLiteral("import canceled by user")
-				? BuildStatus::Canceled
-				: BuildStatus::Failed;
-		return {status, created, error};
-	}
+	result = builder.commit();
+	if (!result.succeeded())
+		return rollbackAfterFailure(builder, result);
 
-	return {BuildStatus::Success, created, QString()};
+	return ImportBuildResult::success(created);
 }
 
-int Example1PytModule::buildFePart(
+ImportBuildResult Example1PytModule::buildFePart(
 	FeData& feData,
 	const QString& modelName,
 	const QString& partName,
 	PythonFiniteElementBuilder& builder)
 {
-	if (!builder.beginImport(modelName, partName))
-		return -1;
+	ImportBuildResult result = builder.beginImport(modelName, partName);
+	if (!result.succeeded())
+		return result;
 
-	const int nodeCount = builder.createNodes(feData.nodes());
-	if (nodeCount < 0)
-	{
-		builder.rollback();
-		return -1;
-	}
+	result = builder.createNodes(feData.nodes());
+	if (!result.succeeded())
+		return rollbackAfterFailure(builder, result);
+	const int nodeCount = result.createdCount;
 
-	const int trussCount = builder.createTrusses(feData.trusses());
-	if (trussCount < 0)
-	{
-		builder.rollback();
-		return -1;
-	}
+	result = builder.createTrusses(feData.trusses());
+	if (!result.succeeded())
+		return rollbackAfterFailure(builder, result, nodeCount);
+	const int trussCount = result.createdCount;
 
-	if (!builder.commit())
-	{
-		builder.rollback();
-		return -1;
-	}
+	result = builder.commit();
+	if (!result.succeeded())
+		return rollbackAfterFailure(builder, result);
 
-	return nodeCount + trussCount;
+	return ImportBuildResult::success(nodeCount + trussCount);
 }
 
 void Example1PytModule::DefineConstants()
@@ -523,22 +524,18 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 				return false;
 			});
 
-		const int created = buildFePart(
+		const ImportBuildResult buildResult = buildFePart(
 			feData, modelName, partName, builder);
-		if (created < 0)
+		if (!buildResult.succeeded())
 		{
 			progressDialog.close();
 			const bool canceled =
-				builder.lastError() == QStringLiteral("import canceled by user");
-			const bool beginFailed =
-				builder.lastError().contains(QStringLiteral("already exists")) ||
-				builder.lastError().startsWith(QStringLiteral("beginImport"));
-			const std::string stage = canceled
-				? "canceled"
-				: beginFailed ? "begin_import" : "commit";
+				buildResult.status == ImportBuildStatus::Canceled;
+			const std::string stage = importBuildStage(buildResult.status);
 			std::string detail =
-				" error=\"" + builder.lastError().toLocal8Bit().toStdString() + "\"";
-			if (!canceled && !beginFailed)
+				" error=\"" + buildResult.message.toLocal8Bit().toStdString() + "\"";
+			if (!canceled &&
+				buildResult.status != ImportBuildStatus::BeginFailed)
 			{
 				detail = " model=\"" + modelName.toLocal8Bit().toStdString() +
 					"\" part=\"" + partName.toLocal8Bit().toStdString() +
@@ -548,10 +545,11 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 				? QString("[importDxf] IMPORT CANCELED - %1 %2/%3")
 					.arg(canceledStage).arg(canceledCurrent).arg(canceledTotal)
 				: QString("[importDxf] ERROR: FE build failed, rolling back - %1")
-					.arg(builder.lastError());
+					.arg(buildResult.message);
 			return failImport(logger, errorLogger, importId, pathText,
 				stage, detail, totalTimer.elapsed(), warning);
 		}
+		const int created = buildResult.createdCount;
 
 		progressDialog.setValue(100);
 		if (logger)
@@ -663,8 +661,8 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 			return false;
 		});
 
-	const BuildResult buildResult = buildSamSketch(samData, builder);
-	if (buildResult.status == BuildStatus::Canceled)
+	const ImportBuildResult buildResult = buildSamSketch(samData, builder);
+	if (buildResult.status == ImportBuildStatus::Canceled)
 	{
 		progressDialog.close();
 		if (logger)
@@ -684,20 +682,18 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 		return nullptr;
 	}
 
-	if (buildResult.status == BuildStatus::Failed)
+	if (!buildResult.succeeded())
 	{
-		const bool beginFailed =
-			buildResult.error == QStringLiteral("failed to create sketch");
-		const std::string stage = beginFailed ? "begin_import" : "commit";
+		const std::string stage = importBuildStage(buildResult.status);
 		std::string detail =
-			" error=\"" + buildResult.error.toLocal8Bit().toStdString() + "\"";
-		if (!beginFailed)
+			" error=\"" + buildResult.message.toLocal8Bit().toStdString() + "\"";
+		if (buildResult.status != ImportBuildStatus::BeginFailed)
 			detail = " sketch=\"" +
 				builder.sketchName().toLocal8Bit().toStdString() + "\"" + detail;
 		return failImport(logger, errorLogger, importId, pathText,
 			stage, detail, totalTimer.elapsed(),
 			QString("[importDxf] ERROR: build failed, rolling back — %1")
-				.arg(buildResult.error));
+				.arg(buildResult.message));
 	}
 
 	const int created = buildResult.createdCount;

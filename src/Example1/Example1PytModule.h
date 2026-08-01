@@ -16,6 +16,7 @@ class SamBuilder;
 #include <ptsKPartFragment.h>
 #include <pyoModule.h>
 #include <QString>
+#include "ImportBuildResult.h"
 
 // Class definition
 
@@ -47,23 +48,11 @@ private:
 
 	// === DXF import helpers ===
 
-	enum class BuildStatus {
-		Success,
-		Canceled,
-		Failed
-	};
-
-	struct BuildResult {
-		BuildStatus status;
-		int createdCount;
-		QString error;
-	};
-
 	/// @brief Stage 3: build and commit, rolling back immediately on cancellation or failure.
-	BuildResult buildSamSketch(const SamData& samData, SamBuilder& builder);
+	ImportBuildResult buildSamSketch(const SamData& samData, SamBuilder& builder);
 
 	/// @brief Build FE nodes and trusses, rolling back on failure.
-	int buildFePart(FeData& feData, const QString& modelName,
+	ImportBuildResult buildFePart(FeData& feData, const QString& modelName,
 		const QString& partName, PythonFiniteElementBuilder& builder);
 };
 

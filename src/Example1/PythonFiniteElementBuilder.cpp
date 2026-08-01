@@ -117,7 +117,7 @@ bool PythonFiniteElementBuilder::isWriting() const
     return m_transaction.state() == ImportTransactionState::Writing;
 }
 
-bool PythonFiniteElementBuilder::beginImport(
+ImportBuildResult PythonFiniteElementBuilder::beginImport(
     const QString& modelName, const QString& partName)
 {
     const auto startedAt = std::chrono::steady_clock::now();
@@ -129,13 +129,15 @@ bool PythonFiniteElementBuilder::beginImport(
 
     if (!m_transaction.begin()) {
         m_lastError = QStringLiteral("beginImport: transaction is already active or committed");
-        return false;
+        return ImportBuildResult::failure(
+            ImportBuildStatus::BeginFailed, m_lastError);
     }
 
     if (modelName.isEmpty() || partName.isEmpty()) {
         m_lastError = QStringLiteral("modelName and partName must not be empty");
         m_transaction.rollback([]() { return true; });
-        return false;
+        return ImportBuildResult::failure(
+            ImportBuildStatus::BeginFailed, m_lastError);
     }
 
     try {
@@ -145,12 +147,14 @@ bool PythonFiniteElementBuilder::beginImport(
             m_lastError = QString("Part '%1' already exists in model '%2'")
                 .arg(partName, modelName);
             m_transaction.rollback([]() { return true; });
-            return false;
+            return ImportBuildResult::failure(
+                ImportBuildStatus::BeginFailed, m_lastError);
         }
     } catch (...) {
         m_lastError = QString("model '%1' was not found").arg(modelName);
         m_transaction.rollback([]() { return true; });
-        return false;
+        return ImportBuildResult::failure(
+            ImportBuildStatus::BeginFailed, m_lastError);
     }
 
     m_partExpression = QString("mdb.models[%1].parts[%2]")
@@ -162,38 +166,51 @@ bool PythonFiniteElementBuilder::beginImport(
     m_transaction.markResourceOwned();
     if (!runCommand(command, QStringLiteral("create Part"))) {
         const QString createError = m_lastError;
-        if (!rollback())
-            m_lastError = createError + QStringLiteral("; ") + m_lastError;
-        else
-            m_lastError = createError;
-        return false;
+        const ImportBuildResult cleanup = rollback();
+        if (!cleanup.succeeded()) {
+            m_lastError = createError + QStringLiteral("; ") + cleanup.message;
+            return ImportBuildResult::failure(
+                ImportBuildStatus::RollbackFailed, m_lastError);
+        }
+        m_lastError = createError;
+        return ImportBuildResult::failure(
+            ImportBuildStatus::BeginFailed, m_lastError);
     }
 
     if (!m_transaction.startWriting()) {
         m_lastError = QStringLiteral("create Part succeeded but transaction transition failed");
-        rollback();
-        return false;
+        const QString transitionError = m_lastError;
+        const ImportBuildResult cleanup = rollback();
+        if (!cleanup.succeeded())
+            return cleanup;
+        m_lastError = transitionError;
+        return ImportBuildResult::failure(
+            ImportBuildStatus::BeginFailed, m_lastError);
     }
     qInfo().noquote() << "[PythonFiniteElementBuilder] beginImport completed in"
                       << std::chrono::duration_cast<std::chrono::milliseconds>(
                              std::chrono::steady_clock::now() - startedAt).count()
                       << "ms";
-    return true;
+    return ImportBuildResult::success();
 }
 
-int PythonFiniteElementBuilder::createNodes(const std::vector<FeNode>& nodes)
+ImportBuildResult PythonFiniteElementBuilder::createNodes(
+    const std::vector<FeNode>& nodes)
 {
     const auto startedAt = std::chrono::steady_clock::now();
     if (!isWriting()) {
         m_lastError = QStringLiteral("createNodes: no active import context");
-        return -1;
+        return ImportBuildResult::failure(
+            ImportBuildStatus::CreateFailed, m_lastError);
     }
 
     const int total = static_cast<int>(nodes.size());
     for (const FeNode& node : nodes) {
         if (!std::isfinite(node.x) || !std::isfinite(node.y) || !std::isfinite(node.z)) {
             m_lastError = QString("createNodes: invalid coordinate for node %1").arg(node.id);
-            return -1;
+            return ImportBuildResult::failure(
+                ImportBuildStatus::CreateFailed, m_lastError,
+                m_createdNodeCount);
         }
     }
 
@@ -217,26 +234,32 @@ int PythonFiniteElementBuilder::createNodes(const std::vector<FeNode>& nodes)
             .append("    _example1_fe_part.createNode(x=_example1_fe_x, y=_example1_fe_y, z=_example1_fe_z)\n");
         if (!runCommand(command,
                         QString("create nodes %1-%2").arg(first).arg(last - 1)))
-            return -1;
+            return ImportBuildResult::failure(
+                ImportBuildStatus::CreateFailed, m_lastError,
+                m_createdNodeCount);
 
         m_createdNodeCount += last - first;
         if (!reportProgress(QStringLiteral("Creating FE nodes"), m_createdNodeCount, total))
-            return -1;
+            return ImportBuildResult::failure(
+                ImportBuildStatus::Canceled, m_lastError,
+                m_createdNodeCount);
     }
     qInfo().noquote() << "[PythonFiniteElementBuilder] createNodes:"
                       << m_createdNodeCount << "nodes in"
                       << std::chrono::duration_cast<std::chrono::milliseconds>(
                              std::chrono::steady_clock::now() - startedAt).count()
                       << "ms; batch size:" << batchSize;
-    return m_createdNodeCount;
+    return ImportBuildResult::success(m_createdNodeCount);
 }
 
-int PythonFiniteElementBuilder::createTrusses(const std::vector<FeTruss>& trusses)
+ImportBuildResult PythonFiniteElementBuilder::createTrusses(
+    const std::vector<FeTruss>& trusses)
 {
     const auto startedAt = std::chrono::steady_clock::now();
     if (!isWriting()) {
         m_lastError = QStringLiteral("createTrusses: no active import context");
-        return -1;
+        return ImportBuildResult::failure(
+            ImportBuildStatus::CreateFailed, m_lastError);
     }
 
     const int total = static_cast<int>(trusses.size());
@@ -247,7 +270,9 @@ int PythonFiniteElementBuilder::createTrusses(const std::vector<FeTruss>& trusse
         {
             m_lastError = QString("createTrusses: invalid node ID in truss %1")
                 .arg(truss.id);
-            return -1;
+            return ImportBuildResult::failure(
+                ImportBuildStatus::CreateFailed, m_lastError,
+                m_createdTrussCount);
         }
     }
 
@@ -272,25 +297,31 @@ int PythonFiniteElementBuilder::createTrusses(const std::vector<FeTruss>& trusse
             .append("        elemShape=samConstants.TRUSS, intersectNodes=False)\n");
         if (!runCommand(command,
                         QString("create trusses %1-%2").arg(first).arg(last - 1)))
-            return -1;
+            return ImportBuildResult::failure(
+                ImportBuildStatus::CreateFailed, m_lastError,
+                m_createdTrussCount);
 
         m_createdTrussCount += last - first;
         if (!reportProgress(QStringLiteral("Creating FE trusses"), m_createdTrussCount, total))
-            return -1;
+            return ImportBuildResult::failure(
+                ImportBuildStatus::Canceled, m_lastError,
+                m_createdTrussCount);
     }
     qInfo().noquote() << "[PythonFiniteElementBuilder] createTrusses:"
                       << m_createdTrussCount << "trusses in"
                       << std::chrono::duration_cast<std::chrono::milliseconds>(
                              std::chrono::steady_clock::now() - startedAt).count()
                       << "ms; batch size:" << batchSize;
-    return m_createdTrussCount;
+    return ImportBuildResult::success(m_createdTrussCount);
 }
 
-bool PythonFiniteElementBuilder::commit()
+ImportBuildResult PythonFiniteElementBuilder::commit()
 {
     if (!m_transaction.startCommitting()) {
         m_lastError = QStringLiteral("commit: no active import context");
-        return false;
+        return ImportBuildResult::failure(
+            ImportBuildStatus::CommitFailed, m_lastError,
+            m_createdNodeCount + m_createdTrussCount);
     }
 
     const QString command = QString(
@@ -299,12 +330,21 @@ bool PythonFiniteElementBuilder::commit()
         "_example1_fe_vp.view.fitView()")
         .arg(pythonStringLiteral(QStringLiteral("Viewport: 1")));
     if (!runCommand(command, QStringLiteral("display FE Part")))
-        return false;
+        return ImportBuildResult::failure(
+            ImportBuildStatus::CommitFailed, m_lastError,
+            m_createdNodeCount + m_createdTrussCount);
 
-    return m_transaction.markCommitted();
+    if (!m_transaction.markCommitted()) {
+        m_lastError = QStringLiteral("commit: transaction finalization failed");
+        return ImportBuildResult::failure(
+            ImportBuildStatus::CommitFailed, m_lastError,
+            m_createdNodeCount + m_createdTrussCount);
+    }
+    return ImportBuildResult::success(
+        m_createdNodeCount + m_createdTrussCount);
 }
 
-bool PythonFiniteElementBuilder::rollback()
+ImportBuildResult PythonFiniteElementBuilder::rollback()
 {
     bool cleaned = false;
     try {
@@ -316,5 +356,12 @@ bool PythonFiniteElementBuilder::rollback()
     }
     if (!cleaned)
         qWarning().noquote() << "[PythonFiniteElementBuilder]" << m_lastError;
-    return cleaned;
+    if (cleaned)
+        return ImportBuildResult::success();
+    if (m_lastError.isEmpty())
+        m_lastError = QStringLiteral(
+            "rollback failed: transaction cannot be rolled back");
+    return ImportBuildResult::failure(
+        ImportBuildStatus::RollbackFailed, m_lastError,
+        m_createdNodeCount + m_createdTrussCount);
 }

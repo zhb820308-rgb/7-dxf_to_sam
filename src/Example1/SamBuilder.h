@@ -2,6 +2,7 @@
 #define SamBuilder_h
 
 #include "ImportTransaction.h"
+#include "ImportBuildResult.h"
 #include "SamData.h"
 #include <QString>
 #include <functional>
@@ -23,27 +24,28 @@ public:
 
     /// @brief Begin an import session. Creates sketch and geometry factory.
     /// @param modelName SAM model name (default "Model-1").
-    /// @return true on success; call lastError() on failure.
-    bool beginImport(const QString& modelName = "Model-1");
+    /// @return Structured begin status and diagnostic message.
+    ImportBuildResult beginImport(const QString& modelName = "Model-1");
 
     /// @brief Insert the sketch into the repository and set up scene display.
-    /// @return true on success; call lastError() on failure.
-    bool commit();
+    /// @return Structured commit status and created entity count.
+    ImportBuildResult commit();
 
     /// @brief Discard the current import without committing.
-    bool rollback();
+    /// @return Success or RollbackFailed with a diagnostic message.
+    ImportBuildResult rollback();
 
     /// @brief Set a progress callback invoked during geometry creation.
     /// Return false from the callback to cancel the import.
     void setProgressCallback(const ProgressCallback& callback);
 
     /// @brief Create line entities from DXF line data.
-    /// @return Number of lines created, or -1 if canceled.
-    int createLines(const std::vector<DxfLine>& lines);
+    /// @return Structured create/cancel status and number created.
+    ImportBuildResult createLines(const std::vector<DxfLine>& lines);
 
     /// @brief Create circle entities from DXF circle data.
-    /// @return Number of circles created, or -1 if canceled.
-    int createCircles(const std::vector<DxfCircle>& circles);
+    /// @return Structured create/cancel status and number created.
+    ImportBuildResult createCircles(const std::vector<DxfCircle>& circles);
 
     /// @brief Total number of entities created in the current session.
     int   createdCount() const { return m_createdCount; }

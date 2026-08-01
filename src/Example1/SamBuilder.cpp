@@ -95,7 +95,7 @@ bool SamBuilder::isWriting() const {
 //  beginImport
 // ========================================================================
 
-bool SamBuilder::beginImport(const QString& modelName) {
+ImportBuildResult SamBuilder::beginImport(const QString& modelName) {
     m_modelName = modelName;
     m_sketchName = QString("DxfImport_%1")
                        .arg(QDateTime::currentMSecsSinceEpoch());
@@ -106,12 +106,14 @@ bool SamBuilder::beginImport(const QString& modelName) {
 
     if (!m_transaction.begin()) {
         m_lastError = "beginImport: transaction is already active or committed";
-        return false;
+        return ImportBuildResult::failure(
+            ImportBuildStatus::BeginFailed, m_lastError);
     }
     if (modelName.isEmpty()) {
         m_lastError = "modelName must not be empty";
         m_transaction.rollback([]() { return true; });
-        return false;
+        return ImportBuildResult::failure(
+            ImportBuildStatus::BeginFailed, m_lastError);
     }
 
     try {
@@ -123,7 +125,8 @@ bool SamBuilder::beginImport(const QString& modelName) {
         if (!sketch) {
             m_lastError = "failed to create sketch";
             m_transaction.rollback([]() { return true; });
-            return false;
+            return ImportBuildResult::failure(
+                ImportBuildStatus::BeginFailed, m_lastError);
         }
 
         const uint sketchId = sketches.NextID();
@@ -133,11 +136,26 @@ bool SamBuilder::beginImport(const QString& modelName) {
         m_sketch = sketch;
         m_transaction.markResourceOwned();
         m_factory = new skcGeomFactory(sketch);
-        return m_transaction.startWriting();
+        if (!m_transaction.startWriting()) {
+            m_lastError = "failed to enter writing state";
+            const QString beginError = m_lastError;
+            const ImportBuildResult cleanup = rollback();
+            if (!cleanup.succeeded())
+                return cleanup;
+            m_lastError = beginError;
+            return ImportBuildResult::failure(
+                ImportBuildStatus::BeginFailed, m_lastError);
+        }
+        return ImportBuildResult::success();
     } catch (...) {
         m_lastError = "failed to prepare sketch import";
-        rollback();
-        return false;
+        const QString beginError = m_lastError;
+        const ImportBuildResult cleanup = rollback();
+        if (!cleanup.succeeded())
+            return cleanup;
+        m_lastError = beginError;
+        return ImportBuildResult::failure(
+            ImportBuildStatus::BeginFailed, m_lastError);
     }
 }
 
@@ -145,11 +163,16 @@ bool SamBuilder::beginImport(const QString& modelName) {
 //  createLines
 // ========================================================================
 
-int SamBuilder::createLines(const std::vector<DxfLine>& lines) {
-    if (!isWriting() || !m_factory) return 0;
+ImportBuildResult SamBuilder::createLines(const std::vector<DxfLine>& lines) {
+    if (!isWriting() || !m_factory) {
+        m_lastError = "createLines: no active import context";
+        return ImportBuildResult::failure(
+            ImportBuildStatus::CreateFailed, m_lastError);
+    }
     const int total = static_cast<int>(lines.size());
     if (!reportProgress(QStringLiteral("Creating lines"), 0, total))
-        return -1;
+        return ImportBuildResult::failure(
+            ImportBuildStatus::Canceled, m_lastError);
 
     int count = 0;
     for (const DxfLine& line : lines) {
@@ -162,23 +185,29 @@ int SamBuilder::createLines(const std::vector<DxfLine>& lines) {
 
         if (count % kProgressUpdateInterval == 0 || count == total) {
             if (!reportProgress(QStringLiteral("Creating lines"), count, total))
-                return -1;
+                return ImportBuildResult::failure(
+                    ImportBuildStatus::Canceled, m_lastError, count);
             QCoreApplication::processEvents();
         }
     }
     m_createdCount += count;
-    return count;
+    return ImportBuildResult::success(count);
 }
 
 // ========================================================================
 //  createCircles
 // ========================================================================
 
-int SamBuilder::createCircles(const std::vector<DxfCircle>& circles) {
-    if (!isWriting() || !m_factory) return 0;
+ImportBuildResult SamBuilder::createCircles(const std::vector<DxfCircle>& circles) {
+    if (!isWriting() || !m_factory) {
+        m_lastError = "createCircles: no active import context";
+        return ImportBuildResult::failure(
+            ImportBuildStatus::CreateFailed, m_lastError);
+    }
     const int total = static_cast<int>(circles.size());
     if (!reportProgress(QStringLiteral("Creating circles"), 0, total))
-        return -1;
+        return ImportBuildResult::failure(
+            ImportBuildStatus::Canceled, m_lastError);
 
     int count = 0;
     for (const DxfCircle& circle : circles) {
@@ -193,22 +222,24 @@ int SamBuilder::createCircles(const std::vector<DxfCircle>& circles) {
 
         if (count % kProgressUpdateInterval == 0 || count == total) {
             if (!reportProgress(QStringLiteral("Creating circles"), count, total))
-                return -1;
+                return ImportBuildResult::failure(
+                    ImportBuildStatus::Canceled, m_lastError, count);
             QCoreApplication::processEvents();
         }
     }
     m_createdCount += count;
-    return count;
+    return ImportBuildResult::success(count);
 }
 
 // ========================================================================
 //  commit
 // ========================================================================
 
-bool SamBuilder::commit() {
+ImportBuildResult SamBuilder::commit() {
     if (!isWriting() || !m_sketch) {
         m_lastError = "no active import context";
-        return false;
+        return ImportBuildResult::failure(
+            ImportBuildStatus::CommitFailed, m_lastError);
     }
 
     // Give the UI one final cancellation point before mutating the repository.
@@ -216,12 +247,14 @@ bool SamBuilder::commit() {
             QStringLiteral("Finalizing import"),
             m_createdCount,
             m_createdCount)) {
-        return false;
+        return ImportBuildResult::failure(
+            ImportBuildStatus::Canceled, m_lastError, m_createdCount);
     }
 
     if (!m_transaction.startCommitting()) {
         m_lastError = "failed to enter committing state";
-        return false;
+        return ImportBuildResult::failure(
+            ImportBuildStatus::CommitFailed, m_lastError, m_createdCount);
     }
 
     // Repository replacement is the transaction boundary. Scene refresh is
@@ -247,19 +280,22 @@ bool SamBuilder::commit() {
         m_sketchWrapped = true;
         if (!sketches.Insert(m_sketchName, wrapper)) {
             m_lastError = "failed to insert sketch into repository";
-            return false;
+            return ImportBuildResult::failure(
+                ImportBuildStatus::CommitFailed, m_lastError, m_createdCount);
         }
         basBasis::Instance()->Replace(mdb);
     } catch (...) {
         m_lastError = "failed to replace model database with imported sketch";
-        return false;
+        return ImportBuildResult::failure(
+            ImportBuildStatus::CommitFailed, m_lastError, m_createdCount);
     }
 
     delete m_factory;
     m_factory = nullptr;
     if (!m_transaction.markCommitted()) {
         m_lastError = "repository replaced but transaction finalization failed";
-        return false;
+        return ImportBuildResult::failure(
+            ImportBuildStatus::CommitFailed, m_lastError, m_createdCount);
     }
 
     try {
@@ -267,7 +303,7 @@ bool SamBuilder::commit() {
     } catch (...) {
         qWarning() << "[SamBuilder] sketch committed, but scene refresh failed";
     }
-    return true;
+    return ImportBuildResult::success(m_createdCount);
 }
 
 void SamBuilder::refreshSceneAfterCommit() {
@@ -336,16 +372,23 @@ bool SamBuilder::removePublishedSketch() {
     }
 }
 
-bool SamBuilder::rollback() {
+ImportBuildResult SamBuilder::rollback() {
+    const int createdBeforeRollback = m_createdCount;
     const bool cleaned = m_transaction.rollback([this]() {
         return removePublishedSketch();
     });
     if (!cleaned)
         qWarning().noquote() << "[SamBuilder]" << m_lastError;
-    if (cleaned)
+    if (cleaned) {
         m_sketch = nullptr;
-    m_createdCount = 0;
-    return cleaned;
+        m_createdCount = 0;
+        return ImportBuildResult::success();
+    }
+    if (m_lastError.isEmpty())
+        m_lastError = "rollback failed: transaction cannot be rolled back";
+    return ImportBuildResult::failure(
+        ImportBuildStatus::RollbackFailed, m_lastError,
+        createdBeforeRollback);
 }
 
 // ========================================================================
