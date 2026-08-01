@@ -142,3 +142,11 @@ add_test(NAME DxfImportLogger COMMAND test_dxf_import_logger)
 set_tests_properties(DxfImportLogger PROPERTIES
     ENVIRONMENT "PATH=$<TARGET_FILE_DIR:Qt5::Core>\\;${SPDLOG_ROOT}/bin\\;${SAM_OCCT_BIN_DIR}\\;$ENV{PATH}"
 )
+
+# Test 8: shared builder transaction state machine (pure C++)
+add_executable(test_import_transaction test_import_transaction.cpp)
+target_include_directories(test_import_transaction PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Example1
+)
+target_link_libraries(test_import_transaction PRIVATE GTest::gtest_main)
+add_test(NAME ImportTransaction COMMAND test_import_transaction)

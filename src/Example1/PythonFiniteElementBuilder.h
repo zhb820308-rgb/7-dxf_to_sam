@@ -1,6 +1,8 @@
 #ifndef PythonFiniteElementBuilder_h
 #define PythonFiniteElementBuilder_h
 
+#include "ImportTransaction.h"
+
 #include <QString>
 #include <functional>
 #include <vector>
@@ -16,11 +18,13 @@ public:
     using ProgressCallback =
         std::function<bool(const QString& stage, int current, int total)>;
 
+    ~PythonFiniteElementBuilder();
+
     bool beginImport(const QString& modelName, const QString& partName);
     int createNodes(const std::vector<FeNode>& nodes);
     int createTrusses(const std::vector<FeTruss>& trusses);
     bool commit();
-    void rollback();
+    bool rollback();
 
     void setProgressCallback(const ProgressCallback& callback)
     {
@@ -37,10 +41,14 @@ public:
     const QString& lastError() const { return m_lastError; }
     int createdNodeCount() const { return m_createdNodeCount; }
     int createdTrussCount() const { return m_createdTrussCount; }
+    ImportTransactionState transactionState() const { return m_transaction.state(); }
 
 private:
     bool runCommand(const QString& command, const QString& stage);
     bool reportProgress(const QString& stage, int current, int total);
+    bool partExists(bool* querySucceeded = nullptr) const;
+    bool removeOwnedPart();
+    bool isWriting() const;
     static QString pythonStringLiteral(const QString& value);
 
     QString m_modelName;
@@ -49,9 +57,9 @@ private:
     QString m_partExpression;
     int m_createdNodeCount = 0;
     int m_createdTrussCount = 0;
-    bool m_active = false;
     int m_batchSize = 5000;
     ProgressCallback m_progressCallback;
+    ImportTransaction m_transaction;
 };
 
 #endif // PythonFiniteElementBuilder_h

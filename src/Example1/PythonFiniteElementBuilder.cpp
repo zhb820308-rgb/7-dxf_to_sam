@@ -14,6 +14,12 @@
 #include <chrono>
 #include <cmath>
 
+PythonFiniteElementBuilder::~PythonFiniteElementBuilder()
+{
+    if (m_transaction.ownsResource())
+        rollback();
+}
+
 QString PythonFiniteElementBuilder::pythonStringLiteral(const QString& value)
 {
     QString escaped = value;
@@ -28,7 +34,14 @@ bool PythonFiniteElementBuilder::runCommand(
     const QString& command, const QString& stage)
 {
     pytInterpreterRole& interpreter = pytInterpreterRole::Instance();
-    interpreter.RunCommand(command, false);
+    try {
+        interpreter.RunCommand(command, false);
+    } catch (...) {
+        m_lastError = QString("%1 failed: Python interpreter raised an exception")
+            .arg(stage);
+        qWarning().noquote() << "[PythonFiniteElementBuilder]" << m_lastError;
+        return false;
+    }
 
     const QString traceback = interpreter.GetLastTraceback();
     if (!traceback.isEmpty()) {
@@ -55,6 +68,55 @@ bool PythonFiniteElementBuilder::reportProgress(
     return false;
 }
 
+bool PythonFiniteElementBuilder::partExists(bool* querySucceeded) const
+{
+    try {
+        basMdb mdb = basBasis::Instance()->Fetch();
+        ptoKPartRepository& parts = ptoKGetPartRepos(mdb, m_modelName);
+        if (querySucceeded)
+            *querySucceeded = true;
+        return parts.IsMember(m_partName);
+    } catch (...) {
+        if (querySucceeded)
+            *querySucceeded = false;
+        return false;
+    }
+}
+
+bool PythonFiniteElementBuilder::removeOwnedPart()
+{
+    bool querySucceeded = false;
+    if (!partExists(&querySucceeded)) {
+        if (querySucceeded)
+            return true;
+        m_lastError = QString("rollback failed: cannot inspect model '%1'")
+            .arg(m_modelName);
+        return false;
+    }
+
+    const QString command = QString("del mdb.models[%1].parts[%2]")
+        .arg(pythonStringLiteral(m_modelName), pythonStringLiteral(m_partName));
+    if (!runCommand(command, QStringLiteral("remove partial Part")))
+        return false;
+
+    if (partExists(&querySucceeded)) {
+        m_lastError = QString("rollback failed: Part '%1' still exists in model '%2'")
+            .arg(m_partName, m_modelName);
+        return false;
+    }
+    if (!querySucceeded) {
+        m_lastError = QString("rollback failed: cannot verify removal of Part '%1'")
+            .arg(m_partName);
+        return false;
+    }
+    return true;
+}
+
+bool PythonFiniteElementBuilder::isWriting() const
+{
+    return m_transaction.state() == ImportTransactionState::Writing;
+}
+
 bool PythonFiniteElementBuilder::beginImport(
     const QString& modelName, const QString& partName)
 {
@@ -64,10 +126,15 @@ bool PythonFiniteElementBuilder::beginImport(
     m_partName = partName;
     m_createdNodeCount = 0;
     m_createdTrussCount = 0;
-    m_active = false;
+
+    if (!m_transaction.begin()) {
+        m_lastError = QStringLiteral("beginImport: transaction is already active or committed");
+        return false;
+    }
 
     if (modelName.isEmpty() || partName.isEmpty()) {
         m_lastError = QStringLiteral("modelName and partName must not be empty");
+        m_transaction.rollback([]() { return true; });
         return false;
     }
 
@@ -77,10 +144,12 @@ bool PythonFiniteElementBuilder::beginImport(
         if (parts.IsMember(partName)) {
             m_lastError = QString("Part '%1' already exists in model '%2'")
                 .arg(partName, modelName);
+            m_transaction.rollback([]() { return true; });
             return false;
         }
     } catch (...) {
         m_lastError = QString("model '%1' was not found").arg(modelName);
+        m_transaction.rollback([]() { return true; });
         return false;
     }
 
@@ -90,10 +159,21 @@ bool PythonFiniteElementBuilder::beginImport(
         "_example1_fe_model = mdb.models[%1]\n"
         "_example1_fe_part = _example1_fe_model.Part(name=%2)")
         .arg(pythonStringLiteral(modelName), pythonStringLiteral(partName));
-    if (!runCommand(command, QStringLiteral("create Part")))
+    m_transaction.markResourceOwned();
+    if (!runCommand(command, QStringLiteral("create Part"))) {
+        const QString createError = m_lastError;
+        if (!rollback())
+            m_lastError = createError + QStringLiteral("; ") + m_lastError;
+        else
+            m_lastError = createError;
         return false;
+    }
 
-    m_active = true;
+    if (!m_transaction.startWriting()) {
+        m_lastError = QStringLiteral("create Part succeeded but transaction transition failed");
+        rollback();
+        return false;
+    }
     qInfo().noquote() << "[PythonFiniteElementBuilder] beginImport completed in"
                       << std::chrono::duration_cast<std::chrono::milliseconds>(
                              std::chrono::steady_clock::now() - startedAt).count()
@@ -104,7 +184,7 @@ bool PythonFiniteElementBuilder::beginImport(
 int PythonFiniteElementBuilder::createNodes(const std::vector<FeNode>& nodes)
 {
     const auto startedAt = std::chrono::steady_clock::now();
-    if (!m_active) {
+    if (!isWriting()) {
         m_lastError = QStringLiteral("createNodes: no active import context");
         return -1;
     }
@@ -154,7 +234,7 @@ int PythonFiniteElementBuilder::createNodes(const std::vector<FeNode>& nodes)
 int PythonFiniteElementBuilder::createTrusses(const std::vector<FeTruss>& trusses)
 {
     const auto startedAt = std::chrono::steady_clock::now();
-    if (!m_active) {
+    if (!isWriting()) {
         m_lastError = QStringLiteral("createTrusses: no active import context");
         return -1;
     }
@@ -208,7 +288,7 @@ int PythonFiniteElementBuilder::createTrusses(const std::vector<FeTruss>& trusse
 
 bool PythonFiniteElementBuilder::commit()
 {
-    if (!m_active) {
+    if (!m_transaction.startCommitting()) {
         m_lastError = QStringLiteral("commit: no active import context");
         return false;
     }
@@ -221,15 +301,20 @@ bool PythonFiniteElementBuilder::commit()
     if (!runCommand(command, QStringLiteral("display FE Part")))
         return false;
 
-    m_active = false;
-    return true;
+    return m_transaction.markCommitted();
 }
 
-void PythonFiniteElementBuilder::rollback()
+bool PythonFiniteElementBuilder::rollback()
 {
-    // SAM's documented stable delete-Part Python API has not been verified.
-    // Leave any partially created Part intact and report the original error.
-    m_active = false;
-    qWarning() << "[PythonFiniteElementBuilder] rollback:"
-               << "part may remain in the model after a Python API failure";
+    bool cleaned = false;
+    try {
+        cleaned = m_transaction.rollback([this]() {
+            return removeOwnedPart();
+        });
+    } catch (...) {
+        m_lastError = QStringLiteral("rollback failed with an unexpected exception");
+    }
+    if (!cleaned)
+        qWarning().noquote() << "[PythonFiniteElementBuilder]" << m_lastError;
+    return cleaned;
 }

@@ -62,8 +62,12 @@ void SamBuilder::extendBounds(double x, double y) {
 SamBuilder::SamBuilder() {}
 
 SamBuilder::~SamBuilder() {
-    delete m_factory;
-    m_factory = nullptr;
+    if (m_transaction.ownsResource())
+        rollback();
+    else {
+        delete m_factory;
+        m_factory = nullptr;
+    }
 }
 
 void SamBuilder::setProgressCallback(const ProgressCallback& callback) {
@@ -83,6 +87,10 @@ bool SamBuilder::reportProgress(const QString& stage, int current, int total) {
     return false;
 }
 
+bool SamBuilder::isWriting() const {
+    return m_transaction.state() == ImportTransactionState::Writing;
+}
+
 // ========================================================================
 //  beginImport
 // ========================================================================
@@ -93,28 +101,44 @@ bool SamBuilder::beginImport(const QString& modelName) {
                        .arg(QDateTime::currentMSecsSinceEpoch());
     m_createdCount = 0;
     m_lastError.clear();
-
     m_hasBounds = false;
+    m_sketchWrapped = false;
 
-    basMdb mdb = basBasis::Instance()->Fetch();
-    m_mdb = mdb;  // Save snapshot for reuse in commit()
-    gmlSketchRepository& sketches = skcKGetSketchRepos(mdb, m_modelName);
-
-    gslMatrix transform;
-    skcSketch* sketch = skcCreateSketchWithXYAxis(&transform);
-    if (!sketch) {
-        m_lastError = "failed to create sketch";
+    if (!m_transaction.begin()) {
+        m_lastError = "beginImport: transaction is already active or committed";
+        return false;
+    }
+    if (modelName.isEmpty()) {
+        m_lastError = "modelName must not be empty";
+        m_transaction.rollback([]() { return true; });
         return false;
     }
 
-    const uint sketchId = sketches.Size() + 1;
-    sketch->SetID(sketchId);
-    sketch->DisplayOptions().SetSheetSize(200.0);
+    try {
+        basMdb mdb = basBasis::Instance()->Fetch();
+        gmlSketchRepository& sketches = skcKGetSketchRepos(mdb, m_modelName);
 
-    m_sketch = sketch;
-    m_factory = new skcGeomFactory(sketch);
-    m_active = true;
-    return true;
+        gslMatrix transform;
+        skcSketch* sketch = skcCreateSketchWithXYAxis(&transform);
+        if (!sketch) {
+            m_lastError = "failed to create sketch";
+            m_transaction.rollback([]() { return true; });
+            return false;
+        }
+
+        const uint sketchId = sketches.NextID();
+        sketch->SetID(sketchId);
+        sketch->DisplayOptions().SetSheetSize(200.0);
+
+        m_sketch = sketch;
+        m_transaction.markResourceOwned();
+        m_factory = new skcGeomFactory(sketch);
+        return m_transaction.startWriting();
+    } catch (...) {
+        m_lastError = "failed to prepare sketch import";
+        rollback();
+        return false;
+    }
 }
 
 // ========================================================================
@@ -122,7 +146,7 @@ bool SamBuilder::beginImport(const QString& modelName) {
 // ========================================================================
 
 int SamBuilder::createLines(const std::vector<DxfLine>& lines) {
-    if (!m_active || !m_factory) return 0;
+    if (!isWriting() || !m_factory) return 0;
     const int total = static_cast<int>(lines.size());
     if (!reportProgress(QStringLiteral("Creating lines"), 0, total))
         return -1;
@@ -151,7 +175,7 @@ int SamBuilder::createLines(const std::vector<DxfLine>& lines) {
 // ========================================================================
 
 int SamBuilder::createCircles(const std::vector<DxfCircle>& circles) {
-    if (!m_active || !m_factory) return 0;
+    if (!isWriting() || !m_factory) return 0;
     const int total = static_cast<int>(circles.size());
     if (!reportProgress(QStringLiteral("Creating circles"), 0, total))
         return -1;
@@ -182,7 +206,7 @@ int SamBuilder::createCircles(const std::vector<DxfCircle>& circles) {
 // ========================================================================
 
 bool SamBuilder::commit() {
-    if (!m_active || !m_sketch) {
+    if (!isWriting() || !m_sketch) {
         m_lastError = "no active import context";
         return false;
     }
@@ -195,8 +219,14 @@ bool SamBuilder::commit() {
         return false;
     }
 
-    // 1. Insert sketch into repository
-    {
+    if (!m_transaction.startCommitting()) {
+        m_lastError = "failed to enter committing state";
+        return false;
+    }
+
+    // Repository replacement is the transaction boundary. Scene refresh is
+    // deliberately performed after the durable commit and cannot roll it back.
+    try {
         // Fit sheet size to the imported geometry so it is not outside
         // the (origin-centered) sheet. Sheet must cover the farthest point.
         if (m_hasBounds) {
@@ -207,16 +237,42 @@ bool SamBuilder::commit() {
             m_sketch->DisplayOptions().SetSheetSize(extent);
         }
 
-        basMdb mdb = m_mdb;  // Reuse snapshot acquired in beginImport()
+        // Fetch again so a long geometry build cannot replace unrelated model
+        // changes with the snapshot taken at beginImport().
+        basMdb mdb = basBasis::Instance()->Fetch();
         gmlSketchRepository& sketches = skcKGetSketchRepos(mdb, m_modelName);
+        m_sketch->SetID(sketches.NextID());
 
         gmlSketchWrapper wrapper(m_sketch);
-        sketches.Insert(m_sketchName, wrapper);
+        m_sketchWrapped = true;
+        if (!sketches.Insert(m_sketchName, wrapper)) {
+            m_lastError = "failed to insert sketch into repository";
+            return false;
+        }
         basBasis::Instance()->Replace(mdb);
+    } catch (...) {
+        m_lastError = "failed to replace model database with imported sketch";
+        return false;
     }
+
+    delete m_factory;
+    m_factory = nullptr;
+    if (!m_transaction.markCommitted()) {
+        m_lastError = "repository replaced but transaction finalization failed";
+        return false;
+    }
+
+    try {
+        refreshSceneAfterCommit();
+    } catch (...) {
+        qWarning() << "[SamBuilder] sketch committed, but scene refresh failed";
+    }
+    return true;
+}
+
+void SamBuilder::refreshSceneAfterCommit() {
     skcUndoRedoStack::Instance().ClearUndoStates();
 
-    // 2. Scene display
     smgSceneManagerRole& role = smgSceneManagerRole::TheSceneManagerRole();
     const int viewport = role.GetCurrentViewport();
     const omuPrimType sceneType = role.GetSceneManagerName(viewport);
@@ -238,22 +294,58 @@ bool SamBuilder::commit() {
             sesKSessionState::Instance()->SetPrimaryObjectPath(m_sketchPath);
         }
     }
-
-    m_active = false;
-    delete m_factory;
-    m_factory = nullptr;
-    return true;
 }
 
 // ========================================================================
 //  rollback
 // ========================================================================
 
-void SamBuilder::rollback() {
+bool SamBuilder::removePublishedSketch() {
     delete m_factory;
     m_factory = nullptr;
-    m_active = false;
+
+    if (!m_sketchWrapped) {
+        delete m_sketch;
+        m_sketch = nullptr;
+        return true;
+    }
+
+    try {
+        basMdb mdb = basBasis::Instance()->Fetch();
+        gmlSketchRepository& sketches = skcKGetSketchRepos(mdb, m_modelName);
+        if (sketches.IsMember(m_sketchName)) {
+            if (!sketches.Remove(m_sketchName)) {
+                m_lastError = "rollback failed: cannot remove sketch from repository";
+                return false;
+            }
+            basBasis::Instance()->Replace(mdb);
+        }
+
+        basMdb verifiedMdb = basBasis::Instance()->Fetch();
+        gmlSketchRepository& verifiedSketches =
+            skcKGetSketchRepos(verifiedMdb, m_modelName);
+        if (verifiedSketches.IsMember(m_sketchName)) {
+            m_lastError = "rollback failed: sketch still exists in repository";
+            return false;
+        }
+        m_sketch = nullptr;
+        return true;
+    } catch (...) {
+        m_lastError = "rollback failed while restoring sketch repository";
+        return false;
+    }
+}
+
+bool SamBuilder::rollback() {
+    const bool cleaned = m_transaction.rollback([this]() {
+        return removePublishedSketch();
+    });
+    if (!cleaned)
+        qWarning().noquote() << "[SamBuilder]" << m_lastError;
+    if (cleaned)
+        m_sketch = nullptr;
     m_createdCount = 0;
+    return cleaned;
 }
 
 // ========================================================================

@@ -1,8 +1,8 @@
 #ifndef SamBuilder_h
 #define SamBuilder_h
 
+#include "ImportTransaction.h"
 #include "SamData.h"
-#include <basBasis.h>
 #include <QString>
 #include <functional>
 #include <vector>
@@ -31,7 +31,7 @@ public:
     bool commit();
 
     /// @brief Discard the current import without committing.
-    void rollback();
+    bool rollback();
 
     /// @brief Set a progress callback invoked during geometry creation.
     /// Return false from the callback to cancel the import.
@@ -51,11 +51,15 @@ public:
     const QString& sketchName() const { return m_sketchName; }
     /// @brief Last error message (empty if no error).
     const QString& lastError() const { return m_lastError; }
+    ImportTransactionState transactionState() const { return m_transaction.state(); }
 
 private:
     void buildSketchPath();
     void extendBounds(double x, double y);
     bool reportProgress(const QString& stage, int current, int total);
+    bool removePublishedSketch();
+    bool isWriting() const;
+    void refreshSceneAfterCommit();
 
     QString m_modelName;
     QString m_sketchName;
@@ -64,10 +68,10 @@ private:
 
     skcSketch*      m_sketch  = nullptr;
     skcGeomFactory* m_factory = nullptr;
-    basMdb          m_mdb;
     int m_createdCount = 0;
-    bool m_active = false;
+    bool m_sketchWrapped = false;
     ProgressCallback m_progressCallback;
+    ImportTransaction m_transaction;
 
     // bounding box of imported geometry (for sheet size)
     bool   m_hasBounds = false;
