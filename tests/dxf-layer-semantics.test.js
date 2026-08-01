@@ -33,6 +33,21 @@ assert.equal(affectedCount("IGNORE"), 3);
 assert.equal(affectedCount("PARENT"), 5);
 assert.equal(affectedCount("FIXED"), 3);
 
+const layerCounts = window.DXFStudio.buildLayerCounts(
+  geometry.points, geometry.lines
+);
+assert.equal(layerCounts["0"], 0);
+assert.equal(layerCounts.KEEP, 1);
+assert.equal(layerCounts.IGNORE, 3);
+assert.equal(layerCounts.PARENT, 5);
+assert.equal(layerCounts.FIXED, 3);
+
+const duplicateControl = window.DXFStudio.buildLayerCounts([], [{
+  layer: "SAME", insertLayers: ["SAME", "PARENT", "PARENT"]
+}]);
+assert.equal(duplicateControl.SAME, 1);
+assert.equal(duplicateControl.PARENT, 1);
+
 assert.equal(visibleCount("KEEP"), 8);
 assert.equal(visibleCount("IGNORE"), 6);
 assert.equal(visibleCount("PARENT"), 4);

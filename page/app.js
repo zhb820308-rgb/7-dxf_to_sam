@@ -353,13 +353,12 @@
     render();
   }
 
+  function sortedLayers(layerCounts) {
+    return Object.keys(layerCounts).sort((a, b) => a.localeCompare(b, "zh-CN"));
+  }
+
   function currentLayers() {
-    const layers = new Set(["0"]);
-    state.points.concat(state.lines).forEach((item) => {
-      layers.add(item.layer || "0");
-      (item.insertLayers || []).forEach((layer) => layers.add(layer));
-    });
-    return Array.from(layers).sort((a, b) => a.localeCompare(b, "zh-CN"));
+    return sortedLayers(DXFStudio.buildLayerCounts(state.points, state.lines));
   }
 
   function updateLists() {
@@ -385,15 +384,15 @@
     });
     if (!Object.keys(counts).length) entityList.innerHTML = '<div class="list-empty">暂无图元</div>';
 
-    const layers = currentLayers();
+    const layerCounts = DXFStudio.buildLayerCounts(state.points, state.lines);
+    const layers = sortedLayers(layerCounts);
     $("#layerCount").textContent = String(layers.length);
     const layerList = $("#layerList");
     layerList.innerHTML = "";
     layers.forEach((layer) => {
-      // Match SAM ignore semantics: count every entity that this layer controls,
-      // including entities on explicit child layers inside an INSERT.
-      const count = state.points.filter((item) => affectedByLayer(item, layer)).length +
-        state.lines.filter((item) => affectedByLayer(item, layer)).length;
+      // SAM counts every entity controlled by this layer, including explicit
+      // child-layer entities inside an INSERT. The index is built in one pass.
+      const count = layerCounts[layer] || 0;
       const off = state.layerVisibility[layer] === false;
       const row = document.createElement("div");
       row.className = `layer-row${state.selectedLayer === layer ? " selected" : ""}`;

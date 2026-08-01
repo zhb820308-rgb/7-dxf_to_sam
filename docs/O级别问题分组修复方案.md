@@ -22,7 +22,7 @@
 | O-03 | CMake 使用目录级配置和 `GLOB` | Example1 与 Toolset 仍使用全局 include/link/definition 和 `file(GLOB)` | 待处理 |
 | O-04 | 测试重复编译生产源码 | 多个测试目标重复编译 `GeometryUtils.cpp`、`DxfData.cpp`、`ConversionEngine.cpp` | 待处理 |
 | O-05 | DXF 路径使用本地 8 位编码 | `DxfParser::parseFile()` 仍通过 `toLocal8Bit()` 传递路径 | 待处理 |
-| O-06 | 前端图层统计重复扫描实体 | 每个图层分别过滤全部点和线，复杂度约为 `O(L × N)` | 待处理 |
+| O-06 | 前端图层统计重复扫描实体 | 已改为一次遍历建立 SAM 控制层计数索引 | 代码完成，待审批 |
 
 其中：
 
@@ -107,6 +107,8 @@ cmake --build build --config Release
 
 ## 6. OG1：O-06 前端图层统计优化
 
+**状态：代码完成，自动化验证通过，待审批提交。**
+
 ### 6.1 问题
 
 `page/app.js` 当前对每个图层分别扫描全部点和线。实体数量和图层数量同时增长时，
@@ -144,6 +146,15 @@ Unlimited 档位允许更大的最终输出，因此该问题的实际影响会�
 ```text
 perf(web): index layer counts in one pass
 ```
+
+### 6.5 实施验证记录
+
+- KEEP、IGNORE、PARENT、Fixed 的 SAM 控制计数保持为 1、3、5、3。
+- 同一实体的有效图层和祖先控制层同名时只计数一次。
+- `dxf-layer-semantics.test.js` 已加入常规 `npm test` 门禁。
+- 本机 Node.js 单次合成基准（100,000 个实体、111 个图层）中，旧逐层扫描约
+  190.91 ms，新单次索引约 36.20 ms，约为 5.3 倍加速。该结果用于方向验证，
+  不作为跨机器性能承诺。
 
 ## 7. OG2：O-01 结构化构建状态
 
@@ -443,8 +454,8 @@ cmake --build build --config Release --target Example1 Example1Toolset
 
 ## 13. 完成检查表
 
-- [ ] OG0：稳定基线已建立，无关工作区修改已隔离。
-- [ ] OG1/O-06：图层统计改为一次遍历并保持 SAM 图层语义。
+- [X] OG0：稳定基线已建立，无关工作区修改已隔离。
+- [X] OG1/O-06：图层统计改为一次遍历并保持 SAM 图层语义。
 - [ ] OG2/O-01：程序控制流不再依赖错误文案。
 - [ ] OG3/O-04：测试与生产链接共享核心实现。
 - [ ] OG4/O-03：CMake 使用目标级配置和明确源文件列表。

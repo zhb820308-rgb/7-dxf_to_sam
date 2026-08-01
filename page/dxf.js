@@ -596,6 +596,23 @@
     return (item.layer || "0") === layer || (item.insertLayers || []).includes(layer);
   }
 
+  function buildLayerCounts(points = [], lines = []) {
+    const counts = Object.create(null);
+    counts["0"] = 0;
+
+    function countItem(item) {
+      const controlledLayers = new Set([item.layer || "0"]);
+      (item.insertLayers || []).forEach((layer) => controlledLayers.add(layer));
+      controlledLayers.forEach((layer) => {
+        counts[layer] = (counts[layer] || 0) + 1;
+      });
+    }
+
+    points.forEach(countItem);
+    lines.forEach(countItem);
+    return counts;
+  }
+
   function isLayerVisible(item, layerVisibility) {
     if (layerVisibility[item.layer || "0"] === false) return false;
     return !(item.insertLayers || []).some((layer) => layerVisibility[layer] === false);
@@ -634,7 +651,7 @@
 
   global.DXFStudio = {
     parseDxf, discretize, exportDxf, colorForLayer,
-    affectsLayer, isLayerVisible, EXPANSION_LIMITS,
+    affectsLayer, buildLayerCounts, isLayerVisible, EXPANSION_LIMITS,
     EXPANSION_PROFILES
   };
 })(window);
