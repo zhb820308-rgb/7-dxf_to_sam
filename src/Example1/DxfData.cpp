@@ -294,6 +294,12 @@ void DxfData::addSpline(const DxfSpline& spline)
     ++m_entityStats.splineKinds[spline.kind()];
 }
 
+void DxfData::addSpline(DxfSpline&& spline)
+{
+    m_splines.push_back(std::move(spline));
+    ++m_entityStats.splineKinds[spline.kind()];
+}
+
 void DxfData::addGeneratedLine(const DxfLine& line)
 {
     m_lines.push_back(line);
@@ -352,21 +358,43 @@ DxfSpline::DxfSpline(const std::vector<DxfPoint>& ctrlPts,
 {
 }
 
+DxfSpline::DxfSpline(std::vector<DxfPoint>&& ctrlPts,
+                     std::vector<double>&& knots,
+                     std::vector<double>&& weights,
+                     std::vector<DxfPoint>&& fitPts,
+                     int degree, int flags,
+                     double tgStartX, double tgStartY, double tgStartZ,
+                     double tgEndX, double tgEndY, double tgEndZ)
+    : DxfEntity(EntityType::Spline)
+    , m_ctrlPts(std::move(ctrlPts))
+    , m_knots(std::move(knots))
+    , m_weights(std::move(weights))
+    , m_fitPts(std::move(fitPts))
+    , m_degree(degree)
+    , m_flags(flags)
+    , m_tgStartX(tgStartX), m_tgStartY(tgStartY), m_tgStartZ(tgStartZ)
+    , m_tgEndX(tgEndX), m_tgEndY(tgEndY), m_tgEndZ(tgEndZ)
+{
+}
+
 SplineKind DxfSpline::kind() const
 {
+    if (m_kindValid)
+        return m_kind;
+
     const bool hasControlData =
         static_cast<int>(m_ctrlPts.size()) > m_degree
         && static_cast<int>(m_knots.size()) >=
            static_cast<int>(m_ctrlPts.size()) + m_degree + 1;
 
-    SplineKind result;
-    result.construction = hasControlData
+    m_kind.construction = hasControlData
         ? SplineConstruction::ControlBased
         : SplineConstruction::FitBased;
-    result.rational = isRational();
-    result.periodic = isPeriodic();
-    result.closed = isClosed();
-    return result;
+    m_kind.rational = isRational();
+    m_kind.periodic = isPeriodic();
+    m_kind.closed = isClosed();
+    m_kindValid = true;
+    return m_kind;
 }
 
 bool DxfSpline::isValid() const

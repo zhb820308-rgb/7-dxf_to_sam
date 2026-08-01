@@ -336,12 +336,19 @@ static bool expandInsertArray(DxfData& output,
     const double rowDy =  cosA * ins.rowSpace;
 
     // Reserve the full array output in one go, avoiding repeated realloc.
+    // Clamp the estimate to the expansion entity budget so a malicious INSERT
+    // (e.g. 100000 instances of a block with many entities) cannot force an
+    // out-of-budget multi-GB allocation before per-entity accounting kicks in.
     const std::size_t instances = static_cast<std::size_t>(nCols) * nRows;
-    output.reserveLines (output.lines().size()       + blk.lines().size()       * instances);
-    output.reservePoints(output.points().size()      + blk.points().size()      * instances);
-    output.reserveLWPolylines(output.lwPolylines().size()
-                              + blk.lwPolylines().size() * instances);
-    output.reserveSplines(output.splines().size()    + blk.splines().size()     * instances);
+    const auto clampReserve = [instances](std::size_t current, std::size_t perInstance) {
+        const std::size_t estimate = current
+            + perInstance * std::min<std::size_t>(instances, kMaxExpandedEntities);
+        return std::min(estimate, kMaxExpandedEntities);
+    };
+    output.reserveLines(clampReserve(output.lines().size(), blk.lines().size()));
+    output.reservePoints(clampReserve(output.points().size(), blk.points().size()));
+    output.reserveLWPolylines(clampReserve(output.lwPolylines().size(), blk.lwPolylines().size()));
+    output.reserveSplines(clampReserve(output.splines().size(), blk.splines().size()));
 
     // Copy the INSERT once; inner loops only touch the two doubles.
     InsertInfo insCopy = ins;
@@ -676,8 +683,6 @@ void DxfReader::addSpline(const DRW_Spline* data)
     if (isLayerIgnored(*data)) return;
 
     const bool isRational = (data->flags & 4) != 0;
-    const bool isPeriodic = (data->flags & 2) != 0;
-    const bool isClosed   = (data->flags & 1) != 0;
 
     const bool hasControlData =
         data->ncontrol > 0
@@ -692,50 +697,50 @@ void DxfReader::addSpline(const DRW_Spline* data)
     if (!hasControlData && !hasFitData)
         return;
 
+    // --- Control data: validation + assembly in a single pass ---
+    std::vector<DxfPoint> ctrlPts;
+    std::vector<double>   knots;
+    std::vector<double>   weights;
     if (hasControlData) {
         const int numCtrl = data->ncontrol;
         const int degree  = data->degree;
-        const std::vector<double>& knots = data->knotslist;
+        const std::vector<double>& srcKnots = data->knotslist;
         const int expectedKnotCount = numCtrl + degree + 1;
 
-        if (static_cast<int>(knots.size()) != expectedKnotCount)
+        if (static_cast<int>(srcKnots.size()) != expectedKnotCount)
             return;
+
+        knots.reserve(expectedKnotCount);
         for (int i = 0; i < expectedKnotCount; ++i) {
-            if (!std::isfinite(knots[i]) || (i > 0 && knots[i] < knots[i - 1]))
+            const double k = srcKnots[i];
+            if (!std::isfinite(k) || (i > 0 && k < knots.back()))
                 return;
+            knots.push_back(k);
         }
+
+        ctrlPts.reserve(numCtrl);
         for (int i = 0; i < numCtrl; ++i) {
             const auto& point = data->controllist[i];
-            if (!point || !std::isfinite(point->x) || !std::isfinite(point->y) || !std::isfinite(point->z))
+            if (!point || !std::isfinite(point->x)
+                || !std::isfinite(point->y) || !std::isfinite(point->z))
                 return;
+            ctrlPts.push_back(DxfPoint(point->x, point->y, point->z));
         }
+
         if (isRational) {
             if (static_cast<int>(data->weightlist.size()) < numCtrl)
                 return;
+            weights.reserve(numCtrl);
             for (int i = 0; i < numCtrl; ++i) {
                 const double w = data->weightlist[i];
                 if (!std::isfinite(w) || w <= 0.0)
                     return;
+                weights.push_back(w);
             }
         }
     }
 
-    std::vector<DxfPoint> ctrlPts;
-    ctrlPts.reserve(data->ncontrol);
-    for (int i = 0; i < data->ncontrol; ++i) {
-        const DRW_Coord& pt = *(data->controllist[i]);
-        ctrlPts.push_back(DxfPoint(pt.x, pt.y, pt.z));
-    }
-
-    std::vector<double> knots = data->knotslist;
-
-    std::vector<double> weights;
-    if (isRational) {
-        weights.reserve(data->ncontrol);
-        for (int i = 0; i < data->ncontrol; ++i)
-            weights.push_back(data->weightlist[i]);
-    }
-
+    // --- Fit data: validation + assembly in a single pass ---
     std::vector<DxfPoint> fitPts;
     fitPts.reserve(data->nfit);
     for (int i = 0; i < data->nfit; ++i) {
@@ -747,15 +752,18 @@ void DxfReader::addSpline(const DRW_Spline* data)
     double tgStartX = data->tgStart.x, tgStartY = data->tgStart.y, tgStartZ = data->tgStart.z;
     double tgEndX   = data->tgEnd.x,   tgEndY   = data->tgEnd.y,   tgEndZ   = data->tgEnd.z;
 
-    DxfSpline spline(ctrlPts, knots, weights, fitPts,
-                      data->degree, data->flags,
-                      tgStartX, tgStartY, tgStartZ,
-                      tgEndX, tgEndY, tgEndZ);
+    // Move-assemble: transfers ownership of the local containers, and the
+    // rvalue addSpline moves the spline into the output — no deep copies here.
+    DxfSpline spline(std::move(ctrlPts), std::move(knots),
+                     std::move(weights), std::move(fitPts),
+                     data->degree, data->flags,
+                     tgStartX, tgStartY, tgStartZ,
+                     tgEndX, tgEndY, tgEndZ);
 
     if (m_currentBlock) {
-        m_currentBlock->addSpline(spline);
+        m_currentBlock->addSpline(std::move(spline));
     } else {
-        m_data.addSpline(spline);
+        m_data.addSpline(std::move(spline));
     }
 }
 

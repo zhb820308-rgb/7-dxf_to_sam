@@ -3,6 +3,7 @@
 
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 #include <QString>
 
@@ -222,6 +223,15 @@ public:
               int degree, int flags,
               double tgStartX, double tgStartY, double tgStartZ,
               double tgEndX, double tgEndY, double tgEndZ);
+    /// Move-assemble constructor: transfers ownership of the input containers,
+    /// avoiding one layer of deep copy in the hot SPLINE parse path.
+    DxfSpline(std::vector<DxfPoint>&& ctrlPts,
+              std::vector<double>&& knots,
+              std::vector<double>&& weights,
+              std::vector<DxfPoint>&& fitPts,
+              int degree, int flags,
+              double tgStartX, double tgStartY, double tgStartZ,
+              double tgEndX, double tgEndY, double tgEndZ);
 
     const std::vector<DxfPoint>& controlPoints() const { return m_ctrlPts; }
     const std::vector<double>&   knots()          const { return m_knots; }
@@ -238,6 +248,8 @@ public:
     double tgEndX()   const { return m_tgEndX; }
     double tgEndY()   const { return m_tgEndY; }
     double tgEndZ()   const { return m_tgEndZ; }
+    /// Cached kind: computed once lazily, so DxfData entity-stat accounting
+    /// does not re-scan ctrlPts/knots for every pushed/expanded spline.
     SplineKind kind() const;
 
     bool isValid() const override;
@@ -251,6 +263,8 @@ private:
     int    m_flags     = 0;
     double m_tgStartX  = 0.0, m_tgStartY  = 0.0, m_tgStartZ  = 0.0;
     double m_tgEndX    = 0.0, m_tgEndY    = 0.0, m_tgEndZ    = 0.0;
+    mutable SplineKind m_kind{};
+    mutable bool       m_kindValid = false;
 };
 
 // ======== DxfData (container) ========
@@ -267,6 +281,7 @@ public:
     void addLWPolyline(const DxfLWPolyline& poly);
     void addEllipse(const DxfEllipse& ellipse);
     void addSpline(const DxfSpline& spline);
+    void addSpline(DxfSpline&& spline);
     void addGeneratedLine(const DxfLine& line);
     void recordGeneratedEntity(EntityType sourceType);
     void recordGeneratedSpline(const SplineKind& kind);
@@ -357,6 +372,7 @@ public:
     void addLWPolyline(const DxfLWPolyline& p)  { m_lwPolylines.push_back(p); }
     void addEllipse(const DxfEllipse& e)        { m_ellipses.push_back(e); }
     void addSpline(const DxfSpline& s)          { m_splines.push_back(s); }
+    void addSpline(DxfSpline&& s)               { m_splines.push_back(std::move(s)); }
 
     // --- Nested INSERTs ---
     void addInsert(const InsertInfo& ins) { m_inserts.push_back(ins); }
