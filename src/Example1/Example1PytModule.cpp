@@ -11,6 +11,7 @@
 #include <string>
 
 #include "DxfImportLogger.h"
+#include "DxfImportMode.h"
 #include "DxfImportSession.h"
 #include "DxfImportBuildService.h"
 #include "DxfImportFeedback.h"
@@ -157,33 +158,17 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 
 	// [5/8] Select the import mode. Empty mode remains backward-compatible
 	// with the original Sketch behavior.
-	const bool isFeMode = importModeStr.compare(
-		QStringLiteral("FiniteElement"), Qt::CaseInsensitive) == 0;
-	if (!importModeStr.isEmpty() && !isFeMode &&
-		importModeStr.compare(QStringLiteral("Sketch"), Qt::CaseInsensitive) != 0)
+	const DxfImportModeResult modeSelection = selectDxfImportMode(
+		importModeStr, modelName, partName);
+	if (!modeSelection.valid)
 	{
 		return failImport(logger, errorLogger, importId, pathText,
-			"validate_mode",
-			" mode=\"" + importModeStr.toLocal8Bit().toStdString() + "\"",
-			importSession.elapsed(),
-			QString("[importDxf] ERROR: unsupported importMode '%1'")
-				.arg(importModeStr));
+			modeSelection.stage, modeSelection.detail,
+			importSession.elapsed(), modeSelection.message);
 	}
 
-	if (isFeMode)
+	if (modeSelection.mode == DxfImportMode::FiniteElement)
 	{
-		if (modelName.isEmpty() || partName.isEmpty())
-		{
-			const QString missingName = modelName.isEmpty()
-				? QStringLiteral("modelName")
-				: QStringLiteral("partName");
-			return failImport(logger, errorLogger, importId, pathText,
-				"validate_params",
-				" missing=\"" + missingName.toLocal8Bit().toStdString() + "\"",
-				importSession.elapsed(),
-				QString("[importDxf] ERROR: FE mode requires '%1'")
-					.arg(missingName));
-		}
 		stageTimer.restart();
 		FeData feData;
 		FeConversionEngine feConverter;

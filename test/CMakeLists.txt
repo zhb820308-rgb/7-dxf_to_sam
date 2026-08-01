@@ -117,3 +117,13 @@ add_test(NAME DxfImportValidation COMMAND test_dxf_import_validation)
 set_tests_properties(DxfImportValidation PROPERTIES
     ENVIRONMENT "PATH=$<TARGET_FILE_DIR:Qt5::Core>\;$ENV{PATH}"
 )
+
+# Test 10: Sketch/FE mode selection and required FE names
+add_executable(test_dxf_import_mode
+    test_dxf_import_mode.cpp
+)
+target_link_libraries(test_dxf_import_mode PRIVATE ${TEST_COMMON_LIBS})
+add_test(NAME DxfImportMode COMMAND test_dxf_import_mode)
+set_tests_properties(DxfImportMode PROPERTIES
+    ENVIRONMENT "PATH=$<TARGET_FILE_DIR:Qt5::Core>\;$ENV{PATH}"
+)
