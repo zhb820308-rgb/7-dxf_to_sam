@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "check": "node --check server.js && node --check page/dxf.js && node --check page/app.js",
-    "test": "node tests/agent-tools.test.js && node tests/dxf-annotations.test.js"
+    "test": "node tests/agent-tools.test.js && node tests/dxf-annotations.test.js && node tests/server-security.test.js && node tests/dxf-expansion-limits.test.js"
   },
   "engines": {
     "node": ">=18"
