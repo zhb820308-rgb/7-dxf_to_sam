@@ -1,5 +1,6 @@
 #include "DxfParser.h"
 
+#include "DxfInputFile.h"
 #include "GeometryUtils.h"
 #include "libdxfrw.h"
 #include <QDebug>
@@ -934,8 +935,14 @@ bool DxfParser::parseFile(const QString& filePath, DxfData& outData,
         return false;
     }
 
-    const QByteArray pathBytes = filePath.toLocal8Bit();
-    dxfRW dxf(pathBytes.constData());
+    DxfInputFile inputFile(filePath);
+    if (!inputFile.prepare()) {
+        outData.setError(DxfImportErrorCode::ReadFailed,
+                         inputFile.errorMessage());
+        return false;
+    }
+
+    dxfRW dxf(inputFile.encodedPath().constData());
     DxfReader reader;
     reader.m_ignoredLayers = ignoredLayers;
     if (!dxf.read(&reader, true)) {

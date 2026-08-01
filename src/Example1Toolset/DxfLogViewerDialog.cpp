@@ -294,6 +294,7 @@ void DxfLogViewerDialog::loadSelectedLog()
     }
 
     m_logStream = new QTextStream(m_logBuffer);
+    m_logStream->setCodec("UTF-8");
     m_cancelLoadButton->setEnabled(true);
     m_statusLabel->setText(tr("Loading log..."));
     m_loadTimer->start(0);

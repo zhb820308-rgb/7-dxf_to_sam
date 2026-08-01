@@ -12,11 +12,13 @@
 #include <QFile>
 #include <QDebug>
 #include <QDir>
+#include <QTemporaryDir>
 #include <QTemporaryFile>
 #include <QTextStream>
 #include <cmath>
 #include <limits>
 #include "DxfParser.h"
+#include "DxfInputFile.h"
 #include "ConversionEngine.h"
 #include "SamData.h"
 
@@ -295,6 +297,77 @@ TEST(Parser, oversized_insert_array_is_rejected_without_partial_output) {
     EXPECT_EQ(data.entityCount(), 0);
     EXPECT_TRUE(data.errorMessage().contains("limit", Qt::CaseInsensitive))
         << data.errorMessage().toStdString();
+}
+
+TEST(Parser, unicode_and_punctuation_paths_are_supported) {
+    QTemporaryDir root;
+    ASSERT_TRUE(root.isValid());
+
+    const QStringList relativePaths = {
+        QString::fromUtf8(u8"中文目录/中文文件.dxf"),
+        QString::fromUtf8(u8"日本語/図面.dxf"),
+        QString::fromUtf8(u8"扩展字符/Žłóć.dxf"),
+        QStringLiteral("folder with spaces/drawing (copy).dxf")
+    };
+
+    for (const QString& relativePath : relativePaths) {
+        const QString destination = QDir(root.path()).filePath(relativePath);
+        ASSERT_TRUE(QDir().mkpath(QFileInfo(destination).absolutePath()))
+            << destination.toStdString();
+        ASSERT_TRUE(QFile::copy(TEST_DATA_DIR + "/point_only.dxf", destination))
+            << destination.toStdString();
+
+        DxfData data;
+        DxfParser parser;
+        EXPECT_TRUE(parser.parseFile(destination, data))
+            << destination.toStdString()
+            << ": " << data.errorMessage().toStdString();
+        EXPECT_TRUE(data.isValid());
+        EXPECT_EQ(data.points().size(), 2u);
+    }
+}
+
+TEST(Parser, nonexistent_unicode_path_returns_false) {
+    QTemporaryDir root;
+    ASSERT_TRUE(root.isValid());
+
+    DxfData data;
+    DxfParser parser;
+    EXPECT_FALSE(parser.parseFile(
+        QDir(root.path()).filePath(QString::fromUtf8(u8"不存在/図面.dxf")), data));
+    EXPECT_FALSE(data.isValid());
+    EXPECT_EQ(data.errorCode(), DxfImportErrorCode::ReadFailed);
+}
+
+TEST(Parser, unicode_staging_copy_is_removed_after_use) {
+    QTemporaryDir root;
+    ASSERT_TRUE(root.isValid());
+
+    const QString sourcePath = QDir(root.path()).filePath(
+        QString::fromUtf8(u8"日本語/図面.dxf"));
+    ASSERT_TRUE(QDir().mkpath(QFileInfo(sourcePath).absolutePath()));
+    ASSERT_TRUE(QFile::copy(TEST_DATA_DIR + "/point_only.dxf", sourcePath));
+
+    const QString nativeSource = QDir::toNativeSeparators(
+        QFileInfo(sourcePath).absoluteFilePath());
+    const bool needsStaging = QString::fromLocal8Bit(nativeSource.toLocal8Bit())
+        != nativeSource;
+    QString stagedPath;
+    {
+        DxfInputFile inputFile(sourcePath);
+        ASSERT_TRUE(inputFile.prepare()) << inputFile.errorMessage().toStdString();
+        EXPECT_EQ(inputFile.usesStagingCopy(), needsStaging);
+        if (inputFile.usesStagingCopy()) {
+            stagedPath = QString::fromLocal8Bit(inputFile.encodedPath());
+            EXPECT_TRUE(QFile::exists(stagedPath));
+        }
+    }
+
+    EXPECT_TRUE(QFile::exists(sourcePath));
+    if (!stagedPath.isEmpty()) {
+        EXPECT_FALSE(QFile::exists(stagedPath));
+        EXPECT_FALSE(QDir(QFileInfo(stagedPath).absolutePath()).exists());
+    }
 }
 
 TEST(Parser, unlimited_output_keeps_insert_array_safety_limit) {

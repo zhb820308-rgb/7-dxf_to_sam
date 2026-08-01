@@ -55,6 +55,7 @@ endif()
 
 target_link_libraries(Example1Toolset
     ExampleProjectOptions
+    Example1DxfInput
     Qt5::Core
     Qt5::Widgets
     Qt5::Gui

@@ -317,7 +317,9 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 	QElapsedTimer totalTimer;
 	totalTimer.start();
 
-	const std::string pathText = filePath.toLocal8Bit().toStdString();
+	// Log paths as UTF-8 so diagnostics preserve the original Unicode path.
+	// libdxfrw receives its separately adapted narrow path in DxfInputFile.
+	const std::string pathText = filePath.toUtf8().toStdString();
 	if (!logger && errorLogger)
 	{
 		errorLogger->error(

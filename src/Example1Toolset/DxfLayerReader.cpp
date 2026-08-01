@@ -1,5 +1,6 @@
 #include "DxfLayerReader.h"
 
+#include "DxfInputFile.h"
 #include <libdxfrw.h>
 
 #include <set>
@@ -78,8 +79,12 @@ bool collectDxfLayers(const QString& filePath, QStringList& layers)
         return false;
     }
 
-    const QByteArray pathBytes = filePath.toLocal8Bit();
-    dxfRW dxf(pathBytes.constData());
+    DxfInputFile inputFile(filePath);
+    if (!inputFile.prepare()) {
+        return false;
+    }
+
+    dxfRW dxf(inputFile.encodedPath().constData());
     LayerReader reader;
     if (!dxf.read(&reader, true)) {
         return false;

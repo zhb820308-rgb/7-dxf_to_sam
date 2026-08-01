@@ -19,6 +19,10 @@ set(EXAMPLE1_PARSER_SOURCES
     DxfParser.cpp
     DxfParser.h
 )
+set(EXAMPLE1_DXF_INPUT_SOURCES
+    DxfInputFile.cpp
+    DxfInputFile.h
+)
 set(EXAMPLE1_PLUGIN_SOURCES
     Example1PytModule.cpp
     Example1PytModule.h
@@ -60,6 +64,20 @@ set_target_properties(Example1Core PROPERTIES
     CXX_EXTENSIONS OFF
 )
 
+# Unicode path adaptation is shared by the parser and the Toolset layer scan
+# without pulling the conversion core into the UI plugin.
+add_library(Example1DxfInput STATIC ${EXAMPLE1_DXF_INPUT_SOURCES})
+target_include_directories(Example1DxfInput PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(Example1DxfInput PUBLIC
+    ExampleProjectOptions
+    Qt5::Core
+)
+set_target_properties(Example1DxfInput PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
 # Parser has an additional libdxfrw boundary, so keep it separate from the
 # dependency-light conversion core.
 add_library(Example1DxfParser STATIC ${EXAMPLE1_PARSER_SOURCES})
@@ -71,6 +89,7 @@ target_include_directories(Example1DxfParser
 target_link_libraries(Example1DxfParser PUBLIC
     ExampleProjectOptions
     Example1Core
+    Example1DxfInput
     Qt5::Core
     "${LIBDXFRW_LIBRARY}"
 )
