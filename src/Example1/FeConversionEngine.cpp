@@ -1,6 +1,7 @@
 #include "FeConversionEngine.h"
 #include "GeometryUtils.h"
 #include <QDebug>
+#include <chrono>
 #include <cmath>
 
 // ========================================================================
@@ -51,6 +52,7 @@ bool FeConversionEngine::convert(const DxfData& dxfData,
                                  double nodeMergeTolerance,
                                  FeData& outData) const
 {
+    const auto startedAt = std::chrono::steady_clock::now();
     outData.clear();
 
     if (!std::isfinite(curveTolerance) || curveTolerance <= 0.0) {
@@ -70,6 +72,17 @@ bool FeConversionEngine::convert(const DxfData& dxfData,
                    << baseX << baseY << baseZ;
         return false;
     }
+
+    // Curves can tessellate into additional segments and merging can reduce
+    // them again, so this is only an initial capacity hint for common inputs.
+    const std::size_t entityCount = dxfData.points().size()
+                                  + dxfData.lines().size()
+                                  + dxfData.circles().size()
+                                  + dxfData.arcs().size()
+                                  + dxfData.lwPolylines().size()
+                                  + dxfData.ellipses().size()
+                                  + dxfData.splines().size();
+    outData.reserve(entityCount, entityCount);
 
     FeConversionStats& stats = outData.stats();
 
@@ -173,5 +186,13 @@ bool FeConversionEngine::convert(const DxfData& dxfData,
                              + stats.ellipsesDiscretized
                              + stats.splinesDiscretized;
 
-    return !outData.nodes().empty();
+    const bool hasNodes = !outData.nodes().empty();
+    qInfo().noquote() << "[FeConversionEngine] convert:"
+                      << stats.totalInputEntities << "entities ->"
+                      << outData.nodes().size() << "nodes,"
+                      << outData.trusses().size() << "trusses in"
+                      << std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now() - startedAt).count()
+                      << "ms";
+    return hasNodes;
 }

@@ -27,6 +27,13 @@ public:
         m_progressCallback = callback;
     }
 
+    // Control how many nodes/trusses are sent in a single Python command.
+    // Default: 5000.  Larger batches reduce interpreter round-trips at the
+    // cost of longer Python command strings and coarser cancellation
+    // granularity.  Set before calling createNodes / createTrusses.
+    void setBatchSize(int size) { m_batchSize = size; }
+    int batchSize() const { return m_batchSize; }
+
     const QString& lastError() const { return m_lastError; }
     int createdNodeCount() const { return m_createdNodeCount; }
     int createdTrussCount() const { return m_createdTrussCount; }
@@ -43,6 +50,7 @@ private:
     int m_createdNodeCount = 0;
     int m_createdTrussCount = 0;
     bool m_active = false;
+    int m_batchSize = 5000;
     ProgressCallback m_progressCallback;
 };
 

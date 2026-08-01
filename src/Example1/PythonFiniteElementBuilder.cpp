@@ -11,15 +11,8 @@
 #include <pytInterpreterRole.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
-
-namespace {
-
-// Keep Python source bounded while replacing one interpreter crossing per FE
-// object with one crossing per batch.  It also limits cancellation latency.
-const int kPythonBatchSize = 1000;
-
-}
 
 QString PythonFiniteElementBuilder::pythonStringLiteral(const QString& value)
 {
@@ -65,6 +58,7 @@ bool PythonFiniteElementBuilder::reportProgress(
 bool PythonFiniteElementBuilder::beginImport(
     const QString& modelName, const QString& partName)
 {
+    const auto startedAt = std::chrono::steady_clock::now();
     m_lastError.clear();
     m_modelName = modelName;
     m_partName = partName;
@@ -100,11 +94,16 @@ bool PythonFiniteElementBuilder::beginImport(
         return false;
 
     m_active = true;
+    qInfo().noquote() << "[PythonFiniteElementBuilder] beginImport completed in"
+                      << std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now() - startedAt).count()
+                      << "ms";
     return true;
 }
 
 int PythonFiniteElementBuilder::createNodes(const std::vector<FeNode>& nodes)
 {
+    const auto startedAt = std::chrono::steady_clock::now();
     if (!m_active) {
         m_lastError = QStringLiteral("createNodes: no active import context");
         return -1;
@@ -118,8 +117,9 @@ int PythonFiniteElementBuilder::createNodes(const std::vector<FeNode>& nodes)
         }
     }
 
-    for (int first = 0; first < total; first += kPythonBatchSize) {
-        const int last = std::min(first + kPythonBatchSize, total);
+    const int batchSize = std::max(1, m_batchSize);
+    for (int first = 0; first < total; first += batchSize) {
+        const int last = std::min(first + batchSize, total);
         QString command;
         command.reserve((last - first) * 72 + 128);
         command.append("for _example1_fe_x, _example1_fe_y, _example1_fe_z in (\n");
@@ -143,11 +143,17 @@ int PythonFiniteElementBuilder::createNodes(const std::vector<FeNode>& nodes)
         if (!reportProgress(QStringLiteral("Creating FE nodes"), m_createdNodeCount, total))
             return -1;
     }
+    qInfo().noquote() << "[PythonFiniteElementBuilder] createNodes:"
+                      << m_createdNodeCount << "nodes in"
+                      << std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now() - startedAt).count()
+                      << "ms; batch size:" << batchSize;
     return m_createdNodeCount;
 }
 
 int PythonFiniteElementBuilder::createTrusses(const std::vector<FeTruss>& trusses)
 {
+    const auto startedAt = std::chrono::steady_clock::now();
     if (!m_active) {
         m_lastError = QStringLiteral("createTrusses: no active import context");
         return -1;
@@ -165,10 +171,12 @@ int PythonFiniteElementBuilder::createTrusses(const std::vector<FeTruss>& trusse
         }
     }
 
-    for (int first = 0; first < total; first += kPythonBatchSize) {
-        const int last = std::min(first + kPythonBatchSize, total);
+    const int batchSize = std::max(1, m_batchSize);
+    for (int first = 0; first < total; first += batchSize) {
+        const int last = std::min(first + batchSize, total);
         QString command;
-        command.reserve((last - first) * 24 + 224);
+        command.reserve((last - first) * 24 + 280);
+        command.append("_example1_fe_nodes = _example1_fe_part.nodes\n");
         command.append("for _example1_fe_start, _example1_fe_end in (\n");
         for (int i = first; i < last; ++i) {
             const FeTruss& truss = trusses[static_cast<std::size_t>(i)];
@@ -180,7 +188,7 @@ int PythonFiniteElementBuilder::createTrusses(const std::vector<FeTruss>& trusse
         }
         command.append("):\n")
             .append("    _example1_fe_part.Element(\n")
-            .append("        nodes=(_example1_fe_part.nodes[_example1_fe_start], _example1_fe_part.nodes[_example1_fe_end]),\n")
+            .append("        nodes=(_example1_fe_nodes[_example1_fe_start], _example1_fe_nodes[_example1_fe_end]),\n")
             .append("        elemShape=samConstants.TRUSS, intersectNodes=False)\n");
         if (!runCommand(command,
                         QString("create trusses %1-%2").arg(first).arg(last - 1)))
@@ -190,6 +198,11 @@ int PythonFiniteElementBuilder::createTrusses(const std::vector<FeTruss>& trusse
         if (!reportProgress(QStringLiteral("Creating FE trusses"), m_createdTrussCount, total))
             return -1;
     }
+    qInfo().noquote() << "[PythonFiniteElementBuilder] createTrusses:"
+                      << m_createdTrussCount << "trusses in"
+                      << std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now() - startedAt).count()
+                      << "ms; batch size:" << batchSize;
     return m_createdTrussCount;
 }
 
