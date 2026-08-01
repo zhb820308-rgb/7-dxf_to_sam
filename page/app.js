@@ -842,7 +842,7 @@
 
   function saveAgentSettings(settings) {
     try {
-      localStorage.setItem(AGENT_SETTINGS_KEY, JSON.stringify(settings));
+      DxfAgentSettings.saveSettings(localStorage, AGENT_SETTINGS_KEY, settings);
     } catch {
       toast("浏览器禁止本地存储，Agent 配置未缓存", "error");
     }
@@ -852,8 +852,7 @@
     saveAgentSettings({
       provider: $("#agentProvider").value,
       model: $("#agentModel").value.trim(),
-      apiUrl: $("#agentApiUrl").value.trim(),
-      apiKey: $("#agentApiKey").value.trim()
+      apiUrl: $("#agentApiUrl").value.trim()
     });
   }
 
@@ -863,20 +862,21 @@
   }
 
   function loadAgentSettings() {
+    // Password managers and back/forward caches must not resurrect a prior key.
+    $("#agentApiKey").value = "";
     try {
-      const settings = JSON.parse(localStorage.getItem(AGENT_SETTINGS_KEY) || "null");
+      const settings = DxfAgentSettings.loadSettings(localStorage, AGENT_SETTINGS_KEY);
       if (!settings || typeof settings !== "object") return;
       if (["openai_responses", "openai_chat", "anthropic"].includes(settings.provider)) {
         $("#agentProvider").value = settings.provider;
       }
       if (typeof settings.model === "string") $("#agentModel").value = settings.model;
       if (typeof settings.apiUrl === "string") $("#agentApiUrl").value = settings.apiUrl;
-      if (typeof settings.apiKey === "string") $("#agentApiKey").value = settings.apiKey;
       $("#agentModel").placeholder = settings.provider === "anthropic"
         ? "输入 Anthropic 模型 ID"
         : "输入模型 ID";
     } catch {
-      localStorage.removeItem(AGENT_SETTINGS_KEY);
+      DxfAgentSettings.clearSettings(localStorage, AGENT_SETTINGS_KEY);
     }
   }
 
@@ -884,7 +884,7 @@
     window.clearTimeout(agentSettingsTimer);
     agentSettingsTimer = null;
     try {
-      localStorage.removeItem(AGENT_SETTINGS_KEY);
+      DxfAgentSettings.clearSettings(localStorage, AGENT_SETTINGS_KEY);
     } catch {
       // The visible fields can still be cleared when storage is unavailable.
     }
@@ -952,7 +952,7 @@
     if (!instruction) return toast("请输入 AI 图形处理指令", "error");
     if (!model) return toast("请输入模型名称", "error");
     if (!apiUrl) return toast("请输入 API 地址", "error");
-    saveAgentSettings({ provider, model, apiUrl, apiKey });
+    saveAgentSettings({ provider, model, apiUrl });
     if (!state.points.length && !state.lines.length) return toast("当前没有可处理的图元", "error");
     const button = $("#runAgentBtn");
     const status = $("#agentStatus");
@@ -1125,7 +1125,7 @@
     $("#agentApiUrl").value = defaults.url;
     saveCurrentAgentSettings();
   });
-  ["agentModel", "agentApiUrl", "agentApiKey"].forEach((id) => {
+  ["agentModel", "agentApiUrl"].forEach((id) => {
     $(`#${id}`).addEventListener("input", scheduleAgentSettingsSave);
   });
   $("#clearAgentCacheBtn").addEventListener("click", clearAgentSettings);

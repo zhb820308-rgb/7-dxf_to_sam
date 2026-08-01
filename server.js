@@ -4,6 +4,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const { providerRequest } = require("./provider-request.js");
 
 const ROOT = __dirname;
 const PAGE_ROOT = path.join(ROOT, "page");
@@ -668,29 +669,6 @@ function resolveProviderConfig(body) {
   return { provider, model, apiKey, endpoint: url.toString(), credentialSource };
 }
 
-async function providerRequest(config, payload) {
-  const headers = { "Content-Type": "application/json" };
-  if (config.provider === "anthropic") {
-    headers["x-api-key"] = config.apiKey;
-    headers["anthropic-version"] = "2023-06-01";
-  } else {
-    headers.Authorization = `Bearer ${config.apiKey}`;
-  }
-  const response = await fetch(config.endpoint, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(payload),
-    redirect: "error"
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const message = data.error?.message || data.error?.error?.message ||
-      `AI API 请求失败（HTTP ${response.status}）`;
-    throw Object.assign(new Error(message), { status: response.status >= 500 ? 502 : 400 });
-  }
-  return data;
-}
-
 const agentInstructions = [
   "你是二维 DXF 点线图形处理 Agent。",
   "根据用户目标观察图形并调用工具修改工作副本；不要只给建议。",
@@ -954,6 +932,7 @@ module.exports = {
   geometrySummary,
   isTrustedBrowserOrigin,
   resolveProviderConfig,
+  providerRequest,
   validateAgentRequest,
   server,
   startServer

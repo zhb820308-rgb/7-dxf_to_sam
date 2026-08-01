@@ -174,10 +174,10 @@
           <label class="field-label agent-field" for="agentApiUrl">API 地址</label>
           <input class="agent-input" id="agentApiUrl" type="url" value="https://api.openai.com/v1" autocomplete="off">
           <label class="field-label agent-field" for="agentApiKey">API Key</label>
-          <input class="agent-input" id="agentApiKey" name="api-key" type="password" placeholder="将缓存在当前浏览器" autocomplete="off">
+          <input class="agent-input" id="agentApiKey" name="api-key" type="password" placeholder="仅在当前页面内存中使用" autocomplete="off">
           <label class="field-label agent-field" for="agentPrompt">处理指令</label>
           <textarea id="agentPrompt" rows="4" maxlength="2000" placeholder="例如：将选中的线向右移动 100；删除重复线并吸附到 10 单位网格"></textarea>
-          <p class="helper">协议、模型、地址和密钥会保存在当前浏览器的 localStorage 中。Agent 只修改工作副本，确认后也不会改写原图基线。<button class="helper-action" id="clearAgentCacheBtn" type="button">清除缓存</button></p>
+          <p class="helper">协议、模型和地址会保存在当前浏览器；API Key 不会持久化，刷新页面后需重新输入。Agent 只修改工作副本，确认后也不会改写原图基线。<button class="helper-action" id="clearAgentCacheBtn" type="button">清除缓存</button></p>
           <button class="btn primary full" id="runAgentBtn" type="submit">运行 Agent</button>
           <div class="agent-result hidden" id="agentResult">
             <strong id="agentSummary">处理完成</strong>
@@ -212,6 +212,7 @@
 
   <div class="toast-container" id="toasts" aria-live="polite"></div>
   <script src="dxf.js?v=20260731-10"></script>
-  <script src="app.js?v=20260731-11"></script>
+  <script src="agent-settings.js?v=20260801-1"></script>
+  <script src="app.js?v=20260801-1"></script>
 </body>
 </html>
