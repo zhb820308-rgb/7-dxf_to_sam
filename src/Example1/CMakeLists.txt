@@ -16,6 +16,8 @@ set(EXAMPLE1_CORE_SOURCES
     DxfImportLogger.h
 )
 set(EXAMPLE1_PARSER_SOURCES
+    DxfBlockExpansion.cpp
+    DxfBlockExpansion.h
     DxfEntityValidation.cpp
     DxfEntityValidation.h
     DxfParser.cpp

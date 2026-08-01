@@ -1,482 +1,46 @@
 #include "DxfParser.h"
 
+#include "DxfBlockExpansion.h"
 #include "DxfInputFile.h"
 #include "DxfReaderCallbacks.h"
-#include "DxfTransform.h"
-#include "GeometryUtils.h"
-#include "libdxfrw.h"
-#include <QDebug>
-#include <algorithm>
-#include <cstdint>
+
+#include <libdxfrw.h>
+
 #include <cmath>
-#include <set>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
-namespace {
-
-// ========================================================================
-//  Block expansion helpers
-// ========================================================================
-
-constexpr std::uint64_t kMaxArrayInstancesPerInsert = 100000;
-constexpr std::uint64_t kMaxExpandedBlockInstances = 100000;
-constexpr std::size_t kDefaultMaxOutputEntities = 100000;
-constexpr std::size_t kMaxReserveEntities = 500000;
-
-struct ExpansionBudget {
-    std::uint64_t blockInstances = 0;
-    std::size_t entities = 0;
-    std::size_t maxOutputEntities = kDefaultMaxOutputEntities;
-    QString error;
-
-    explicit ExpansionBudget(std::size_t initialEntities = 0,
-                             std::size_t outputLimit = kDefaultMaxOutputEntities)
-        : entities(initialEntities), maxOutputEntities(outputLimit) {}
-
-    bool consumeArray(int rows, int columns, const std::string& blockName)
-    {
-        const std::uint64_t rowCount = static_cast<std::uint64_t>(std::max(1, rows));
-        const std::uint64_t columnCount = static_cast<std::uint64_t>(std::max(1, columns));
-        if (rowCount > kMaxArrayInstancesPerInsert / columnCount) {
-            error = QStringLiteral("INSERT expansion limit exceeded for block '%1': %2 rows x %3 columns")
-                .arg(QString::fromStdString(blockName)).arg(rowCount).arg(columnCount);
-            return false;
-        }
-        const std::uint64_t count = rowCount * columnCount;
-        if (blockInstances > kMaxExpandedBlockInstances - count) {
-            error = QStringLiteral("INSERT expansion limit exceeded: more than %1 block instances")
-                .arg(kMaxExpandedBlockInstances);
-            return false;
-        }
-        blockInstances += count;
-        return true;
-    }
-
-    bool consumeEntities(std::size_t count)
-    {
-        if (count > maxOutputEntities || entities > maxOutputEntities - count) {
-            error = QStringLiteral("INSERT expansion limit exceeded: more than %1 output entities")
-                .arg(static_cast<qulonglong>(maxOutputEntities));
-            return false;
-        }
-        entities += count;
-        return true;
-    }
-};
-
-static const std::string& resolveEffectiveLayer(const std::string& sourceLayer,
-                                                const std::string& inheritedLayer)
+bool DxfParser::parseFile(
+    const QString& filePath,
+    DxfData& outData,
+    double curveTolerance,
+    const std::set<std::string>& ignoredLayers,
+    std::size_t maxOutputEntities)
 {
-    static const std::string defaultLayer("0");
-    if (sourceLayer.empty() || sourceLayer == "0")
-        return inheritedLayer.empty() ? defaultLayer : inheritedLayer;
-    return sourceLayer;
-}
-
-static bool isIgnoredLayer(const std::string& layer,
-                           const std::set<std::string>& ignoredLayers)
-{
-    return ignoredLayers.count(layer) != 0;
-}
-
-/// Transform and append discretized segments to output.
-static bool addTransformedSegments(DxfData& output,
-                                   const std::vector<DxfLine>& segments,
-                                   const Transform2D& tf,
-                                   const std::string& effectiveLayer,
-                                   ExpansionBudget& budget)
-{
-    if (!budget.consumeEntities(segments.size())) return false;
-    output.reserveLines(output.lines().size() + segments.size());
-    for (const DxfLine& seg : segments) {
-        if (!seg.isValid()) continue;
-        DxfLine transformed(tf.apply(seg.start()), tf.apply(seg.end()));
-        transformed.setLayer(effectiveLayer);
-        output.addGeneratedLine(transformed);
-    }
-    return true;
-}
-
-/// Record the source entity before a block curve is discretized into lines.
-template<typename Entity>
-static void recordGeneratedEntity(DxfData& output, const Entity& entity)
-{
-    output.recordGeneratedEntity(entity.getType());
-}
-
-static void recordGeneratedEntity(DxfData& output, const DxfSpline& spline)
-{
-    output.recordGeneratedSpline(spline.kind());
-}
-
-/// Expand a group of curve entities under uniform or non-uniform scale.
-/// Uniform scale → call preserve() to keep original entity type.
-/// Non-uniform  → call tessellate() then transform segments to output.
-template<typename Entity, typename TessFn, typename PreserveFn>
-static bool expandCurveGroup(DxfData& output,
-                             const std::vector<Entity>& entities,
-                             const Transform2D& tf,
-                             const std::string& insertLayer,
-                             const std::set<std::string>& ignoredLayers,
-                             double tolerance, bool uniformXY,
-                             ExpansionBudget& budget,
-                             TessFn tessellate,
-                             PreserveFn preserve)
-{
-    for (const Entity& e : entities) {
-        if (!e.isValid()) continue;
-        const std::string& effectiveLayer = resolveEffectiveLayer(e.layer(), insertLayer);
-        if (isIgnoredLayer(effectiveLayer, ignoredLayers)) continue;
-        recordGeneratedEntity(output, e);
-        if (uniformXY) {
-            if (!budget.consumeEntities(1)) return false;
-            preserve(output, e, tf, effectiveLayer);
-        } else {
-            const std::vector<DxfLine> segments = tessellate(e, tolerance);
-            if (!addTransformedSegments(output, segments, tf, effectiveLayer, budget)) return false;
-        }
-    }
-    return true;
-}
-
-/// Forward declaration for recursive expansion.
-static bool expandSingleBlock(DxfData& output,
-                              const DxfBlock& blk,
-                              const Transform2D& tf,
-                              const std::string& insertLayer,
-                              const std::set<std::string>& ignoredLayers,
-                              double tolerance,
-                              const std::unordered_map<std::string, DxfBlock>& blocks,
-                              int depth,
-                              std::unordered_set<std::string>& visiting,
-                              ExpansionBudget& budget);
-
-/// Expand one INSERT with array (row × col) support.
-/// Generates all array instances and delegates each to expandSingleBlock.
-static bool expandInsertArray(DxfData& output,
-                              const DxfBlock& blk,
-                              const InsertInfo& ins,
-                              const Transform2D& parentTf,
-                              const std::string& insertLayer,
-                              const std::set<std::string>& ignoredLayers,
-                              double tolerance,
-                              const std::unordered_map<std::string, DxfBlock>& blocks,
-                              int depth,
-                              std::unordered_set<std::string>& visiting,
-                              ExpansionBudget& budget)
-{
-    const int nCols = std::max(1, ins.colCount);
-    const int nRows = std::max(1, ins.rowCount);
-    if (!budget.consumeArray(nRows, nCols, blk.name())) return false;
-
-    // Degenerate array: no real repetition.
-    const double cosA = std::cos(ins.angle);
-    const double sinA = std::sin(ins.angle);
-
-    // One-step increments along the rotated array grid.
-    // pos(row,col) = insertion + col * colVec + row * rowVec
-    const double colDx = cosA * ins.colSpace;
-    const double colDy = sinA * ins.colSpace;
-    const double rowDx = -sinA * ins.rowSpace;
-    const double rowDy =  cosA * ins.rowSpace;
-
-    // Reserve the full array output in one go, avoiding repeated realloc.
-    // Clamp the estimate to the expansion entity budget so a malicious INSERT
-    // (e.g. 100000 instances of a block with many entities) cannot force an
-    // out-of-budget multi-GB allocation before per-entity accounting kicks in.
-    const std::size_t instances = static_cast<std::size_t>(nCols) * nRows;
-    const auto clampReserve = [instances, &budget](std::size_t current,
-                                                   std::size_t perInstance) {
-        const std::size_t limit = std::min(
-            budget.maxOutputEntities, kMaxReserveEntities);
-        if (current >= limit || perInstance == 0) return current;
-        const std::size_t boundedInstances = std::min(instances, limit);
-        const std::size_t remaining = limit - current;
-        if (boundedInstances > remaining / perInstance) return limit;
-        return current + boundedInstances * perInstance;
-    };
-    output.reserveLines(clampReserve(output.lines().size(), blk.lines().size()));
-    output.reservePoints(clampReserve(output.points().size(), blk.points().size()));
-    output.reserveLWPolylines(clampReserve(output.lwPolylines().size(), blk.lwPolylines().size()));
-    output.reserveSplines(clampReserve(output.splines().size(), blk.splines().size()));
-
-    // Copy the INSERT once; inner loops only touch the two doubles.
-    InsertInfo insCopy = ins;
-
-    // Walk the grid with pure additions (no per-cell multiply/rotate).
-    double baseX = ins.insertX;
-    double baseY = ins.insertY;
-    for (int row = 0; row < nRows; ++row) {
-        double curX = baseX;
-        double curY = baseY;
-        for (int col = 0; col < nCols; ++col) {
-            insCopy.insertX = curX;
-            insCopy.insertY = curY;
-            const Transform2D localTf = Transform2D::fromInsert(
-                insCopy, blk.baseX(), blk.baseY(), blk.baseZ());
-            const Transform2D worldTf = parentTf.composedWith(localTf);
-            if (!expandSingleBlock(output, blk, worldTf, insertLayer, ignoredLayers,
-                                   tolerance, blocks, depth, visiting, budget))
-                return false;
-            curX += colDx;
-            curY += colDy;
-        }
-        baseX += rowDx;
-        baseY += rowDy;
-    }
-    return true;
-}
-
-/// Expand a single block instance (one INSERT, one array element).
-/// @param blocks  block definitions map, needed for recursive nested INSERT expansion
-static bool expandSingleBlock(DxfData& output,
-                              const DxfBlock& blk,
-                              const Transform2D& tf,
-                              const std::string& insertLayer,
-                              const std::set<std::string>& ignoredLayers,
-                              double tolerance,
-                              const std::unordered_map<std::string, DxfBlock>& blocks,
-                              int depth,
-                              std::unordered_set<std::string>& visiting,
-                              ExpansionBudget& budget)
-{
-    static const int kMaxExpandDepth = 32;
-    if (depth > kMaxExpandDepth) {
-        qWarning() << "[BlockExpand] max depth" << kMaxExpandDepth
-                   << "exceeded at block:" << blk.name().c_str();
-        budget.error = QStringLiteral("INSERT expansion depth limit exceeded at block '%1'")
-            .arg(QString::fromStdString(blk.name()));
-        return false;
-    }
-
-    // Cycle detection
-    if (visiting.count(blk.name())) {
-        qWarning() << "[BlockExpand] cycle detected for block:"
-                   << blk.name().c_str() << "- skipping recursion";
-        return true;
-    }
-    visiting.insert(blk.name());
-    struct VisitingGuard {
-        std::unordered_set<std::string>& names;
-        std::string name;
-        ~VisitingGuard() { names.erase(name); }
-    } guard{visiting, blk.name()};
-
-    const bool preserveRoundCurves = tf.isPlanarSimilarity();
-
-    // --- Points: direct transform ---
-    for (const DxfPoint& pt : blk.points()) {
-        if (!pt.isValid()) continue;
-        const std::string& layer = resolveEffectiveLayer(pt.layer(), insertLayer);
-        if (isIgnoredLayer(layer, ignoredLayers)) continue;
-        if (!budget.consumeEntities(1)) return false;
-        DxfPoint transformed = tf.apply(pt);
-        transformed.setLayer(layer);
-        output.recordGeneratedEntity(EntityType::Point);
-        output.addGeneratedPoint(transformed);
-    }
-
-    // --- Lines: direct transform ---
-    for (const DxfLine& line : blk.lines()) {
-        if (!line.isValid()) continue;
-        const std::string& layer = resolveEffectiveLayer(line.layer(), insertLayer);
-        if (isIgnoredLayer(layer, ignoredLayers)) continue;
-        if (!budget.consumeEntities(1)) return false;
-        DxfPoint s = tf.apply(line.start());
-        DxfPoint e = tf.apply(line.end());
-        DxfLine transformed(s, e);
-        transformed.setLayer(layer);
-        output.recordGeneratedEntity(EntityType::Line);
-        output.addGeneratedLine(transformed);
-    }
-
-    // --- Circles ---
-    for (const DxfCircle& circle : blk.circles()) {
-        if (!circle.isValid()) continue;
-        const std::string& layer = resolveEffectiveLayer(circle.layer(), insertLayer);
-        if (isIgnoredLayer(layer, ignoredLayers)) continue;
-        output.recordGeneratedEntity(EntityType::Circle);
-        if (preserveRoundCurves) {
-            // A planar similarity preserves circles, including mirrored ones.
-            DxfPoint c = tf.apply(circle.center());
-            const double r = circle.radius() * tf.planarScale();
-            if (r > 0.0) {
-                if (!budget.consumeEntities(1)) return false;
-                DxfCircle transformed(c, r);
-                transformed.setLayer(layer);
-                output.addGeneratedCircle(transformed);
-            }
-        } else {
-            // Non-uniform or negative scale → discretize to lines
-            std::vector<DxfLine> segs = GeometryUtils::tessellateArc(
-                DxfArc(circle.center(), circle.radius(), 0.0, 2.0 * M_PI, true),
-                tolerance);
-            if (!addTransformedSegments(output, segs, tf, layer, budget)) return false;
-        }
-    }
-
-    // --- Arcs: uniform scale → preserve Arc; non-uniform → discretize ---
-    if (!expandCurveGroup(output, blk.arcs(), tf, insertLayer, ignoredLayers,
-        tolerance, preserveRoundCurves, budget,
-        GeometryUtils::tessellateArc,
-        [](DxfData& out, const DxfArc& arc, const Transform2D& t, const std::string& layer) {
-            DxfArc transformed(t.apply(arc.center()),
-                        arc.radius() * t.planarScale(),
-                        t.applyAngle(arc.startAngle()),
-                        t.applyAngle(arc.endAngle()),
-                        t.reversesOrientation() ? !arc.isCCW() : arc.isCCW());
-            transformed.setLayer(layer);
-            out.addGeneratedArc(transformed);
-        })) return false;
-
-    // --- LWPolylines: uniform scale → preserve; non-uniform → discretize ---
-    if (!expandCurveGroup(output, blk.lwPolylines(), tf, insertLayer, ignoredLayers,
-        tolerance, preserveRoundCurves, budget,
-        GeometryUtils::tessellateLWPolyline,
-        [](DxfData& out, const DxfLWPolyline& poly, const Transform2D& t, const std::string& layer) {
-            std::vector<DxfPoint> verts;
-            verts.reserve(poly.vertices().size());
-            for (const DxfPoint& v : poly.vertices())
-                verts.push_back(t.apply(v));
-            std::vector<double> bulges = poly.bulges();
-            if (t.reversesOrientation()) {
-                for (double& bulge : bulges) bulge = -bulge;
-            }
-            DxfLWPolyline transformed(
-                verts, bulges, poly.isClosed(), t.applyZ(poly.constZ()));
-            transformed.setLayer(layer);
-            out.addGeneratedLWPolyline(transformed);
-        })) return false;
-
-    // --- Ellipses: uniform scale → preserve; non-uniform → discretize ---
-    if (!expandCurveGroup(output, blk.ellipses(), tf, insertLayer, ignoredLayers,
-        tolerance, preserveRoundCurves, budget,
-        GeometryUtils::tessellateEllipse,
-        [](DxfData& out, const DxfEllipse& ellipse, const Transform2D& t, const std::string& layer) {
-            DxfPoint c = t.apply(ellipse.center());
-            const DxfPoint m = t.applyVector(ellipse.majorAxisEnd());
-            const bool reflected = t.reversesOrientation();
-            DxfEllipse transformed(c, m, ellipse.ratio(),
-                reflected ? -ellipse.startParam() : ellipse.startParam(),
-                reflected ? -ellipse.endParam() : ellipse.endParam(),
-                reflected ? !ellipse.isCCW() : ellipse.isCCW());
-            transformed.setLayer(layer);
-            out.addGeneratedEllipse(transformed);
-        })) return false;
-
-    // --- Splines: preserve under similarities; tessellate under general affine transforms. ---
-    if (!expandCurveGroup(output, blk.splines(), tf, insertLayer, ignoredLayers,
-        tolerance, preserveRoundCurves, budget,
-        GeometryUtils::tessellateSpline,
-        [](DxfData& out, const DxfSpline& spline, const Transform2D& t, const std::string& layer) {
-            std::vector<DxfPoint> ctrlPts;
-            ctrlPts.reserve(spline.controlPoints().size());
-            for (const DxfPoint& cp : spline.controlPoints())
-                ctrlPts.push_back(t.apply(cp));
-            std::vector<DxfPoint> fitPts;
-            fitPts.reserve(spline.fitPoints().size());
-            for (const DxfPoint& fp : spline.fitPoints())
-                fitPts.push_back(t.apply(fp));
-            const DxfPoint startTangent = t.applyVector(
-                spline.tgStartX(), spline.tgStartY(), spline.tgStartZ());
-            const DxfPoint endTangent = t.applyVector(
-                spline.tgEndX(), spline.tgEndY(), spline.tgEndZ());
-            DxfSpline transformed(
-                ctrlPts, spline.knots(), spline.weights(), fitPts,
-                spline.degree(), spline.flags(),
-                startTangent.x(), startTangent.y(), startTangent.z(),
-                endTangent.x(), endTangent.y(), endTangent.z());
-            transformed.setLayer(layer);
-            out.addGeneratedSpline(std::move(transformed));
-        })) return false;
-
-    // --- Nested INSERTs: recursive expansion ---
-    for (const InsertInfo& nested : blk.inserts()) {
-        const std::string nestedLayer = resolveEffectiveLayer(nested.layer, insertLayer);
-        if (isIgnoredLayer(nestedLayer, ignoredLayers)) continue;
-        auto it = blocks.find(nested.blockName);
-        if (it == blocks.end()) {
-            qWarning() << "[BlockExpand] nested INSERT references unknown block:"
-                       << nested.blockName.c_str() << "- skipped";
-            continue;
-        }
-        const DxfBlock& nestedBlk = it->second;
-
-        // Generate nested array instances in the current block coordinate
-        // system, then compose their local transforms with this world matrix.
-        if (!expandInsertArray(output, nestedBlk, nested, tf, nestedLayer, ignoredLayers,
-                               tolerance, blocks,
-                               depth + 1, visiting, budget))
-            return false;
-    }
-    return true;
-}
-
-/// Expand all model-space inserts into the output DxfData.
-/// @param output  [in/out] already contains model-space entities; INSERT entities appended here
-static bool expandBlocks(DxfData& output,
-                         const std::unordered_map<std::string, DxfBlock>& blocks,
-                         const std::vector<InsertInfo>& inserts,
-                         const std::set<std::string>& ignoredLayers,
-                         double tolerance,
-                         ExpansionBudget& budget)
-{
-    // Model-space entities are already in output (written directly during parsing).
-    // Only INSERT expansion is needed here.
-
-    // Expand INSERTs
-    std::unordered_set<std::string> visiting;
-
-    for (const InsertInfo& ins : inserts) {
-        const std::string insertLayer = resolveEffectiveLayer(ins.layer, "0");
-        if (isIgnoredLayer(insertLayer, ignoredLayers)) continue;
-        auto it = blocks.find(ins.blockName);
-        if (it == blocks.end()) {
-            qWarning() << "[BlockExpand] INSERT references unknown block:" << ins.blockName.c_str() << "- skipped";
-            continue;
-        }
-        const DxfBlock& blk = it->second;
-        if (!expandInsertArray(output, blk, ins, Transform2D(), insertLayer, ignoredLayers,
-                               tolerance,
-                               blocks, 0, visiting, budget))
-            return false;
-    }
-    return true;
-}
-
-}  // namespace
-
-// ========================================================================
-//  DxfParser::parseFile
-// ========================================================================
-
-bool DxfParser::parseFile(const QString& filePath, DxfData& outData,
-                          double curveTolerance,
-                          const std::set<std::string>& ignoredLayers,
-                          std::size_t maxOutputEntities) {
     outData = DxfData();
     if (filePath.isEmpty()) {
-        outData.setError(DxfImportErrorCode::InvalidArgument,
-                         QStringLiteral("DXF file is empty"));
+        outData.setError(
+            DxfImportErrorCode::InvalidArgument,
+            QStringLiteral("DXF file is empty"));
         return false;
     }
     if (!std::isfinite(curveTolerance) || curveTolerance <= 0.0) {
-        outData.setError(DxfImportErrorCode::InvalidArgument,
-            QStringLiteral("curveTolerance must be finite and greater than zero"));
+        outData.setError(
+            DxfImportErrorCode::InvalidArgument,
+            QStringLiteral(
+                "curveTolerance must be finite and greater than zero"));
         return false;
     }
     if (maxOutputEntities == 0) {
-        outData.setError(DxfImportErrorCode::InvalidArgument,
-                         QStringLiteral("maxOutputEntities must be greater than zero"));
+        outData.setError(
+            DxfImportErrorCode::InvalidArgument,
+            QStringLiteral("maxOutputEntities must be greater than zero"));
         return false;
     }
 
     DxfInputFile inputFile(filePath);
     if (!inputFile.prepare()) {
-        outData.setError(DxfImportErrorCode::ReadFailed,
-                         inputFile.errorMessage());
+        outData.setError(
+            DxfImportErrorCode::ReadFailed,
+            inputFile.errorMessage());
         return false;
     }
 
@@ -484,45 +48,48 @@ bool DxfParser::parseFile(const QString& filePath, DxfData& outData,
     DxfReaderCallbacks reader;
     reader.setIgnoredLayers(ignoredLayers);
     if (!dxf.read(&reader, true)) {
-        outData.setError(DxfImportErrorCode::ReadFailed,
+        outData.setError(
+            DxfImportErrorCode::ReadFailed,
             QStringLiteral("Failed to read DXF file. Error code: %1")
-            .arg(static_cast<int>(dxf.getError())));
+                .arg(static_cast<int>(dxf.getError())));
         return false;
     }
 
-    // Model-space entities are already in the output container. Seed the
-    // expansion budget with them so the limit applies to the final flattened
-    // output, rather than only to entities created inside INSERT blocks.
     const std::size_t initialEntities = reader.data().entityCount();
     if (initialEntities > maxOutputEntities) {
-        outData.setError(DxfImportErrorCode::ExpansionLimit,
+        outData.setError(
+            DxfImportErrorCode::ExpansionLimit,
             QStringLiteral("DXF output limit exceeded: more than %1 entities")
-            .arg(static_cast<qulonglong>(maxOutputEntities)));
+                .arg(static_cast<qulonglong>(maxOutputEntities)));
         return false;
     }
 
-    // --- Move parsed entities from reader to output, then expand blocks ---
     outData = reader.takeData();
-
-    // --- Expand blocks into flat DxfData ---
-    ExpansionBudget expansionBudget(initialEntities, maxOutputEntities);
-    if (!expandBlocks(outData, reader.blocks(), reader.modelSpaceInserts(),
-                      ignoredLayers,
-                      curveTolerance, expansionBudget)) {
-        const QString error = expansionBudget.error.isEmpty()
-            ? QStringLiteral("INSERT expansion failed") : expansionBudget.error;
+    QString expansionError;
+    if (!expandDxfBlocks(
+            outData, reader.blocks(), reader.modelSpaceInserts(),
+            ignoredLayers, curveTolerance, initialEntities,
+            maxOutputEntities, expansionError)) {
+        if (expansionError.isEmpty()) {
+            expansionError = QStringLiteral("INSERT expansion failed");
+        }
         outData.clear();
-        outData.setError(DxfImportErrorCode::ExpansionLimit, error);
+        outData.setError(
+            DxfImportErrorCode::ExpansionLimit,
+            expansionError);
         return false;
     }
 
     const DxfEntityStats& stats = outData.entityStats();
-    const std::size_t usable = stats.acceptedEntities + stats.generatedEntities;
+    const std::size_t usable =
+        stats.acceptedEntities + stats.generatedEntities;
     if (usable == 0 || outData.entityCount() == 0) {
         outData.setValid(false);
-        outData.setError(DxfImportErrorCode::NoSupportedEntities,
-            QStringLiteral("DXF was read successfully, but no valid supported entities were found (%1 rejected).")
-            .arg(stats.rejectedEntities));
+        outData.setError(
+            DxfImportErrorCode::NoSupportedEntities,
+            QStringLiteral(
+                "DXF was read successfully, but no valid supported entities were found (%1 rejected).")
+                .arg(stats.rejectedEntities));
         return false;
     }
 
