@@ -99,8 +99,23 @@ int FeData::addOrGetNode(double x, double y, double z, double tolerance)
     node.z  = z;
     m_nodes.push_back(node);
 
-    // Invalidate spatial index (lazy rebuild on next query).
-    m_index.clear();
+    if (tolerance > 0.0) {
+        // findNearbyNode() ensures an existing non-empty data set is indexed
+        // with this tolerance. The first node is the only case where no index
+        // exists yet, so initialise it directly.
+        if (m_indexTolerance != tolerance) {
+            rebuildIndex(tolerance);
+        } else {
+            const double cellSize = tolerance * 2.0;
+            m_index[makeKey(x, y, z, cellSize)].push_back(node.id);
+        }
+    } else {
+        // A node inserted while merging is disabled is absent from any
+        // existing positive-tolerance index. Force one rebuild if merging is
+        // enabled by a later call.
+        m_index.clear();
+        m_indexTolerance = -1.0;
+    }
     return node.id;
 }
 
@@ -118,15 +133,11 @@ int FeData::addTruss(int startNodeId, int endNodeId)
     int b = endNodeId;
     if (a > b) std::swap(a, b);
 
-    // Check for duplicate (same unordered pair).
-    for (const FeTruss& t : m_trusses) {
-        int ta = t.startNodeId;
-        int tb = t.endNodeId;
-        if (ta > tb) { int tmp = ta; ta = tb; tb = tmp; }
-        if (ta == a && tb == b) {
-            ++m_stats.skippedDuplicateTruss;
-            return -1;
-        }
+    // Check for duplicate (same unordered pair) in expected O(1) time.
+    const TrussKey key{a, b};
+    if (m_trussIndex.find(key) != m_trussIndex.end()) {
+        ++m_stats.skippedDuplicateTruss;
+        return -1;
     }
 
     FeTruss truss;
@@ -134,6 +145,7 @@ int FeData::addTruss(int startNodeId, int endNodeId)
     truss.startNodeId = a;
     truss.endNodeId   = b;
     m_trusses.push_back(truss);
+    m_trussIndex.emplace(key);
     return truss.id;
 }
 
@@ -141,6 +153,7 @@ void FeData::clear()
 {
     m_nodes.clear();
     m_trusses.clear();
+    m_trussIndex.clear();
     m_stats = FeConversionStats{};
     m_index.clear();
     m_indexTolerance = -1.0;

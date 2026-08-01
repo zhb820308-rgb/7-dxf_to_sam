@@ -10,7 +10,16 @@
 #include <ptoKUtils.h>
 #include <pytInterpreterRole.h>
 
+#include <algorithm>
 #include <cmath>
+
+namespace {
+
+// Keep Python source bounded while replacing one interpreter crossing per FE
+// object with one crossing per batch.  It also limits cancellation latency.
+const int kPythonBatchSize = 1000;
+
+}
 
 QString PythonFiniteElementBuilder::pythonStringLiteral(const QString& value)
 {
@@ -107,13 +116,30 @@ int PythonFiniteElementBuilder::createNodes(const std::vector<FeNode>& nodes)
             m_lastError = QString("createNodes: invalid coordinate for node %1").arg(node.id);
             return -1;
         }
-        const QString command = QString("_example1_fe_part.createNode(x=%1, y=%2, z=%3)")
-            .arg(QString::number(node.x, 'g', 17))
-            .arg(QString::number(node.y, 'g', 17))
-            .arg(QString::number(node.z, 'g', 17));
-        if (!runCommand(command, QString("create node %1").arg(node.id)))
+    }
+
+    for (int first = 0; first < total; first += kPythonBatchSize) {
+        const int last = std::min(first + kPythonBatchSize, total);
+        QString command;
+        command.reserve((last - first) * 72 + 128);
+        command.append("for _example1_fe_x, _example1_fe_y, _example1_fe_z in (\n");
+        for (int i = first; i < last; ++i) {
+            const FeNode& node = nodes[static_cast<std::size_t>(i)];
+            command.append("    (")
+                .append(QString::number(node.x, 'g', 17))
+                .append(", ")
+                .append(QString::number(node.y, 'g', 17))
+                .append(", ")
+                .append(QString::number(node.z, 'g', 17))
+                .append("),\n");
+        }
+        command.append("):\n")
+            .append("    _example1_fe_part.createNode(x=_example1_fe_x, y=_example1_fe_y, z=_example1_fe_z)\n");
+        if (!runCommand(command,
+                        QString("create nodes %1-%2").arg(first).arg(last - 1)))
             return -1;
-        ++m_createdNodeCount;
+
+        m_createdNodeCount += last - first;
         if (!reportProgress(QStringLiteral("Creating FE nodes"), m_createdNodeCount, total))
             return -1;
     }
@@ -137,15 +163,30 @@ int PythonFiniteElementBuilder::createTrusses(const std::vector<FeTruss>& trusse
                 .arg(truss.id);
             return -1;
         }
-        const QString command = QString(
-            "_example1_fe_part.Element("
-            "nodes=(_example1_fe_part.nodes[%1], _example1_fe_part.nodes[%2]), "
-            "elemShape=samConstants.TRUSS, intersectNodes=False)")
-            .arg(truss.startNodeId)
-            .arg(truss.endNodeId);
-        if (!runCommand(command, QString("create truss %1").arg(truss.id)))
+    }
+
+    for (int first = 0; first < total; first += kPythonBatchSize) {
+        const int last = std::min(first + kPythonBatchSize, total);
+        QString command;
+        command.reserve((last - first) * 24 + 224);
+        command.append("for _example1_fe_start, _example1_fe_end in (\n");
+        for (int i = first; i < last; ++i) {
+            const FeTruss& truss = trusses[static_cast<std::size_t>(i)];
+            command.append("    (")
+                .append(QString::number(truss.startNodeId))
+                .append(", ")
+                .append(QString::number(truss.endNodeId))
+                .append("),\n");
+        }
+        command.append("):\n")
+            .append("    _example1_fe_part.Element(\n")
+            .append("        nodes=(_example1_fe_part.nodes[_example1_fe_start], _example1_fe_part.nodes[_example1_fe_end]),\n")
+            .append("        elemShape=samConstants.TRUSS, intersectNodes=False)\n");
+        if (!runCommand(command,
+                        QString("create trusses %1-%2").arg(first).arg(last - 1)))
             return -1;
-        ++m_createdTrussCount;
+
+        m_createdTrussCount += last - first;
         if (!reportProgress(QStringLiteral("Creating FE trusses"), m_createdTrussCount, total))
             return -1;
     }

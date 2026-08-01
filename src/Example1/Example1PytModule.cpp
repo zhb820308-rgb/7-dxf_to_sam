@@ -248,6 +248,35 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 			importId, pathText, baseX, baseY, baseZ, curveTolerance);
 	}
 
+	// Validate numeric inputs before parsing. Block expansion may tessellate
+	// curves, so invalid tolerances must not reach DxfParser/GeometryUtils.
+	if (!std::isfinite(baseX) ||
+		!std::isfinite(baseY) ||
+		!std::isfinite(baseZ))
+	{
+		return failImport(logger, errorLogger, importId, pathText,
+			"validate_params", " invalid_base_coordinates",
+			totalTimer.elapsed(),
+			QStringLiteral(
+				"[importDxf] ERROR: base coordinates must be finite"));
+	}
+	if (!std::isfinite(curveTolerance) || curveTolerance <= 0.0)
+	{
+		return failImport(logger, errorLogger, importId, pathText,
+			"validate_params", " invalid_curveTolerance",
+			totalTimer.elapsed(),
+			QString("[importDxf] ERROR: invalid curveTolerance %1")
+				.arg(curveTolerance));
+	}
+	if (!std::isfinite(nodeMergeTolerance) || nodeMergeTolerance < 0.0)
+	{
+		return failImport(logger, errorLogger, importId, pathText,
+			"validate_params", " invalid_nodeMergeTolerance",
+			totalTimer.elapsed(),
+			QString("[importDxf] ERROR: invalid nodeMergeTolerance %1")
+				.arg(nodeMergeTolerance));
+	}
+
 	// [3/8] Stage 1: Parse DXF file
 	QElapsedTimer stageTimer;
 	stageTimer.start();
@@ -307,15 +336,6 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 				QString("[importDxf] ERROR: FE mode requires '%1'")
 					.arg(missingName));
 		}
-		if (!std::isfinite(nodeMergeTolerance) || nodeMergeTolerance < 0.0)
-		{
-			return failImport(logger, errorLogger, importId, pathText,
-				"validate_params", " invalid nodeMergeTolerance",
-				totalTimer.elapsed(),
-				QString("[importDxf] ERROR: invalid nodeMergeTolerance %1")
-					.arg(nodeMergeTolerance));
-		}
-
 		stageTimer.restart();
 		FeData feData;
 		FeConversionEngine feConverter;

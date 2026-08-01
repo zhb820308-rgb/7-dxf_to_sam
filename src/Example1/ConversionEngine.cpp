@@ -18,6 +18,13 @@ bool ConversionEngine::convert(const DxfData& dxfData,
         qWarning() << "[ConversionEngine] invalid curve tolerance:" << tolerance;
         return false;
     }
+    if (!std::isfinite(baseX) ||
+        !std::isfinite(baseY) ||
+        !std::isfinite(baseZ)) {
+        qWarning() << "[ConversionEngine] base coordinates must be finite:"
+                   << baseX << baseY << baseZ;
+        return false;
+    }
 
     // POINT entities are parsed and logged as raw DXF data, but they are not
     // converted because the current SAM builder only creates lines and circles.

@@ -9,6 +9,7 @@
  */
 #include <gtest/gtest.h>
 #include <cmath>
+#include <limits>
 #include "ConversionEngine.h"
 #include "SamData.h"
 
@@ -147,6 +148,19 @@ TEST(Convert, translation_applied_to_circles) {
     EXPECT_DOUBLE_EQ(out.circles()[0].center().y(), 0.0);
     EXPECT_DOUBLE_EQ(out.circles()[0].center().z(), 0.0);
     EXPECT_DOUBLE_EQ(out.circles()[0].radius(), 10.0);  // radius unchanged
+}
+
+TEST(Convert, nonfinite_base_coordinate_is_rejected) {
+    DxfData dxf;
+    dxf.addLine(DxfLine(DxfPoint(0, 0, 0), DxfPoint(1, 0, 0)));
+
+    SamData out;
+    EXPECT_FALSE(ConversionEngine().convert(
+        dxf,
+        std::numeric_limits<double>::quiet_NaN(), 0.0, 0.0,
+        ConversionEngine::defaultBulgeTolerance(), out));
+    EXPECT_TRUE(out.lines().empty());
+    EXPECT_TRUE(out.circles().empty());
 }
 
 TEST(Convert, translation_applied_to_arc_output) {

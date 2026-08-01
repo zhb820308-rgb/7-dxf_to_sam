@@ -223,9 +223,34 @@ void DxfData::clear()
     m_lwPolylines.clear();
     m_ellipses.clear();
     m_splines.clear();
+    m_inserts.clear();
     m_entityStats = DxfEntityStats();
     m_errorMessage.clear();
     m_isValid = false;
+}
+
+void DxfData::reserveLines(std::size_t count)
+{
+    if (m_lines.capacity() < count)
+        m_lines.reserve(count);
+}
+
+void DxfData::reservePoints(std::size_t count)
+{
+    if (m_points.capacity() < count)
+        m_points.reserve(count);
+}
+
+void DxfData::reserveLWPolylines(std::size_t count)
+{
+    if (m_lwPolylines.capacity() < count)
+        m_lwPolylines.reserve(count);
+}
+
+void DxfData::reserveSplines(std::size_t count)
+{
+    if (m_splines.capacity() < count)
+        m_splines.reserve(count);
 }
 
 void DxfData::addPoint(const DxfPoint& pt)

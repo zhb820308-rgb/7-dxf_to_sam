@@ -271,6 +271,10 @@ public:
     void recordGeneratedEntity(EntityType sourceType);
     void recordGeneratedSpline(const SplineKind& kind);
     void addInsert(const InsertInfo& ins) { m_inserts.push_back(ins); }
+    void reserveLines(std::size_t count);
+    void reservePoints(std::size_t count);
+    void reserveLWPolylines(std::size_t count);
+    void reserveSplines(std::size_t count);
     void clear();
 
     // ======== accessors ========
@@ -284,12 +288,24 @@ public:
     const std::vector<InsertInfo>&     inserts()      const { return m_inserts; }
     const DxfEntityStats&             entityStats()  const { return m_entityStats; }
 
+    /// Number of all supported DXF entities, including standalone POINTs.
     int entityCount() const {
+        return static_cast<int>(
+            m_points.size() + m_lines.size() + m_circles.size() +
+            m_arcs.size() + m_lwPolylines.size() + m_ellipses.size() +
+            m_splines.size());
+    }
+
+    /// Number of entities supported by the Sketch conversion path.
+    int sketchEntityCount() const {
         return static_cast<int>(
             m_lines.size() + m_circles.size() +
             m_arcs.size() + m_lwPolylines.size() + m_ellipses.size() +
             m_splines.size());
     }
+
+    /// Number of entities supported by the finite-element conversion path.
+    int feEntityCount() const { return entityCount(); }
 
     // ======== error / validity ========
     QString errorMessage() const { return m_errorMessage; }

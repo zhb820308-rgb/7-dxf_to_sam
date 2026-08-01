@@ -345,19 +345,30 @@ TEST(DxfLWPolyline, negative_constZ) {
 
 TEST(DxfData, entity_count_sums_correctly) {
     DxfData data;
+    data.addPoint(DxfPoint(2, 3, 4));
     data.addLine(DxfLine(DxfPoint(0, 0, 0), DxfPoint(1, 0, 0)));
     data.addCircle(DxfCircle(DxfPoint(0, 0, 0), 5.0));
     data.addArc(DxfArc(DxfPoint(0, 0, 0), 10.0, 0.0, M_PI, true));
-    EXPECT_EQ(data.entityCount(), 3);  // 1 line + 1 circle + 1 arc
+    EXPECT_EQ(data.entityCount(), 4);
+    EXPECT_EQ(data.sketchEntityCount(), 3);
+    EXPECT_EQ(data.feEntityCount(), 4);
 }
 
 TEST(DxfData, clear_resets_everything) {
     DxfData data;
+    InsertInfo insert;
+    insert.blockName = "TEST_BLOCK";
+    data.addPoint(DxfPoint(2, 3, 4));
     data.addLine(DxfLine(DxfPoint(0, 0, 0), DxfPoint(1, 0, 0)));
+    data.addInsert(insert);
+    data.setErrorMessage(QStringLiteral("old error"));
     data.setValid(true);
     data.clear();
     EXPECT_FALSE(data.isValid());
     EXPECT_EQ(data.entityCount(), 0);
+    EXPECT_TRUE(data.points().empty());
+    EXPECT_TRUE(data.inserts().empty());
+    EXPECT_TRUE(data.errorMessage().isEmpty());
     EXPECT_EQ(data.entityStats().lines, 0u);
     EXPECT_EQ(data.entityStats().curveCount(), 0u);
 }
