@@ -15,6 +15,7 @@
 #include <string>
 
 #include "DxfImportLogger.h"
+#include "DxfImportFormatting.h"
 #include "DxfImportError.h"
 #include "DxfParser.h"
 #include "ConversionEngine.h"
@@ -114,40 +115,6 @@ static void showSmallDrawingRecommendation(std::size_t outputEntities,
 			.arg(static_cast<qulonglong>(outputEntities)));
 }
 
-static QString boolText(bool value)
-{
-	return value ? QStringLiteral("true") : QStringLiteral("false");
-}
-
-static QString importErrorCodeText(DxfImportErrorCode code)
-{
-	switch (code)
-	{
-	case DxfImportErrorCode::InvalidArgument: return QStringLiteral("INVALID_ARGUMENT");
-	case DxfImportErrorCode::ReadFailed: return QStringLiteral("READ_FAILED");
-	case DxfImportErrorCode::ExpansionLimit: return QStringLiteral("EXPANSION_LIMIT");
-	case DxfImportErrorCode::ConversionLimit: return QStringLiteral("CONVERSION_LIMIT");
-	case DxfImportErrorCode::NoSupportedEntities: return QStringLiteral("NO_SUPPORTED_ENTITIES");
-	case DxfImportErrorCode::ConversionFailed: return QStringLiteral("CONVERSION_FAILED");
-	case DxfImportErrorCode::None: break;
-	}
-	return QStringLiteral("NONE");
-}
-
-static const char* importBuildStage(ImportBuildStatus status)
-{
-	switch (status)
-	{
-	case ImportBuildStatus::Canceled: return "canceled";
-	case ImportBuildStatus::BeginFailed: return "begin_import";
-	case ImportBuildStatus::CreateFailed: return "create";
-	case ImportBuildStatus::CommitFailed: return "commit";
-	case ImportBuildStatus::RollbackFailed: return "rollback";
-	case ImportBuildStatus::Success: break;
-	}
-	return "build";
-}
-
 template <typename Builder>
 static ImportBuildResult rollbackAfterFailure(
 	Builder& builder, ImportBuildResult failure, int previouslyCreated = 0)
@@ -162,50 +129,6 @@ static ImportBuildResult rollbackAfterFailure(
 		: failure.message + QStringLiteral("; ") + cleanup.message;
 	return ImportBuildResult::failure(
 		ImportBuildStatus::RollbackFailed, combined, failure.createdCount);
-}
-
-static QString splineKindText(const SplineKind& kind)
-{
-	const QString construction = kind.construction == SplineConstruction::ControlBased
-		? QStringLiteral("ControlBased")
-		: QStringLiteral("FitBased");
-	return QStringLiteral("%1|rational=%2|periodic=%3|closed=%4")
-		.arg(construction)
-		.arg(boolText(kind.rational))
-		.arg(boolText(kind.periodic))
-		.arg(boolText(kind.closed));
-}
-
-static QString importSummaryText(int created, const DxfEntityStats& stats)
-{
-	QStringList splineCategories;
-	for (const auto& entry : stats.splineKinds)
-	{
-		if (entry.second == 0)
-			continue;
-		splineCategories.append(
-			QStringLiteral("%1=%2")
-			.arg(splineKindText(entry.first))
-			.arg(static_cast<qulonglong>(entry.second)));
-	}
-
-	return QStringLiteral(
-		"[importDxf] Import complete: imported entities=%1; source=%2, accepted=%3, rejected=%4, generated=%5; "
-		"types (after layer filter and block expansion): lines=%6, polylines=%7, curves=%8 "
-		"(circles=%9, arcs=%10, ellipses=%11, splines=%12; spline categories=[%13])")
-		.arg(created)
-		.arg(static_cast<qulonglong>(stats.sourceEntities))
-		.arg(static_cast<qulonglong>(stats.acceptedEntities))
-		.arg(static_cast<qulonglong>(stats.rejectedEntities))
-		.arg(static_cast<qulonglong>(stats.generatedEntities))
-		.arg(static_cast<qulonglong>(stats.lines))
-		.arg(static_cast<qulonglong>(stats.lwPolylines))
-		.arg(static_cast<qulonglong>(stats.curveCount()))
-		.arg(static_cast<qulonglong>(stats.circles))
-		.arg(static_cast<qulonglong>(stats.arcs))
-		.arg(static_cast<qulonglong>(stats.ellipses))
-		.arg(static_cast<qulonglong>(stats.splineCount()))
-		.arg(splineCategories.join(QStringLiteral(", ")));
 }
 
 ImportBuildResult Example1PytModule::buildSamSketch(
@@ -389,7 +312,8 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 	if (!parser.parseFile(filePath, dxfData, curveTolerance, ignoredLayers,
 		outputLimit))
 	{
-		const QString errorCode = importErrorCodeText(dxfData.errorCode());
+		const QString errorCode = DxfImportFormatting::errorCodeText(
+			dxfData.errorCode());
 		const QString errorMessage = dxfData.errorMessage();
 		showBudgetErrorDialog(dxfData.errorCode(), maxOutputEntities);
 		std::string detail = " error_code=" + errorCode.toStdString() +
@@ -454,7 +378,8 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 			curveTolerance, nodeMergeTolerance, feData,
 			outputLimit))
 		{
-			const QString errorCode = importErrorCodeText(feData.errorCode());
+			const QString errorCode = DxfImportFormatting::errorCodeText(
+				feData.errorCode());
 			const QString errorMessage = feData.errorMessage().isEmpty()
 				? QStringLiteral("no valid FE nodes to import")
 				: feData.errorMessage();
@@ -533,7 +458,8 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 			progressDialog.close();
 			const bool canceled =
 				buildResult.status == ImportBuildStatus::Canceled;
-			const std::string stage = importBuildStage(buildResult.status);
+			const std::string stage = DxfImportFormatting::buildStage(
+				buildResult.status);
 			std::string detail =
 				" error=\"" + buildResult.message.toLocal8Bit().toStdString() + "\"";
 			if (!canceled &&
@@ -581,7 +507,8 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 	if (!convEngine.convert(dxfData, baseX, baseY, baseZ, curveTolerance,
 		samData, outputLimit))
 	{
-		const QString errorCode = importErrorCodeText(samData.errorCode());
+		const QString errorCode = DxfImportFormatting::errorCodeText(
+			samData.errorCode());
 		const QString errorMessage = samData.errorMessage().isEmpty()
 			? QStringLiteral("no valid entities to import")
 			: samData.errorMessage();
@@ -686,7 +613,8 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 
 	if (!buildResult.succeeded())
 	{
-		const std::string stage = importBuildStage(buildResult.status);
+		const std::string stage = DxfImportFormatting::buildStage(
+			buildResult.status);
 		std::string detail =
 			" error=\"" + buildResult.message.toLocal8Bit().toStdString() + "\"";
 		if (buildResult.status != ImportBuildStatus::BeginFailed)
@@ -701,7 +629,8 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 	const int created = buildResult.createdCount;
 	// [8/8] Success
 	progressDialog.setValue(100);
-	qDebug().noquote() << importSummaryText(created, entityStats);
+	qDebug().noquote() << DxfImportFormatting::summaryText(
+		created, entityStats);
 	if (logger)
 	{
 		logger->info(
