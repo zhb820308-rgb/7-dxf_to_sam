@@ -3,12 +3,25 @@
 
   const TAU = Math.PI * 2;
   const DEG = Math.PI / 180;
-  const EXPANSION_LIMITS = Object.freeze({
-    maxDepth: 8,
-    maxArrayInstancesPerInsert: 100000,
-    maxExpandedBlockInstances: 100000,
-    maxOutputEntities: 100000
+  const EXPANSION_PROFILES = Object.freeze({
+    small: Object.freeze({
+      label: "小图纸",
+      maxDepth: 8,
+      maxArrayInstancesPerInsert: 100000,
+      maxExpandedBlockInstances: 100000,
+      maxOutputEntities: 100000,
+      defaultTolerance: 0.01
+    }),
+    large: Object.freeze({
+      label: "大图纸",
+      maxDepth: 8,
+      maxArrayInstancesPerInsert: 100000,
+      maxExpandedBlockInstances: 100000,
+      maxOutputEntities: 500000,
+      defaultTolerance: 0.05
+    })
   });
+  const EXPANSION_LIMITS = EXPANSION_PROFILES.small;
   const ACI = [
     "#ffffff", "#ff3b30", "#ffd60a", "#34c759", "#00d7ff",
     "#0a84ff", "#bf5af2", "#8e8e93", "#c7c7cc", "#f2f2f7"
@@ -344,13 +357,18 @@
     });
   }
 
-  function discretize(parsed, tolerance) {
+  function discretize(parsed, tolerance, profile = "small") {
+    const profileKey = Object.prototype.hasOwnProperty.call(EXPANSION_PROFILES, profile)
+      ? profile : "small";
+    const limits = EXPANSION_PROFILES[profileKey];
     const result = {
       points: [],
       lines: [],
       unsupported: {},
       sourceCount: parsed.entities.length,
-      processedByType: {}
+      processedByType: {},
+      profile: profileKey,
+      maxOutputEntities: limits.maxOutputEntities
     };
     let nextId = 1;
     let expandedBlockInstances = 0;
@@ -367,8 +385,8 @@
     function consumeOutput(count) {
       const current = result.points.length + result.lines.length;
       if (!Number.isSafeInteger(count) || count < 0 ||
-          count > EXPANSION_LIMITS.maxOutputEntities - current) {
-        throw expansionLimit(`output exceeds ${EXPANSION_LIMITS.maxOutputEntities} entities`);
+          count > limits.maxOutputEntities - current) {
+        throw expansionLimit(`output exceeds ${limits.maxOutputEntities} entities`);
       }
     }
 
@@ -377,16 +395,16 @@
           source.rows < 1 || source.columns < 1) {
         throw expansionLimit("rows and columns must be positive safe integers");
       }
-      if (source.rows > Math.floor(EXPANSION_LIMITS.maxArrayInstancesPerInsert / source.columns)) {
+      if (source.rows > Math.floor(limits.maxArrayInstancesPerInsert / source.columns)) {
         throw expansionLimit(
           `${source.rows} rows x ${source.columns} columns exceeds ` +
-          `${EXPANSION_LIMITS.maxArrayInstancesPerInsert} instances per INSERT`
+          `${limits.maxArrayInstancesPerInsert} instances per INSERT`
         );
       }
       const count = source.rows * source.columns;
-      if (count > EXPANSION_LIMITS.maxExpandedBlockInstances - expandedBlockInstances) {
+      if (count > limits.maxExpandedBlockInstances - expandedBlockInstances) {
         throw expansionLimit(
-          `total block instances exceed ${EXPANSION_LIMITS.maxExpandedBlockInstances}`
+          `total block instances exceed ${limits.maxExpandedBlockInstances}`
         );
       }
       expandedBlockInstances += count;
@@ -427,8 +445,8 @@
     }
 
     function visit(source, transform, depth) {
-      if (depth > EXPANSION_LIMITS.maxDepth) {
-        throw expansionLimit(`nesting depth exceeds ${EXPANSION_LIMITS.maxDepth}`);
+      if (depth > limits.maxDepth) {
+        throw expansionLimit(`nesting depth exceeds ${limits.maxDepth}`);
       }
       if (source.type === "POINT") addPoint(source.point, source, transform);
       else if (source.type === "LINE") addPath([source.start, source.end], source, transform);
@@ -607,6 +625,7 @@
 
   global.DXFStudio = {
     parseDxf, discretize, exportDxf, colorForLayer,
-    affectsLayer, isLayerVisible, EXPANSION_LIMITS
+    affectsLayer, isLayerVisible, EXPANSION_LIMITS,
+    EXPANSION_PROFILES
   };
 })(window);

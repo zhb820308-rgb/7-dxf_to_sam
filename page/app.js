@@ -19,6 +19,7 @@
     hasAgentChanges: false,
     fileName: "",
     fileSize: 0,
+    drawingProfile: "small",
     tolerance: 0.01,
     selected: null,
     multiSelection: [],
@@ -40,6 +41,22 @@
 
   function setStatus(message) {
     $("#statusText").textContent = message;
+  }
+
+  function currentDrawingProfile() {
+    return DXFStudio.EXPANSION_PROFILES[state.drawingProfile]
+      || DXFStudio.EXPANSION_PROFILES.small;
+  }
+
+  function syncToleranceControls() {
+    $("#tolerance").value = Number(state.tolerance.toPrecision(5));
+    $("#toleranceRange").value = Math.max(-4, Math.min(2, Math.log10(state.tolerance)));
+  }
+
+  function updateDrawingProfileMeta() {
+    const profile = currentDrawingProfile();
+    $("#profileHint").textContent =
+      `${profile.label}最多 ${profile.maxOutputEntities.toLocaleString()} 个输出图元；默认容差 ${profile.defaultTolerance}`;
   }
 
   function toast(message, type = "") {
@@ -491,7 +508,7 @@
     setStatus("正在解析…");
     try {
       const parsed = DXFStudio.parseDxf(text);
-      const discretized = DXFStudio.discretize(parsed, state.tolerance);
+      const discretized = DXFStudio.discretize(parsed, state.tolerance, state.drawingProfile);
       if (!discretized.points.length && !discretized.lines.length) {
         const unsupported = Object.keys(discretized.unsupported).join("、");
         throw new Error(unsupported ? `未找到可显示图元（不支持：${unsupported}）` : "未找到可显示图元");
@@ -519,7 +536,7 @@
       clearAgentResult();
       $("#fileName").textContent = name;
       $("#sideFileName").textContent = name;
-      $("#fileMeta").textContent = `${formatBytes(size)} · ${parsed.entities.length} 个原始图元 · 原图已保护`;
+      $("#fileMeta").textContent = `${formatBytes(size)} · ${parsed.entities.length} 个原始图元 · ${discretized.points.length + discretized.lines.length} 个输出图元`;
       $("#restoreOriginalBtn").disabled = false;
       setDirty(false);
       refresh();
@@ -776,8 +793,14 @@
 
   function rediscretize() {
     if (!state.parsed) return toast("请先导入 DXF");
+    let result;
+    try {
+      result = DXFStudio.discretize(state.parsed, state.tolerance, state.drawingProfile);
+    } catch (error) {
+      setStatus("重新离散化失败");
+      return toast(error.message || "图元数量超过当前图纸模式上限", "error");
+    }
     snapshot();
-    const result = DXFStudio.discretize(state.parsed, state.tolerance);
     state.points = result.points;
     state.lines = result.lines;
     state.hasAgentChanges = false;
@@ -789,6 +812,7 @@
     fitView();
     const typeCount = Object.keys(result.processedByType).length;
     const unsupportedCount = Object.values(result.unsupported).reduce((sum, count) => sum + count, 0);
+    $("#fileMeta").textContent = `${formatBytes(state.fileSize)} · ${result.sourceCount} 个原始图元 · ${result.points.length + result.lines.length} 个输出图元`;
     setStatus(`已重新离散化全部 ${result.sourceCount} 个图元`);
     toast(
       unsupportedCount
@@ -1152,6 +1176,15 @@
     state.tolerance = 10 ** Number(event.target.value);
     $("#tolerance").value = Number(state.tolerance.toPrecision(5));
   });
+  $$('input[name="drawingProfile"]').forEach((input) => input.addEventListener("change", (event) => {
+    state.drawingProfile = event.target.value;
+    state.tolerance = currentDrawingProfile().defaultTolerance;
+    syncToleranceControls();
+    updateDrawingProfileMeta();
+    if (state.parsed) {
+      toast("图纸模式已切换，请点击重新离散化以应用新上限和容差");
+    }
+  }));
 
   canvas.addEventListener("wheel", (event) => {
     event.preventDefault();
@@ -1314,6 +1347,7 @@
 
   if ("ResizeObserver" in window) new ResizeObserver(resizeCanvas).observe(shell);
   loadAgentSettings();
+  updateDrawingProfileMeta();
   resetDrawing();
   requestAnimationFrame(resizeCanvas);
 })();

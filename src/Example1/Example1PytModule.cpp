@@ -5,6 +5,7 @@
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDebug>
+#include <QMessageBox>
 #include <QElapsedTimer>
 #include <QProgressDialog>
 #include <QStringList>
@@ -13,6 +14,7 @@
 #include <string>
 
 #include "DxfImportLogger.h"
+#include "DxfImportError.h"
 #include "DxfParser.h"
 #include "ConversionEngine.h"
 #include "FeConversionEngine.h"
@@ -48,9 +50,76 @@ Example1PytModule::~Example1PytModule()
 //  DXF import helpers
 // ========================================================================
 
+constexpr std::size_t kSmallDrawingEntityLimit = 100000;
+constexpr int kLargeDrawingEntityLimit = 500000;
+
+static bool isBudgetError(DxfImportErrorCode code)
+{
+	return code == DxfImportErrorCode::ExpansionLimit ||
+		code == DxfImportErrorCode::ConversionLimit;
+}
+
+static void showBudgetErrorDialog(DxfImportErrorCode code,
+	int maxOutputEntities)
+{
+	if (!isBudgetError(code))
+		return;
+	if (maxOutputEntities <= static_cast<int>(kSmallDrawingEntityLimit))
+	{
+		QMessageBox::warning(
+			nullptr,
+			QStringLiteral("DXF Import - Drawing Too Large"),
+			QStringLiteral(
+				"The drawing exceeds the small drawing limit of 100,000 entities.\n\n"
+				"Please reopen the DXF Import dialog and select Large drawing."));
+		return;
+	}
+
+	QMessageBox::warning(
+		nullptr,
+		QStringLiteral("DXF Import - Drawing Too Large"),
+		QStringLiteral(
+			"The drawing still exceeds the selected large drawing limit of %1 entities.\n\n"
+			"Increase the curve tolerance or simplify the drawing before importing.")
+			.arg(maxOutputEntities));
+}
+
+static void showSmallDrawingRecommendation(std::size_t outputEntities,
+	int maxOutputEntities)
+{
+	if (maxOutputEntities == static_cast<int>(kSmallDrawingEntityLimit) ||
+		outputEntities > kSmallDrawingEntityLimit)
+	{
+		return;
+	}
+
+	QMessageBox::information(
+		nullptr,
+		QStringLiteral("DXF Import Recommendation"),
+		QStringLiteral(
+			"The converted result contains %1 entities, which is within the small drawing limit.\n\n"
+			"For lower memory usage, consider selecting Small drawing next time.")
+			.arg(static_cast<qulonglong>(outputEntities)));
+}
+
 static QString boolText(bool value)
 {
 	return value ? QStringLiteral("true") : QStringLiteral("false");
+}
+
+static QString importErrorCodeText(DxfImportErrorCode code)
+{
+	switch (code)
+	{
+	case DxfImportErrorCode::InvalidArgument: return QStringLiteral("INVALID_ARGUMENT");
+	case DxfImportErrorCode::ReadFailed: return QStringLiteral("READ_FAILED");
+	case DxfImportErrorCode::ExpansionLimit: return QStringLiteral("EXPANSION_LIMIT");
+	case DxfImportErrorCode::ConversionLimit: return QStringLiteral("CONVERSION_LIMIT");
+	case DxfImportErrorCode::NoSupportedEntities: return QStringLiteral("NO_SUPPORTED_ENTITIES");
+	case DxfImportErrorCode::ConversionFailed: return QStringLiteral("CONVERSION_FAILED");
+	case DxfImportErrorCode::None: break;
+	}
+	return QStringLiteral("NONE");
 }
 
 static QString splineKindText(const SplineKind& kind)
@@ -197,6 +266,7 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 	QString modelName;
 	QString partName;
 	double nodeMergeTolerance = FeConversionEngine::defaultNodeMergeTolerance();
+	int maxOutputEntities = 100000;
 	args.Begin();
 	args.Get(filePath);
 	args.Get(baseX);
@@ -209,6 +279,7 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 	args.Get(modelName, "modelName");
 	args.Get(partName, "partName");
 	args.Get(nodeMergeTolerance, "nodeMergeTolerance");
+	args.Get(maxOutputEntities, "maxOutputEntities");
 	args.End();
 
 	// Parse ignored layers
@@ -249,8 +320,9 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 	if (logger)
 	{
 		logger->info(
-			"[import={}] started file=\"{}\" base=({}, {}, {}) curve_tolerance={}",
-			importId, pathText, baseX, baseY, baseZ, curveTolerance);
+			"[import={}] started file=\"{}\" base=({}, {}, {}) curve_tolerance={} max_output_entities={}",
+			importId, pathText, baseX, baseY, baseZ, curveTolerance,
+			maxOutputEntities);
 	}
 
 	// Validate numeric inputs before parsing. Block expansion may tessellate
@@ -281,26 +353,42 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 			QString("[importDxf] ERROR: invalid nodeMergeTolerance %1")
 				.arg(nodeMergeTolerance));
 	}
+	if (maxOutputEntities != static_cast<int>(kSmallDrawingEntityLimit) &&
+		maxOutputEntities != kLargeDrawingEntityLimit)
+	{
+		return failImport(logger, errorLogger, importId, pathText,
+			"validate_params", " error_code=INVALID_ARGUMENT invalid_maxOutputEntities",
+			totalTimer.elapsed(),
+			QStringLiteral("[importDxf] ERROR [INVALID_ARGUMENT]: invalid maxOutputEntities"));
+	}
+	const std::size_t outputLimit = static_cast<std::size_t>(maxOutputEntities);
 
 	// [3/8] Stage 1: Parse DXF file
 	QElapsedTimer stageTimer;
 	stageTimer.start();
 	DxfData dxfData;
 	DxfParser parser;
-	if (!parser.parseFile(filePath, dxfData, curveTolerance, ignoredLayers))
+	if (!parser.parseFile(filePath, dxfData, curveTolerance, ignoredLayers,
+		outputLimit))
 	{
-		std::string detail = " error=\"" + dxfData.errorMessage().toLocal8Bit().toStdString() + "\"";
+		const QString errorCode = importErrorCodeText(dxfData.errorCode());
+		const QString errorMessage = dxfData.errorMessage();
+		showBudgetErrorDialog(dxfData.errorCode(), maxOutputEntities);
+		std::string detail = " error_code=" + errorCode.toStdString() +
+			" error=\"" + errorMessage.toLocal8Bit().toStdString() + "\"";
 		return failImport(logger, errorLogger, importId, pathText,
 			"parse", detail, totalTimer.elapsed(),
-			QString("[importDxf] ERROR: DXF parse failed — %1").arg(dxfData.errorMessage()));
+			QString("[importDxf] ERROR [%1]: DXF parse failed - %2")
+				.arg(errorCode, errorMessage));
 	}
 
 	// [4/8] Log parse results
 	if (logger)
 	{
 		logger->info(
-			"[import={}] parse_completed points={} lines={} circles={} arcs={} lw_polylines={} ellipses={} duration_ms={}",
+			"[import={}] parse_completed entities={} points={} lines={} circles={} arcs={} lw_polylines={} ellipses={} duration_ms={}",
 			importId,
+			dxfData.entityCount(),
 			dxfData.points().size(),
 			dxfData.lines().size(),
 			dxfData.circles().size(),
@@ -345,12 +433,25 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 		FeData feData;
 		FeConversionEngine feConverter;
 		if (!feConverter.convert(dxfData, baseX, baseY, baseZ,
-			curveTolerance, nodeMergeTolerance, feData))
+			curveTolerance, nodeMergeTolerance, feData,
+			outputLimit))
 		{
+			const QString errorCode = importErrorCodeText(feData.errorCode());
+			const QString errorMessage = feData.errorMessage().isEmpty()
+				? QStringLiteral("no valid FE nodes to import")
+				: feData.errorMessage();
+			showBudgetErrorDialog(feData.errorCode(), maxOutputEntities);
 			return failImport(logger, errorLogger, importId, pathText,
-				"fe_conversion", "", totalTimer.elapsed(),
-				QStringLiteral("[importDxf] WARNING: no valid FE nodes to import"));
+				"fe_conversion",
+				" error_code=" + errorCode.toStdString() +
+				" error=\"" + errorMessage.toLocal8Bit().toStdString() + "\"",
+				totalTimer.elapsed(),
+				QString("[importDxf] ERROR [%1]: %2")
+					.arg(errorCode, errorMessage));
 		}
+		showSmallDrawingRecommendation(
+			feData.nodes().size() + feData.trusses().size(),
+			maxOutputEntities);
 		dxfData.clear();
 
 		const FeConversionStats feStats = feData.stats();
@@ -462,12 +563,25 @@ omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 	stageTimer.restart();
 	SamData samData;
 	ConversionEngine convEngine;
-	if (!convEngine.convert(dxfData, baseX, baseY, baseZ, curveTolerance, samData))
+	if (!convEngine.convert(dxfData, baseX, baseY, baseZ, curveTolerance,
+		samData, outputLimit))
 	{
+		const QString errorCode = importErrorCodeText(samData.errorCode());
+		const QString errorMessage = samData.errorMessage().isEmpty()
+			? QStringLiteral("no valid entities to import")
+			: samData.errorMessage();
+		showBudgetErrorDialog(samData.errorCode(), maxOutputEntities);
 		return failImport(logger, errorLogger, importId, pathText,
-			"conversion", "", totalTimer.elapsed(),
-			QString("[importDxf] WARNING: no valid entities to import"));
+			"conversion",
+			" error_code=" + errorCode.toStdString() +
+			" error=\"" + errorMessage.toLocal8Bit().toStdString() + "\"",
+			totalTimer.elapsed(),
+			QString("[importDxf] ERROR [%1]: %2")
+				.arg(errorCode, errorMessage));
 	}
+	showSmallDrawingRecommendation(
+		samData.lines().size() + samData.circles().size(),
+		maxOutputEntities);
 
 	// Release parsed data to reduce peak memory (DxfData no longer needed after conversion)
 	dxfData.clear();

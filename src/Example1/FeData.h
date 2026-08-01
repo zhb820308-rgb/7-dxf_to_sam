@@ -2,6 +2,8 @@
 #define FeData_h
 
 #include <cstddef>
+#include <QString>
+#include "DxfImportError.h"
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -72,6 +74,12 @@ public:
     // --- statistics ---
     const FeConversionStats& stats() const { return m_stats; }
     FeConversionStats&       stats()       { return m_stats; }
+    DxfImportErrorCode errorCode() const { return m_errorCode; }
+    const QString& errorMessage() const { return m_errorMessage; }
+    void setError(DxfImportErrorCode code, const QString& message) {
+        m_errorCode = code;
+        m_errorMessage = message;
+    }
 
 private:
     // 3-D spatial hash for O(1) approximate look-up of nearby nodes.
@@ -117,6 +125,8 @@ private:
     std::vector<FeTruss> m_trusses;
     std::unordered_set<TrussKey, TrussKeyHash> m_trussIndex;
     FeConversionStats    m_stats;
+    DxfImportErrorCode   m_errorCode = DxfImportErrorCode::None;
+    QString              m_errorMessage;
 
     // Spatial index: key → vector of node indices.
     // Updated incrementally while tolerance is unchanged. Rebuilt only when

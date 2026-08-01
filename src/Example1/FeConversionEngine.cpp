@@ -1,6 +1,7 @@
 #include "FeConversionEngine.h"
 #include "GeometryUtils.h"
 #include <QDebug>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 
@@ -16,30 +17,39 @@ DxfPoint FeConversionEngine::translate(const DxfPoint& pt,
 
 // Feed a segment (DxfLine) into FeData — merges nodes and adds a
 // truss.  Skips degenerate (same-node) and zero-length segments.
-static void feedSegment(FeData& outData,
+static bool feedSegment(FeData& outData,
                         const DxfPoint& start, const DxfPoint& end,
-                        double nodeMergeTolerance)
+                        double nodeMergeTolerance,
+                        std::size_t maxOutputEntities)
 {
     int s = outData.addOrGetNode(start.x(), start.y(), start.z(),
                                   nodeMergeTolerance);
+    if (outData.nodes().size() + outData.trusses().size() > maxOutputEntities)
+        return false;
     int e = outData.addOrGetNode(end.x(),   end.y(),   end.z(),
                                   nodeMergeTolerance);
+    if (outData.nodes().size() + outData.trusses().size() > maxOutputEntities)
+        return false;
     if (s == e) {
         ++outData.stats().skippedZeroLength;
-        return;
+        return true;
     }
     outData.addTruss(s, e);
+    return outData.nodes().size() + outData.trusses().size() <= maxOutputEntities;
 }
 
 // Feed a batch of tessellated DxfLine segments (already translated).
-static void feedSegments(FeData& outData,
+static bool feedSegments(FeData& outData,
                          const std::vector<DxfLine>& segments,
-                         double nodeMergeTolerance)
+                         double nodeMergeTolerance,
+                         std::size_t maxOutputEntities)
 {
     for (const DxfLine& seg : segments) {
         if (!seg.isValid()) continue;
-        feedSegment(outData, seg.start(), seg.end(), nodeMergeTolerance);
+        if (!feedSegment(outData, seg.start(), seg.end(), nodeMergeTolerance,
+                         maxOutputEntities)) return false;
     }
+    return true;
 }
 
 // ========================================================================
@@ -50,17 +60,22 @@ bool FeConversionEngine::convert(const DxfData& dxfData,
                                  double baseX, double baseY, double baseZ,
                                  double curveTolerance,
                                  double nodeMergeTolerance,
-                                 FeData& outData) const
+                                 FeData& outData,
+                                 std::size_t maxOutputEntities) const
 {
     const auto startedAt = std::chrono::steady_clock::now();
     outData.clear();
 
     if (!std::isfinite(curveTolerance) || curveTolerance <= 0.0) {
+        outData.setError(DxfImportErrorCode::InvalidArgument,
+                         QStringLiteral("invalid curve tolerance"));
         qWarning() << "[FeConversionEngine] invalid curve tolerance:"
                     << curveTolerance;
         return false;
     }
     if (!std::isfinite(nodeMergeTolerance) || nodeMergeTolerance < 0.0) {
+        outData.setError(DxfImportErrorCode::InvalidArgument,
+                         QStringLiteral("invalid node merge tolerance"));
         qWarning() << "[FeConversionEngine] invalid node merge tolerance:"
                     << nodeMergeTolerance;
         return false;
@@ -68,6 +83,8 @@ bool FeConversionEngine::convert(const DxfData& dxfData,
     if (!std::isfinite(baseX) ||
         !std::isfinite(baseY) ||
         !std::isfinite(baseZ)) {
+        outData.setError(DxfImportErrorCode::InvalidArgument,
+                         QStringLiteral("base coordinates must be finite"));
         qWarning() << "[FeConversionEngine] base coordinates must be finite:"
                    << baseX << baseY << baseZ;
         return false;
@@ -82,7 +99,23 @@ bool FeConversionEngine::convert(const DxfData& dxfData,
                                   + dxfData.lwPolylines().size()
                                   + dxfData.ellipses().size()
                                   + dxfData.splines().size();
-    outData.reserve(entityCount, entityCount);
+    if (maxOutputEntities == 0) {
+        outData.setError(DxfImportErrorCode::InvalidArgument,
+                         QStringLiteral("maxOutputEntities must be greater than zero"));
+        return false;
+    }
+
+    auto failLimit = [&]() {
+        outData.clear();
+        outData.setError(
+            DxfImportErrorCode::ConversionLimit,
+            QStringLiteral("FE output exceeds %1 nodes and elements")
+                .arg(static_cast<qulonglong>(maxOutputEntities)));
+        return false;
+    };
+
+    const std::size_t reserveHint = std::min(entityCount, maxOutputEntities);
+    outData.reserve(reserveHint, reserveHint);
 
     FeConversionStats& stats = outData.stats();
 
@@ -91,6 +124,8 @@ bool FeConversionEngine::convert(const DxfData& dxfData,
         if (!pt.isValid()) continue;
         DxfPoint tp = translate(pt, baseX, baseY, baseZ);
         outData.addOrGetNode(tp.x(), tp.y(), tp.z(), nodeMergeTolerance);
+        if (outData.nodes().size() + outData.trusses().size() > maxOutputEntities)
+            return failLimit();
         ++stats.pointsProcessed;
     }
 
@@ -99,7 +134,8 @@ bool FeConversionEngine::convert(const DxfData& dxfData,
         if (!line.isValid()) continue;
         DxfPoint s = translate(line.start(), baseX, baseY, baseZ);
         DxfPoint e = translate(line.end(),   baseX, baseY, baseZ);
-        feedSegment(outData, s, e, nodeMergeTolerance);
+        if (!feedSegment(outData, s, e, nodeMergeTolerance, maxOutputEntities))
+            return failLimit();
         ++stats.linesProcessed;
     }
 
@@ -109,7 +145,8 @@ bool FeConversionEngine::convert(const DxfData& dxfData,
         DxfPoint c = translate(circle.center(), baseX, baseY, baseZ);
         DxfArc equiv(c, circle.radius(), 0.0, 2.0 * M_PI, true);
         auto segments = GeometryUtils::tessellateArc(equiv, curveTolerance);
-        feedSegments(outData, segments, nodeMergeTolerance);
+        if (!feedSegments(outData, segments, nodeMergeTolerance, maxOutputEntities))
+            return failLimit();
         ++stats.circlesDiscretized;
     }
 
@@ -119,9 +156,10 @@ bool FeConversionEngine::convert(const DxfData& dxfData,
         DxfPoint c = translate(arc.center(), baseX, baseY, baseZ);
         DxfArc shifted(c, arc.radius(),
                        arc.startAngle(), arc.endAngle(), arc.isCCW());
-        feedSegments(outData,
-                     GeometryUtils::tessellateArc(shifted, curveTolerance),
-                     nodeMergeTolerance);
+        if (!feedSegments(outData,
+                          GeometryUtils::tessellateArc(shifted, curveTolerance),
+                          nodeMergeTolerance, maxOutputEntities))
+            return failLimit();
         ++stats.arcsDiscretized;
     }
 
@@ -133,10 +171,11 @@ bool FeConversionEngine::convert(const DxfData& dxfData,
             verts.push_back(translate(v, baseX, baseY, baseZ));
         DxfLWPolyline shifted(verts, poly.bulges(),
                               poly.isClosed(), poly.constZ() + baseZ);
-        feedSegments(outData,
-                     GeometryUtils::tessellateLWPolyline(shifted,
-                                                         curveTolerance),
-                     nodeMergeTolerance);
+        if (!feedSegments(outData,
+                          GeometryUtils::tessellateLWPolyline(shifted,
+                                                              curveTolerance),
+                          nodeMergeTolerance, maxOutputEntities))
+            return failLimit();
         ++stats.lwPolylinesDiscretized;
     }
 
@@ -151,10 +190,11 @@ bool FeConversionEngine::convert(const DxfData& dxfData,
                            ellipse.ratio(),
                            ellipse.startParam(), ellipse.endParam(),
                            ellipse.isCCW());
-        feedSegments(outData,
-                     GeometryUtils::tessellateEllipse(shifted,
-                                                      curveTolerance),
-                     nodeMergeTolerance);
+        if (!feedSegments(outData,
+                          GeometryUtils::tessellateEllipse(shifted,
+                                                            curveTolerance),
+                          nodeMergeTolerance, maxOutputEntities))
+            return failLimit();
         ++stats.ellipsesDiscretized;
     }
 
@@ -171,9 +211,10 @@ bool FeConversionEngine::convert(const DxfData& dxfData,
                           fitPts, spline.degree(), spline.flags(),
                           spline.tgStartX(), spline.tgStartY(), spline.tgStartZ(),
                           spline.tgEndX(),   spline.tgEndY(),   spline.tgEndZ());
-        feedSegments(outData,
-                     GeometryUtils::tessellateSpline(shifted, curveTolerance),
-                     nodeMergeTolerance);
+        if (!feedSegments(outData,
+                          GeometryUtils::tessellateSpline(shifted, curveTolerance),
+                          nodeMergeTolerance, maxOutputEntities))
+            return failLimit();
         ++stats.splinesDiscretized;
     }
 
@@ -186,6 +227,10 @@ bool FeConversionEngine::convert(const DxfData& dxfData,
                              + stats.splinesDiscretized;
 
     const bool hasNodes = !outData.nodes().empty();
+    if (!hasNodes) {
+        outData.setError(DxfImportErrorCode::ConversionFailed,
+                         QStringLiteral("no valid FE entities to convert"));
+    }
     qInfo().noquote() << "[FeConversionEngine] convert:"
                       << stats.totalInputEntities << "entities ->"
                       << outData.nodes().size() << "nodes,"

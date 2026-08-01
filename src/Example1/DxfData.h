@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 #include <QString>
+#include "DxfImportError.h"
 
 // ======== InsertInfo — shared by DxfBlock and DxfData ========
 
@@ -315,11 +316,10 @@ public:
     const DxfEntityStats&             entityStats()  const { return m_entityStats; }
 
     /// Number of all supported DXF entities, including standalone POINTs.
-    int entityCount() const {
-        return static_cast<int>(
-            m_points.size() + m_lines.size() + m_circles.size() +
-            m_arcs.size() + m_lwPolylines.size() + m_ellipses.size() +
-            m_splines.size());
+    std::size_t entityCount() const {
+        return m_points.size() + m_lines.size() + m_circles.size() +
+               m_arcs.size() + m_lwPolylines.size() + m_ellipses.size() +
+               m_splines.size();
     }
 
     /// Number of entities supported by the Sketch conversion path.
@@ -336,6 +336,11 @@ public:
     // ======== error / validity ========
     QString errorMessage() const { return m_errorMessage; }
     void setErrorMessage(const QString& msg) { m_errorMessage = msg; }
+    DxfImportErrorCode errorCode() const { return m_errorCode; }
+    void setError(DxfImportErrorCode code, const QString& msg) {
+        m_errorCode = code;
+        m_errorMessage = msg;
+    }
 
     bool isValid() const { return m_isValid; }
     void setValid(bool v) { m_isValid = v; }
@@ -354,6 +359,7 @@ private:
     std::vector<InsertInfo>     m_inserts;
     DxfEntityStats m_entityStats;
     QString m_errorMessage;
+    DxfImportErrorCode m_errorCode = DxfImportErrorCode::None;
     bool m_isValid = false;
 };
 

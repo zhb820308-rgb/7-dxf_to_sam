@@ -5,7 +5,7 @@
 本文说明 C-02 的问题成因、风险、修复方案、实现边界和验证结果，供后续代码审查、维护及回归测试使用。
 
 修复日期：2026-08-01
-修复状态：部分完成；C++ 端到端最终输出预算待补充
+修复状态：代码完成；自动化验证通过，待 SAM GUI 大图人工验收
 关联报告：[阶段二代码审查报告](阶段二_代码审查报告.md)
 
 ## 2. 问题背景
@@ -45,7 +45,7 @@ instances = rows × columns
 
 - 在进入大循环之前拒绝明显超限的阵列。
 - 限制单个阵列，也限制整个文件解析期间的累计展开量。
-- Web 限制最终离散输出；C++ 限制 Parser 的 INSERT 展开产物。
+- Web 与 C++ 均限制最终转换输出，并提供小图纸与大图纸两档预算。
 - 使用不会先发生乘法溢出的判断方式。
 - 超限时明确失败，不静默截断结果。
 - C++ 失败后不向调用方暴露部分展开数据。
@@ -57,12 +57,12 @@ instances = rows × columns
 | --- | ---: | ---: | --- |
 | 单个 INSERT 阵列实例 | 100,000 | 100,000 | 限制单次 `rows × columns` |
 | 累计展开块实例 | 100,000 | 100,000 | 包括模型空间 INSERT 和嵌套 INSERT |
-| 受预算保护的输出 | 最终离散点线 100,000 | Parser INSERT 展开产物 100,000 | C++ 不包含模型空间原始实体和后续 Sketch/FE 输出 |
+| 受预算保护的输出 | 100,000 / 500,000 | 100,000 / 500,000 | 小图纸 / 大图纸；覆盖模型空间、展开及 Sketch/FE 最终输出 |
 | 最大嵌套深度 | 8 | 32 | 保留两端原有深度策略，并将越界改为明确失败 |
 
-Web 与 C++ 使用相同的数值上限，但预算阶段并不等价：Web 统计最终离散点线，
-C++ 当前只统计 Parser 的 INSERT 展开产物。嵌套深度暂时保留两端原有值，
-是为了避免本次安全修复同时改变 C++ 的既有合法输入兼容范围。
+Web 与 C++ 使用相同的两档最终输出上限。C++ Parser 先限制展平后的中间实体，
+Sketch 转换再限制线和圆，FE 转换限制节点与单元之和。嵌套深度暂时保留两端
+原有值，以避免本次安全修复改变 C++ 的既有合法输入兼容范围。
 
 ## 6. 安全乘法检查
 
@@ -98,6 +98,7 @@ Web 端还要求 `rows` 和 `columns` 同时满足：
 struct ExpansionBudget {
     std::uint64_t blockInstances;
     std::size_t entities;
+    std::size_t maxOutputEntities;
     QString error;
 };
 ```
@@ -125,7 +126,7 @@ struct ExpansionBudget {
 
 ```cpp
 outData.clear();
-outData.setErrorMessage(error);
+outData.setError(DxfImportErrorCode::ExpansionLimit, error);
 return false;
 ```
 
@@ -135,6 +136,7 @@ return false;
 - `DxfData::isValid()` 为 `false`；
 - `entityCount()` 为 `0`；
 - `errorMessage()` 包含明确的展开限制错误。
+- `errorCode()` 为稳定的结构化错误码。
 
 这保证了部分展开结果不会被误认为有效模型。
 
@@ -151,11 +153,9 @@ return false;
 新增只读配置：
 
 ```javascript
-const EXPANSION_LIMITS = Object.freeze({
-  maxDepth: 8,
-  maxArrayInstancesPerInsert: 100000,
-  maxExpandedBlockInstances: 100000,
-  maxOutputEntities: 100000
+const EXPANSION_PROFILES = Object.freeze({
+  small: { maxOutputEntities: 100000, defaultTolerance: 0.01 },
+  large: { maxOutputEntities: 500000, defaultTolerance: 0.05 }
 });
 ```
 
@@ -232,7 +232,8 @@ error.code = "DXF_EXPANSION_LIMIT";
 2. `100001 × 1` 在循环前被拒绝。
 3. 非整数行数 `1.5` 被拒绝。
 4. 阵列实例未超限、但块内容导致输出超过 100,000 时被拒绝。
-5. 超限错误具有 `DXF_EXPANSION_LIMIT` 错误码。
+5. 大图纸档允许超过 100,000 的输出，并在超过 500,000 时拒绝。
+6. 超限错误具有 `DXF_EXPANSION_LIMIT` 错误码。
 
 ## 11. 验证结果
 
@@ -250,7 +251,7 @@ ctest --test-dir build -C Release --output-on-failure
 - Node.js 语法检查通过。
 - Node.js 全部测试通过。
 - Release 构建成功。
-- CTest 7/7 通过。
+- CTest 8/8 通过。
 - `git diff --check` 通过。
 
 阶段一三个 Web 基准输入的几何指纹均保持不变：
@@ -263,20 +264,15 @@ ctest --test-dir build -C Release --output-on-failure
 
 这表明正常基准文件的输出坐标、顺序、图层、来源类型和不支持类型没有因资源预算修复发生变化。
 
-### 11.1 尚未覆盖的 C++ 最终输出
+### 11.1 C++ 最终输出保护
 
-当前 C++ budget 在模型空间实体读入后才创建，并在 `expandBlocks()` 中使用。
-它不统计以下内容：
-
-- 不经过 INSERT 的模型空间原始实体；
-- `ConversionEngine` 后续离散产生的 Sketch 线段；
-- `FeConversionEngine` 后续产生的节点和单元。
-
-因此，中间 INSERT 展开实体少于 100,000 时，最终转换结果仍可能达到约
-900,000。提交 `051ed34` 已把 `expandInsertArray()` 的批量 `reserve` 容量
-钳制到展开实体预算，提前巨量预分配风险已处理；对应专项回归测试仍待补充。
-完整关闭 C-02 仍需要在最终转换阶段消费统一预算，并补充多层嵌套、最终输出
-和容量预分配测试。
+- `parseFile()` 用模型空间实体数初始化预算，避免原始实体绕过 Parser 上限。
+- `ConversionEngine` 对 Sketch 最终的线和圆计数。
+- `FeConversionEngine` 对最终节点与单元之和计数。
+- 任一阶段超限均清空半成品，并返回 `ExpansionLimit` 或 `ConversionLimit`。
+- GUI 与 Python 入口仅接受 100,000 和 500,000 两个固定档位，不提供无限模式。
+- 自动化测试覆盖模型空间加 INSERT 越界、Sketch 离散越界、FE 输出越界，
+  以及失败后半成品清空。
 
 ## 12. 兼容性与维护说明
 
@@ -289,7 +285,7 @@ ctest --test-dir build -C Release --output-on-failure
 
 ## 13. 结论
 
-C-02 的单阵列、嵌套实例、安全乘法、Web 最终输出和 C++ 展开失败回滚已经
-得到保护，三个基准 DXF 的正常几何输出保持不变。由于 C++ 模型空间实体、
-Sketch/FE 最终输出尚未纳入统一预算，且 `reserve` 容量保护仍缺专项回归测试，
-C-02 当前为部分修复，不能标记为完全关闭。
+C-02 的单阵列、嵌套实例、安全乘法、Web 最终输出、C++ 模型空间与
+Sketch/FE 最终输出均已纳入预算，失败路径不会暴露半成品。代码和自动化验证
+已经完成；在 SAM GUI 使用接近 100,000 与 500,000 边界的实际 DXF 验收后，
+即可完成发布级关闭。

@@ -188,6 +188,34 @@ TEST(Translate, negative_offset) {
     EXPECT_DOUBLE_EQ(result.z(), 15.0);
 }
 
+TEST(ConversionBudget, tessellated_output_is_limited)
+{
+    DxfData data;
+    data.addArc(DxfArc(DxfPoint(0, 0, 0), 100.0,
+                       0.0, 2.0 * M_PI, true));
+
+    SamData output;
+    EXPECT_FALSE(ConversionEngine().convert(
+        data, 0, 0, 0, 0.01, output, 10));
+    EXPECT_EQ(output.errorCode(), DxfImportErrorCode::ConversionLimit);
+    EXPECT_TRUE(output.lines().empty());
+    EXPECT_TRUE(output.circles().empty());
+}
+
+TEST(ConversionBudget, failure_clears_partial_output)
+{
+    DxfData data;
+    data.addLine(DxfLine(DxfPoint(0, 0, 0), DxfPoint(1, 0, 0)));
+    data.addCircle(DxfCircle(DxfPoint(10, 10, 0), 5.0));
+
+    SamData output;
+    EXPECT_FALSE(ConversionEngine().convert(
+        data, 0, 0, 0, 0.01, output, 1));
+    EXPECT_EQ(output.errorCode(), DxfImportErrorCode::ConversionLimit);
+    EXPECT_TRUE(output.lines().empty());
+    EXPECT_TRUE(output.circles().empty());
+}
+
 // ========================================================================
 //  boundary / edge cases
 // ========================================================================

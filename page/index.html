@@ -123,6 +123,14 @@
     <aside class="sidebar right-panel">
       <section class="panel-section">
         <p class="eyebrow">离散化设置</p>
+        <fieldset class="profile-fieldset">
+          <legend class="field-label">图纸规模</legend>
+          <div class="segmented-control" role="radiogroup" aria-label="图纸规模">
+            <label><input type="radio" name="drawingProfile" value="small" checked><span>小图纸</span></label>
+            <label><input type="radio" name="drawingProfile" value="large"><span>大图纸</span></label>
+          </div>
+          <p class="helper profile-hint" id="profileHint"></p>
+        </fieldset>
         <label class="field-label" for="tolerance">弦高公差</label>
         <div class="input-with-unit">
           <input id="tolerance" type="number" min="0.000001" step="0.01" value="0.01">

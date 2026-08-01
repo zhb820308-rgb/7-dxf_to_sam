@@ -3,6 +3,7 @@
 
 #include "DxfData.h"
 #include "FeData.h"
+#include <cstddef>
 
 // Converts DxfData (parsed DXF geometry) into FeData (nodes + truss
 // elements).  No SAM SDK dependency.
@@ -36,9 +37,10 @@ public:
     //         otherwise (empty or invalid input).
     bool convert(const DxfData& dxfData,
                  double baseX, double baseY, double baseZ,
-                 double curveTolerance,
-                 double nodeMergeTolerance,
-                 FeData& outData) const;
+                  double curveTolerance,
+                  double nodeMergeTolerance,
+                  FeData& outData,
+                  std::size_t maxOutputEntities = 100000) const;
 
     // Convenience default node-merge tolerance (1e-6).
     static double defaultNodeMergeTolerance() { return 1e-6; }
