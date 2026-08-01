@@ -226,6 +226,18 @@ TEST(Parser, nonuniform_block_curves_keep_source_statistics) {
     EXPECT_EQ(stats.curveCount(), 1u);
 }
 
+TEST(Parser, oversized_insert_array_is_rejected_without_partial_output) {
+    DxfData data;
+    DxfParser parser;
+
+    EXPECT_FALSE(parser.parseFile(
+        TEST_DATA_DIR + "/block_array_limit.dxf", data));
+    EXPECT_FALSE(data.isValid());
+    EXPECT_EQ(data.entityCount(), 0);
+    EXPECT_TRUE(data.errorMessage().contains("limit", Qt::CaseInsensitive))
+        << data.errorMessage().toStdString();
+}
+
 // ========================================================================
 //  Mixed entity files
 // ========================================================================

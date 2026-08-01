@@ -888,12 +888,21 @@
     toast("已清除浏览器缓存的 Agent 配置");
   }
 
+  const agentCsrfTokens = new Map();
+
+  async function csrfTokenFor(agentUrl) {
+    const sessionUrl = new URL("/api/session", agentUrl).toString();
+    if (agentCsrfTokens.has(sessionUrl)) return agentCsrfTokens.get(sessionUrl);
+    const response = await fetch(sessionUrl, { cache: "no-store" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || typeof data.csrf_token !== "string" || !data.csrf_token) {
+      throw new Error(data.error || `无法建立 Agent 安全会话（HTTP ${response.status}）`);
+    }
+    agentCsrfTokens.set(sessionUrl, data.csrf_token);
+    return data.csrf_token;
+  }
+
   async function requestAgentApi(payload) {
-    const options = {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    };
     const urls = [];
     if (location.protocol !== "file:") urls.push("/api/agent/process");
     [
@@ -905,7 +914,17 @@
     let lastError = null;
     for (const url of urls) {
       try {
-        const response = await fetch(url, options);
+        const absoluteUrl = new URL(url, location.href).toString();
+        const csrfToken = await csrfTokenFor(absoluteUrl);
+        const options = {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-DXF-CSRF-Token": csrfToken
+          },
+          body: JSON.stringify(payload)
+        };
+        const response = await fetch(absoluteUrl, options);
         if (response.status !== 404 && response.status !== 405) return response;
         lastError = new Error(`${url} 返回 ${response.status}`);
       } catch (error) {

@@ -3,6 +3,12 @@
 
   const TAU = Math.PI * 2;
   const DEG = Math.PI / 180;
+  const EXPANSION_LIMITS = Object.freeze({
+    maxDepth: 8,
+    maxArrayInstancesPerInsert: 100000,
+    maxExpandedBlockInstances: 100000,
+    maxOutputEntities: 100000
+  });
   const ACI = [
     "#ffffff", "#ff3b30", "#ffd60a", "#34c759", "#00d7ff",
     "#0a84ff", "#bf5af2", "#8e8e93", "#c7c7cc", "#f2f2f7"
@@ -347,11 +353,47 @@
       processedByType: {}
     };
     let nextId = 1;
+    let expandedBlockInstances = 0;
     const blocksByName = Object.fromEntries(
       Object.entries(parsed.blocks).map(([name, block]) => [name.toUpperCase(), block])
     );
 
+    function expansionLimit(message) {
+      const error = new Error(`DXF INSERT expansion limit: ${message}`);
+      error.code = "DXF_EXPANSION_LIMIT";
+      return error;
+    }
+
+    function consumeOutput(count) {
+      const current = result.points.length + result.lines.length;
+      if (!Number.isSafeInteger(count) || count < 0 ||
+          count > EXPANSION_LIMITS.maxOutputEntities - current) {
+        throw expansionLimit(`output exceeds ${EXPANSION_LIMITS.maxOutputEntities} entities`);
+      }
+    }
+
+    function consumeInsertArray(source) {
+      if (!Number.isSafeInteger(source.rows) || !Number.isSafeInteger(source.columns) ||
+          source.rows < 1 || source.columns < 1) {
+        throw expansionLimit("rows and columns must be positive safe integers");
+      }
+      if (source.rows > Math.floor(EXPANSION_LIMITS.maxArrayInstancesPerInsert / source.columns)) {
+        throw expansionLimit(
+          `${source.rows} rows x ${source.columns} columns exceeds ` +
+          `${EXPANSION_LIMITS.maxArrayInstancesPerInsert} instances per INSERT`
+        );
+      }
+      const count = source.rows * source.columns;
+      if (count > EXPANSION_LIMITS.maxExpandedBlockInstances - expandedBlockInstances) {
+        throw expansionLimit(
+          `total block instances exceed ${EXPANSION_LIMITS.maxExpandedBlockInstances}`
+        );
+      }
+      expandedBlockInstances += count;
+    }
+
     function addPoint(point, source, transform) {
+      consumeOutput(1);
       const p = transformPoint(point, transform);
       result.points.push({
         id: `p${nextId++}`, x: p.x, y: p.y, layer: source.layer || "0",
@@ -365,6 +407,7 @@
     }
 
     function addPath(points, source, transform) {
+      consumeOutput(Math.max(0, points.length - 1));
       for (let i = 0; i + 1 < points.length; i += 1) {
         const a = transformPoint(points[i], transform);
         const b = transformPoint(points[i + 1], transform);
@@ -382,7 +425,9 @@
     }
 
     function visit(source, transform, depth) {
-      if (depth > 8) return;
+      if (depth > EXPANSION_LIMITS.maxDepth) {
+        throw expansionLimit(`nesting depth exceeds ${EXPANSION_LIMITS.maxDepth}`);
+      }
       if (source.type === "POINT") addPoint(source.point, source, transform);
       else if (source.type === "LINE") addPath([source.start, source.end], source, transform);
       else if (source.type === "CIRCLE" || source.type === "ARC") {
@@ -473,6 +518,7 @@
         addPath([q2, source.extension2], annotated, transform);
       } else if (source.type === "INSERT" && blocksByName[source.name.toUpperCase()]) {
         const block = blocksByName[source.name.toUpperCase()];
+        consumeInsertArray(source);
         for (let row = 0; row < source.rows; row += 1) {
           for (let column = 0; column < source.columns; column += 1) {
             const local = insertTransform(source, block, column, row, transform);
@@ -543,5 +589,5 @@
     return lines.join("\r\n");
   }
 
-  global.DXFStudio = { parseDxf, discretize, exportDxf, colorForLayer };
+  global.DXFStudio = { parseDxf, discretize, exportDxf, colorForLayer, EXPANSION_LIMITS };
 })(window);

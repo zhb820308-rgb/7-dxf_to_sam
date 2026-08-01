@@ -9,10 +9,12 @@ const ROOT = __dirname;
 const PAGE_ROOT = path.join(ROOT, "page");
 const PORT = Number(process.env.PORT) || 8080;
 const MODEL = process.env.OPENAI_MODEL || "gpt-5.6";
-const API_BASE = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
+const DEFAULT_OPENAI_API_BASE = "https://api.openai.com/v1";
+const DEFAULT_ANTHROPIC_API_BASE = "https://api.anthropic.com";
 const MAX_BODY_BYTES = 16 * 1024 * 1024;
 const MAX_ENTITIES = 100000;
 const MAX_AGENT_STEPS = 8;
+const API_CSRF_TOKEN = crypto.randomBytes(32).toString("hex");
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -35,20 +37,50 @@ function json(res, status, data) {
   res.end(body);
 }
 
-function allowLocalCors(req, res) {
+function isLoopbackHostname(hostname) {
+  return ["localhost", "127.0.0.1", "::1"].includes(String(hostname).toLowerCase());
+}
+
+function isTrustedBrowserOrigin(req) {
   const origin = req.headers.origin;
-  if (!origin) return;
+  if (!origin) return true;
   try {
     const url = new URL(origin);
-    if (["localhost", "127.0.0.1", "::1"].includes(url.hostname) &&
-        ["http:", "https:"].includes(url.protocol)) {
-      res.setHeader("Access-Control-Allow-Origin", origin);
-      res.setHeader("Vary", "Origin");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-      res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    }
+    const originPort = Number(url.port || (url.protocol === "http:" ? 80 : 443));
+    return url.protocol === "http:" && isLoopbackHostname(url.hostname) &&
+      originPort === Number(req.socket.localPort);
   } catch {
-    // Invalid or opaque origins are intentionally not granted CORS access.
+    return false;
+  }
+}
+
+function allowLocalCors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && isTrustedBrowserOrigin(req)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-DXF-CSRF-Token");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  }
+}
+
+function tokensEqual(actual, expected) {
+  const actualBuffer = Buffer.from(String(actual || ""));
+  const expectedBuffer = Buffer.from(String(expected || ""));
+  return actualBuffer.length === expectedBuffer.length &&
+    crypto.timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+function validateAgentRequest(req, expectedToken = API_CSRF_TOKEN) {
+  if (!isTrustedBrowserOrigin(req)) {
+    throw Object.assign(new Error("不允许来自非本地页面的 Agent 请求"), { status: 403 });
+  }
+  const contentType = String(req.headers["content-type"] || "").toLowerCase();
+  if (!contentType.startsWith("application/json")) {
+    throw Object.assign(new Error("Agent 请求必须使用 application/json"), { status: 415 });
+  }
+  if (!tokensEqual(req.headers["x-dxf-csrf-token"], expectedToken)) {
+    throw Object.assign(new Error("Agent 请求缺少有效的 CSRF Token"), { status: 403 });
   }
 }
 
@@ -574,10 +606,24 @@ function resolveProviderConfig(body) {
   const provider = ["openai_responses", "openai_chat", "anthropic"].includes(body.provider)
     ? body.provider : "openai_responses";
   const model = shortText(body.model, MODEL, 160);
-  const apiKey = shortText(body.api_key, process.env.OPENAI_API_KEY || "", 1000);
-  const defaultUrl = provider === "anthropic" ? "https://api.anthropic.com" : API_BASE;
-  const rawUrl = shortText(body.api_url, defaultUrl, 2000);
-  if (!apiKey) throw Object.assign(new Error("请输入 API Key，或在服务端配置 OPENAI_API_KEY"), { status: 503 });
+  const requestApiKey = shortText(body.api_key, "", 1000);
+  const serverApiKey = provider === "anthropic"
+    ? shortText(process.env.ANTHROPIC_API_KEY, "", 1000)
+    : shortText(process.env.OPENAI_API_KEY, "", 1000);
+  const credentialSource = requestApiKey ? "request" : "server";
+  const apiKey = requestApiKey || serverApiKey;
+  const defaultUrl = provider === "anthropic"
+    ? (process.env.ANTHROPIC_BASE_URL || DEFAULT_ANTHROPIC_API_BASE)
+    : (process.env.OPENAI_BASE_URL || DEFAULT_OPENAI_API_BASE);
+  // A server-side secret is only ever sent to the server-configured endpoint.
+  // User-selected endpoints must carry an explicitly user-supplied key.
+  const rawUrl = credentialSource === "server"
+    ? defaultUrl
+    : shortText(body.api_url, defaultUrl, 2000);
+  if (!apiKey) {
+    const variable = provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
+    throw Object.assign(new Error(`请输入 API Key，或在服务端配置 ${variable}`), { status: 503 });
+  }
   if (!model) throw Object.assign(new Error("model 不能为空"), { status: 400 });
   let url;
   try {
@@ -598,7 +644,7 @@ function resolveProviderConfig(body) {
   } else if (provider === "anthropic" && !cleanPath.endsWith("/messages")) {
     url.pathname = cleanPath === "" ? "/v1/messages" : `${cleanPath}/messages`;
   }
-  return { provider, model, apiKey, endpoint: url.toString() };
+  return { provider, model, apiKey, endpoint: url.toString(), credentialSource };
 }
 
 async function providerRequest(config, payload) {
@@ -612,7 +658,8 @@ async function providerRequest(config, payload) {
   const response = await fetch(config.endpoint, {
     method: "POST",
     headers,
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    redirect: "error"
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -818,13 +865,23 @@ const server = http.createServer(async (req, res) => {
   try {
     allowLocalCors(req, res);
     if (req.method === "OPTIONS" && req.url.startsWith("/api/")) {
+      if (!isTrustedBrowserOrigin(req)) {
+        return json(res, 403, { error: "不允许来自非本地页面的请求" });
+      }
       res.writeHead(204);
       return res.end();
+    }
+    if (req.method === "GET" && req.url === "/api/session") {
+      if (!isTrustedBrowserOrigin(req)) {
+        return json(res, 403, { error: "不允许来自非本地页面的请求" });
+      }
+      return json(res, 200, { csrf_token: API_CSRF_TOKEN });
     }
     if (req.method === "GET" && req.url === "/api/health") {
       return json(res, 200, { ok: true, model: MODEL, api_key_configured: Boolean(process.env.OPENAI_API_KEY) });
     }
     if (req.method === "POST" && req.url === "/api/agent/process") {
+      validateAgentRequest(req);
       const body = await readJson(req);
       return json(res, 200, await runGeometryAgent(body));
     }
@@ -869,4 +926,14 @@ if (require.main === module) {
   startServer();
 }
 
-module.exports = { runGeometryAgent, executeAgentTool, validateGeometry, geometrySummary, server, startServer };
+module.exports = {
+  runGeometryAgent,
+  executeAgentTool,
+  validateGeometry,
+  geometrySummary,
+  isTrustedBrowserOrigin,
+  resolveProviderConfig,
+  validateAgentRequest,
+  server,
+  startServer
+};
