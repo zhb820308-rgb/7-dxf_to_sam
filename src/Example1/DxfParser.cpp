@@ -3,6 +3,7 @@
 #include "GeometryUtils.h"
 #include "libdxfrw.h"
 #include <QDebug>
+#include <cstdint>
 #include <cmath>
 #include <set>
 #include <unordered_map>
@@ -103,6 +104,47 @@ public:
 //  Block expansion helpers
 // ========================================================================
 
+constexpr std::uint64_t kMaxArrayInstancesPerInsert = 100000;
+constexpr std::uint64_t kMaxExpandedBlockInstances = 100000;
+// Match the Web/server geometry ceiling so both import paths reject the same scale.
+constexpr std::size_t kMaxExpandedEntities = 100000;
+
+struct ExpansionBudget {
+    std::uint64_t blockInstances = 0;
+    std::size_t entities = 0;
+    QString error;
+
+    bool consumeArray(int rows, int columns, const std::string& blockName)
+    {
+        const std::uint64_t rowCount = static_cast<std::uint64_t>(std::max(1, rows));
+        const std::uint64_t columnCount = static_cast<std::uint64_t>(std::max(1, columns));
+        if (rowCount > kMaxArrayInstancesPerInsert / columnCount) {
+            error = QStringLiteral("INSERT expansion limit exceeded for block '%1': %2 rows x %3 columns")
+                .arg(QString::fromStdString(blockName)).arg(rowCount).arg(columnCount);
+            return false;
+        }
+        const std::uint64_t count = rowCount * columnCount;
+        if (blockInstances > kMaxExpandedBlockInstances - count) {
+            error = QStringLiteral("INSERT expansion limit exceeded: more than %1 block instances")
+                .arg(kMaxExpandedBlockInstances);
+            return false;
+        }
+        blockInstances += count;
+        return true;
+    }
+
+    bool consumeEntities(std::size_t count)
+    {
+        if (count > kMaxExpandedEntities || entities > kMaxExpandedEntities - count) {
+            error = QStringLiteral("INSERT expansion limit exceeded: more than %1 generated entities")
+                .arg(kMaxExpandedEntities);
+            return false;
+        }
+        entities += count;
+        return true;
+    }
+};
+
 /// Precomputed 2D affine transform for one INSERT instance:
 ///   x' = m00*x + m01*y + tx
 ///   y' = m10*x + m11*y + ty
@@ -151,15 +193,18 @@ struct Transform2D {
 };
 
 /// Transform and append discretized segments to output.
-static void addTransformedSegments(DxfData& output,
+static bool addTransformedSegments(DxfData& output,
                                    const std::vector<DxfLine>& segments,
-                                   const Transform2D& tf)
+                                   const Transform2D& tf,
+                                   ExpansionBudget& budget)
 {
+    if (!budget.consumeEntities(segments.size())) return false;
     output.reserveLines(output.lines().size() + segments.size());
     for (const DxfLine& seg : segments) {
         if (!seg.isValid()) continue;
         output.addGeneratedLine(DxfLine(tf.apply(seg.start()), tf.apply(seg.end())));
     }
+    return true;
 }
 
 /// Check whether scales are approximately uniform in XY (for circle preservation).
@@ -184,32 +229,37 @@ static void recordGeneratedEntity(DxfData& output, const DxfSpline& spline)
 /// Uniform scale → call preserve() to keep original entity type.
 /// Non-uniform  → call tessellate() then transform segments to output.
 template<typename Entity, typename TessFn, typename PreserveFn>
-static void expandCurveGroup(DxfData& output,
+static bool expandCurveGroup(DxfData& output,
                              const std::vector<Entity>& entities,
                              const Transform2D& tf,
                              double tolerance, bool uniformXY,
+                             ExpansionBudget& budget,
                              TessFn tessellate,
                              PreserveFn preserve)
 {
     for (const Entity& e : entities) {
         if (!e.isValid()) continue;
         if (uniformXY) {
+            if (!budget.consumeEntities(1)) return false;
             preserve(output, e, tf);
         } else {
             recordGeneratedEntity(output, e);
-            addTransformedSegments(output, tessellate(e, tolerance), tf);
+            const std::vector<DxfLine> segments = tessellate(e, tolerance);
+            if (!addTransformedSegments(output, segments, tf, budget)) return false;
         }
     }
+    return true;
 }
 
 /// Forward declaration for recursive expansion.
-static void expandSingleBlock(DxfData& output,
+static bool expandSingleBlock(DxfData& output,
                               const DxfBlock& blk,
                               const InsertInfo& ins,
                               double tolerance,
                               const std::unordered_map<std::string, DxfBlock>& blocks,
                               int depth,
-                              std::unordered_set<std::string>& visiting);
+                              std::unordered_set<std::string>& visiting,
+                              ExpansionBudget& budget);
 
 /// Compose two INSERT transforms: outer × inner.
 /// Transforms the inner INSERT's insertion point by the outer INSERT,
@@ -241,21 +291,22 @@ static InsertInfo composeInsertTransform(const InsertInfo& outer,
 
 /// Expand one INSERT with array (row × col) support.
 /// Generates all array instances and delegates each to expandSingleBlock.
-static void expandInsertArray(DxfData& output,
+static bool expandInsertArray(DxfData& output,
                               const DxfBlock& blk,
                               const InsertInfo& ins,
                               double tolerance,
                               const std::unordered_map<std::string, DxfBlock>& blocks,
                               int depth,
-                              std::unordered_set<std::string>& visiting)
+                              std::unordered_set<std::string>& visiting,
+                              ExpansionBudget& budget)
 {
     const int nCols = std::max(1, ins.colCount);
     const int nRows = std::max(1, ins.rowCount);
+    if (!budget.consumeArray(nRows, nCols, blk.name())) return false;
 
     // Degenerate array: no real repetition.
     if (nCols * nRows <= 1) {
-        expandSingleBlock(output, blk, ins, tolerance, blocks, depth, visiting);
-        return;
+        return expandSingleBlock(output, blk, ins, tolerance, blocks, depth, visiting, budget);
     }
 
     const double cosA = std::cos(ins.angle);
@@ -288,40 +339,50 @@ static void expandInsertArray(DxfData& output,
         for (int col = 0; col < nCols; ++col) {
             insCopy.insertX = curX;
             insCopy.insertY = curY;
-            expandSingleBlock(output, blk, insCopy,
-                              tolerance, blocks, depth, visiting);
+            if (!expandSingleBlock(output, blk, insCopy,
+                                   tolerance, blocks, depth, visiting, budget))
+                return false;
             curX += colDx;
             curY += colDy;
         }
         baseX += rowDx;
         baseY += rowDy;
     }
+    return true;
 }
 
 /// Expand a single block instance (one INSERT, one array element).
 /// @param blocks  block definitions map, needed for recursive nested INSERT expansion
-static void expandSingleBlock(DxfData& output,
+static bool expandSingleBlock(DxfData& output,
                               const DxfBlock& blk,
                               const InsertInfo& ins,
                               double tolerance,
                               const std::unordered_map<std::string, DxfBlock>& blocks,
                               int depth,
-                              std::unordered_set<std::string>& visiting)
+                              std::unordered_set<std::string>& visiting,
+                              ExpansionBudget& budget)
 {
     static const int kMaxExpandDepth = 32;
     if (depth > kMaxExpandDepth) {
         qWarning() << "[BlockExpand] max depth" << kMaxExpandDepth
                    << "exceeded at block:" << blk.name().c_str();
-        return;
+        budget.error = QStringLiteral("INSERT expansion depth limit exceeded at block '%1'")
+            .arg(QString::fromStdString(blk.name()));
+        return false;
     }
 
     // Cycle detection
     if (visiting.count(blk.name())) {
         qWarning() << "[BlockExpand] cycle detected for block:"
                    << blk.name().c_str() << "- skipping recursion";
-        return;
+        return true;
     }
     visiting.insert(blk.name());
+    struct VisitingGuard {
+        std::unordered_set<std::string>& names;
+        std::string name;
+        ~VisitingGuard() { names.erase(name); }
+    } guard{visiting, blk.name()};
 
     const double bx = blk.baseX(), by = blk.baseY(), bz = blk.baseZ();
     // Precompute the full affine transform once for this INSERT instance,
@@ -337,12 +398,14 @@ static void expandSingleBlock(DxfData& output,
 
     for (const DxfPoint& pt : blk.points()) {
         if (!pt.isValid()) continue;
+        if (!budget.consumeEntities(1)) return false;
         output.addPoint(tf.apply(pt));
     }
 
     // --- Lines: direct transform ---
     for (const DxfLine& line : blk.lines()) {
         if (!line.isValid()) continue;
+        if (!budget.consumeEntities(1)) return false;
         DxfPoint s = tf.apply(line.start());
         DxfPoint e = tf.apply(line.end());
         output.addLine(DxfLine(s, e));
@@ -355,9 +418,10 @@ static void expandSingleBlock(DxfData& output,
             // Uniform scale → preserve as circle
             DxfPoint c = tf.apply(circle.center());
             double   r = circle.radius() * tf.scaleX;
-            if (r > 0.0)
+            if (r > 0.0) {
+                if (!budget.consumeEntities(1)) return false;
                 output.addCircle(DxfCircle(c, r));
-            else
+            } else
                 output.recordGeneratedEntity(EntityType::Circle);
         } else {
             // Non-uniform or negative scale → discretize to lines
@@ -365,21 +429,21 @@ static void expandSingleBlock(DxfData& output,
             std::vector<DxfLine> segs = GeometryUtils::tessellateArc(
                 DxfArc(circle.center(), circle.radius(), 0.0, 2.0 * M_PI, true),
                 tolerance);
-            addTransformedSegments(output, segs, tf);
+            if (!addTransformedSegments(output, segs, tf, budget)) return false;
         }
     }
 
     // --- Arcs: uniform scale → preserve Arc; non-uniform → discretize ---
-    expandCurveGroup(output, blk.arcs(), tf, tolerance, uniformXY,
+    if (!expandCurveGroup(output, blk.arcs(), tf, tolerance, uniformXY, budget,
         GeometryUtils::tessellateArc,
         [](DxfData& out, const DxfArc& arc, const Transform2D& t) {
             out.addArc(DxfArc(t.apply(arc.center()),
                         arc.radius() * t.scaleX,
                         arc.startAngle(), arc.endAngle(), arc.isCCW()));
-        });
+        })) return false;
 
     // --- LWPolylines: uniform scale → preserve; non-uniform → discretize ---
-    expandCurveGroup(output, blk.lwPolylines(), tf, tolerance, uniformXY,
+    if (!expandCurveGroup(output, blk.lwPolylines(), tf, tolerance, uniformXY, budget,
         GeometryUtils::tessellateLWPolyline,
         [](DxfData& out, const DxfLWPolyline& poly, const Transform2D& t) {
             std::vector<DxfPoint> verts;
@@ -388,10 +452,10 @@ static void expandSingleBlock(DxfData& output,
                 verts.push_back(t.apply(v));
             out.addLWPolyline(DxfLWPolyline(verts, poly.bulges(),
                                              poly.isClosed(), poly.constZ() * t.scaleZ));
-        });
+        })) return false;
 
     // --- Ellipses: uniform scale → preserve; non-uniform → discretize ---
-    expandCurveGroup(output, blk.ellipses(), tf, tolerance, uniformXY,
+    if (!expandCurveGroup(output, blk.ellipses(), tf, tolerance, uniformXY, budget,
         GeometryUtils::tessellateEllipse,
         [](DxfData& out, const DxfEllipse& ellipse, const Transform2D& t) {
             DxfPoint c = t.apply(ellipse.center());
@@ -400,10 +464,10 @@ static void expandSingleBlock(DxfData& output,
                        ellipse.majorAxisEnd().z() * t.scaleZ);
             out.addEllipse(DxfEllipse(c, m, ellipse.ratio(),
                                        ellipse.startParam(), ellipse.endParam(), ellipse.isCCW()));
-        });
+        })) return false;
 
     // --- Splines: uniform scale → preserve; non-uniform → discretize ---
-    expandCurveGroup(output, blk.splines(), tf, tolerance, uniformXY,
+    if (!expandCurveGroup(output, blk.splines(), tf, tolerance, uniformXY, budget,
         GeometryUtils::tessellateSpline,
         [](DxfData& out, const DxfSpline& spline, const Transform2D& t) {
             std::vector<DxfPoint> ctrlPts;
@@ -418,7 +482,7 @@ static void expandSingleBlock(DxfData& output,
                                      spline.degree(), spline.flags(),
                                      spline.tgStartX(), spline.tgStartY(), spline.tgStartZ(),
                                      spline.tgEndX(), spline.tgEndY(), spline.tgEndZ()));
-        });
+        })) return false;
 
     // --- Nested INSERTs: recursive expansion ---
     for (const InsertInfo& nested : blk.inserts()) {
@@ -435,18 +499,20 @@ static void expandSingleBlock(DxfData& output,
         InsertInfo composed = composeInsertTransform(ins, nested, nestedPos);
 
         // Generate nested array instances
-        expandInsertArray(output, nestedBlk, composed, tolerance, blocks, depth + 1, visiting);
+        if (!expandInsertArray(output, nestedBlk, composed, tolerance, blocks,
+                               depth + 1, visiting, budget))
+            return false;
     }
-
-    visiting.erase(blk.name());
+    return true;
 }
 
 /// Expand all model-space inserts into the output DxfData.
 /// @param output  [in/out] already contains model-space entities; INSERT entities appended here
-static void expandBlocks(DxfData& output,
+static bool expandBlocks(DxfData& output,
                          const std::unordered_map<std::string, DxfBlock>& blocks,
                          const std::vector<InsertInfo>& inserts,
-                         double tolerance)
+                         double tolerance,
+                         ExpansionBudget& budget)
 {
     // Model-space entities are already in output (written directly during parsing).
     // Only INSERT expansion is needed here.
@@ -461,8 +527,10 @@ static void expandBlocks(DxfData& output,
             continue;
         }
         const DxfBlock& blk = it->second;
-        expandInsertArray(output, blk, ins, tolerance, blocks, 0, visiting);
+        if (!expandInsertArray(output, blk, ins, tolerance, blocks, 0, visiting, budget))
+            return false;
     }
+    return true;
 }
 
 // ========================================================================
@@ -762,7 +830,15 @@ bool DxfParser::parseFile(const QString& filePath, DxfData& outData,
     outData = std::move(reader.m_data);
 
     // --- Expand blocks into flat DxfData ---
-    expandBlocks(outData, reader.m_blocks, reader.m_modelSpaceInserts, curveTolerance);
+    ExpansionBudget expansionBudget;
+    if (!expandBlocks(outData, reader.m_blocks, reader.m_modelSpaceInserts,
+                      curveTolerance, expansionBudget)) {
+        const QString error = expansionBudget.error.isEmpty()
+            ? QStringLiteral("INSERT expansion failed") : expansionBudget.error;
+        outData.clear();
+        outData.setErrorMessage(error);
+        return false;
+    }
 
     const int total = outData.entityCount();
     if (total == 0) {
