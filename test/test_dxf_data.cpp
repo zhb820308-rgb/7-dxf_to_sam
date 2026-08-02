@@ -383,6 +383,7 @@ TEST(DxfData, clear_resets_everything) {
 
 TEST(DxfEntityStats, counts_native_entities) {
     DxfData data;
+    data.addPoint(DxfPoint(1, 2, 3));
     data.addLine(DxfLine(DxfPoint(0, 0, 0), DxfPoint(1, 0, 0)));
     data.addLWPolyline(DxfLWPolyline(
         { DxfPoint(0, 0, 0), DxfPoint(1, 1, 0) }, { 0.0 }, false));
@@ -392,6 +393,7 @@ TEST(DxfEntityStats, counts_native_entities) {
         DxfPoint(0, 0, 0), DxfPoint(3, 0, 0), 0.5, 0.0, M_PI, true));
 
     const DxfEntityStats& stats = data.entityStats();
+    EXPECT_EQ(stats.points, 1u);
     EXPECT_EQ(stats.lines, 1u);
     EXPECT_EQ(stats.lwPolylines, 1u);
     EXPECT_EQ(stats.circles, 1u);
@@ -399,6 +401,17 @@ TEST(DxfEntityStats, counts_native_entities) {
     EXPECT_EQ(stats.ellipses, 1u);
     EXPECT_EQ(stats.splineCount(), 0u);
     EXPECT_EQ(stats.curveCount(), 3u);
+}
+
+TEST(DxfEntityStats, tracks_generated_points_as_point_sources) {
+    DxfData data;
+    data.recordGeneratedEntity(EntityType::Point);
+    data.addGeneratedPoint(DxfPoint(1, 2, 3));
+
+    ASSERT_EQ(data.points().size(), 1u);
+    EXPECT_EQ(data.entityStats().points, 1u);
+    EXPECT_EQ(data.entityStats().sourceEntities, 1u);
+    EXPECT_EQ(data.entityStats().generatedEntities, 1u);
 }
 
 TEST(DxfEntityStats, generated_curve_lines_do_not_count_as_source_lines) {

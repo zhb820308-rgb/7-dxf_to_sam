@@ -1,6 +1,6 @@
 #include "DxfImportValidation.h"
+#include "DxfNumeric.h"
 
-#include <cmath>
 #include <limits>
 
 namespace DxfImportValidation {
@@ -13,9 +13,7 @@ Result validate(
 	double nodeMergeTolerance,
 	int maxOutputEntities)
 {
-	if (!std::isfinite(baseX)
-		|| !std::isfinite(baseY)
-		|| !std::isfinite(baseZ))
+	if (!DxfNumeric::areFinite(baseX, baseY, baseZ))
 	{
 		return Result{
 			false,
@@ -24,9 +22,8 @@ Result validate(
 			QStringLiteral(
 				"[importDxf] ERROR: base coordinates must be finite")};
 	}
-	if (!std::isfinite(curveTolerance)
-		|| curveTolerance < kMinimumCurveTolerance
-		|| curveTolerance > kMaximumCurveTolerance)
+	if (!DxfNumeric::isWithinInclusive(
+			curveTolerance, kMinimumCurveTolerance, kMaximumCurveTolerance))
 	{
 		return Result{
 			false,
@@ -37,7 +34,7 @@ Result validate(
 				.arg(kMinimumCurveTolerance)
 				.arg(kMaximumCurveTolerance)};
 	}
-	if (!std::isfinite(nodeMergeTolerance) || nodeMergeTolerance < 0.0)
+	if (!DxfNumeric::isNonNegativeFinite(nodeMergeTolerance))
 	{
 		return Result{
 			false,

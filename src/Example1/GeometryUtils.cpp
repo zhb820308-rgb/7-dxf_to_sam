@@ -1,4 +1,5 @@
 #include "GeometryUtils.h"
+#include "DxfNumeric.h"
 
 #include <Geom_BSplineCurve.hxx>
 #include <GeomAdaptor_Curve.hxx>
@@ -22,8 +23,9 @@ namespace GeometryUtils {
 
 int calculateArcSegmentCount(double radius, double sweep, double tolerance)
 {
-    if (!std::isfinite(radius) || !std::isfinite(sweep)
-        || !std::isfinite(tolerance))
+    if (!DxfNumeric::isFinite(radius)
+        || !DxfNumeric::isFinite(sweep)
+        || !DxfNumeric::isFinite(tolerance))
         return 1;
     if (radius <= 0.0 || sweep <= 0.0)
         return 1;
@@ -41,11 +43,11 @@ int calculateArcSegmentCount(double radius, double sweep, double tolerance)
         maxAngle = minAngle;
 
     constexpr int maxSegments = 10000;
-    if (!std::isfinite(maxAngle) || maxAngle <= 0.0)
+    if (!DxfNumeric::isPositiveFinite(maxAngle))
         return maxSegments;
 
     const double requested = std::ceil(sweep / maxAngle);
-    if (!std::isfinite(requested) || requested >= maxSegments)
+    if (!DxfNumeric::isFinite(requested) || requested >= maxSegments)
         return maxSegments;
     if (requested <= 2.0)
         return 2;
@@ -90,7 +92,8 @@ std::vector<DxfPoint> tessellateBulgeArc(
     double startAngle = std::atan2(p0.y() - cy, p0.x() - cx);
 
     // Calculate segment count via shared utility
-    if (tolerance <= 0.0) tolerance = 0.01;
+    if (tolerance <= 0.0)
+        tolerance = DxfImportDefaults::kCurveTolerance;
     int segmentCount = calculateArcSegmentCount(radius, std::abs(theta), tolerance);
 
     for (int i = 1; i < segmentCount; ++i) {
@@ -114,7 +117,7 @@ std::vector<DxfPoint> tessellateBulgeArc(
 
 double normalizeSweep(double sweep, bool isCCW)
 {
-    if (!std::isfinite(sweep))
+    if (!DxfNumeric::isFinite(sweep))
         return std::numeric_limits<double>::quiet_NaN();
 
     const double fullTurn = 2.0 * M_PI;
@@ -139,7 +142,8 @@ std::vector<DxfLine> tessellateArc(const DxfArc& arc, double tolerance)
     double a0 = arc.startAngle();
     double sweep = normalizeSweep(arc.endAngle() - a0, arc.isCCW());
 
-    if (!arc.isValid() || !std::isfinite(tolerance) || !std::isfinite(sweep))
+    if (!arc.isValid() || !DxfNumeric::isFinite(tolerance)
+        || !DxfNumeric::isFinite(sweep))
         return result;
     if (tolerance <= 0.0) tolerance = 1.0e-6;
 
@@ -213,7 +217,8 @@ std::vector<DxfLine> tessellateEllipse(const DxfEllipse& ellipse,
     double endParam   = ellipse.endParam();
     double sweep = normalizeSweep(endParam - startParam, ellipse.isCCW());
 
-    if (!ellipse.isValid() || !std::isfinite(tolerance) || !std::isfinite(sweep))
+    if (!ellipse.isValid() || !DxfNumeric::isFinite(tolerance)
+        || !DxfNumeric::isFinite(sweep))
         return result;
     if (tolerance <= 0.0) tolerance = 1.0e-6;
 
@@ -446,7 +451,8 @@ std::vector<DxfLine> tessellateSpline(const DxfSpline& spline, double tolerance)
     try {
         GeomAdaptor_Curve adaptor(curve);
         const double totalLength = CPnts_AbscissaPoint::Length(adaptor);
-        if (!std::isfinite(totalLength) || totalLength <= Precision::Confusion())
+        if (!DxfNumeric::isFinite(totalLength)
+            || totalLength <= Precision::Confusion())
             return result;
     } catch (...) {
         return result;
@@ -454,7 +460,9 @@ std::vector<DxfLine> tessellateSpline(const DxfSpline& spline, double tolerance)
 
     // Chord-height adaptive discretization
     std::vector<DxfPoint> sampledPoints;
-    double deflection = (std::isfinite(tolerance) && tolerance > 0.0) ? tolerance : 0.01;
+    const double deflection = DxfNumeric::isPositiveFinite(tolerance)
+        ? tolerance
+        : DxfImportDefaults::kCurveTolerance;
     if (!discretizeByDeflection(curve, sampledPoints, deflection))
         return result;
 

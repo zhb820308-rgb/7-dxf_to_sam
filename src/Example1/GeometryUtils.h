@@ -1,7 +1,8 @@
 #ifndef GeometryUtils_h
 #define GeometryUtils_h
 
-#include "DxfData.h"  // for DxfPoint, DxfArc, DxfLWPolyline, DxfEllipse, DxfLine, DxfSpline
+#include "DxfData.h"
+#include "DxfImportDefaults.h"
 #include <vector>
 
 #ifndef M_PI
@@ -16,7 +17,8 @@ namespace GeometryUtils {
 /// @param tolerance chord-to-arc sagitta tolerance (default 0.01)
 /// @return segment count, at least 2, at most 10000
 int calculateArcSegmentCount(double radius, double sweep,
-                             double tolerance = 0.01);
+                             double tolerance =
+                                 DxfImportDefaults::kCurveTolerance);
 
 /// Discretize a bulge arc segment into sample points (including p0 and p1).
 /// bulge = tan(theta/4), where theta is the signed central angle.
@@ -25,7 +27,7 @@ std::vector<DxfPoint> tessellateBulgeArc(
     const DxfPoint& p0,
     const DxfPoint& p1,
     double bulge,
-    double tolerance = 0.01);
+    double tolerance = DxfImportDefaults::kCurveTolerance);
 
 /// Normalize a signed sweep angle to the canonical range.
 /// CCW: ensures sweep > 0 (adds 2π until positive).

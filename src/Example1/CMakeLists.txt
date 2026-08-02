@@ -4,6 +4,7 @@ set(EXAMPLE1_CORE_SOURCES
     DxfData.h
     DxfImportError.h
     DxfImportDefaults.h
+    DxfNumeric.h
     DxfImportOutcome.cpp
     DxfImportOutcome.h
     DxfImportPreflight.cpp

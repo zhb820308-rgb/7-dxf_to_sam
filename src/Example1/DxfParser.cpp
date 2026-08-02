@@ -3,11 +3,10 @@
 #include "DxfBlockExpansion.h"
 #include "DxfInputFile.h"
 #include "DxfImportValidation.h"
+#include "DxfNumeric.h"
 #include "DxfReaderCallbacks.h"
 
 #include <libdxfrw.h>
-
-#include <cmath>
 
 bool DxfParser::parseFile(
     const QString& filePath,
@@ -23,9 +22,10 @@ bool DxfParser::parseFile(
             QStringLiteral("DXF file is empty"));
         return false;
     }
-    if (!std::isfinite(curveTolerance)
-        || curveTolerance < DxfImportValidation::kMinimumCurveTolerance
-        || curveTolerance > DxfImportValidation::kMaximumCurveTolerance) {
+    if (!DxfNumeric::isWithinInclusive(
+            curveTolerance,
+            DxfImportValidation::kMinimumCurveTolerance,
+            DxfImportValidation::kMaximumCurveTolerance)) {
         outData.setError(
             DxfImportErrorCode::InvalidArgument,
             QStringLiteral(

@@ -52,6 +52,7 @@ struct DxfEntityStats {
     std::size_t rejectedEntities = 0;
     std::size_t generatedEntities = 0;
     std::map<std::string, std::size_t> rejectionReasons;
+    std::size_t points = 0;
     std::size_t lines = 0;
     std::size_t lwPolylines = 0;
     std::size_t circles = 0;

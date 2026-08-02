@@ -418,6 +418,7 @@ struct DxfEntityStats {
     std::size_t rejectedEntities = 0;
     std::size_t generatedEntities = 0;
     std::map<std::string, std::size_t> rejectionReasons;
+    std::size_t points = 0;
     std::size_t lines = 0;
     std::size_t lwPolylines = 0;
     std::size_t circles = 0;
@@ -432,7 +433,8 @@ struct DxfEntityStats {
 
 四项总量分别表示遇到的支持实体、公共不变量检查通过的模型空间实体、被拒绝
 实体以及 BLOCK 展开/曲线离散生成的最终实体。`rejectionReasons` 按原因汇总，
-类型字段继续记录过滤和块展开后的来源类型。`DxfData::add*()` 不再保存无效实体。
+类型字段继续记录过滤和块展开后的来源类型，其中 `points` 明确记录 POINT。
+`DxfData::add*()` 不再保存无效实体。
 
 ---
 
@@ -538,7 +540,14 @@ public:
 
 这是最终交给转换引擎的**扁平化数据容器**。其中的实体全部是模型空间坐标（Block 已展开并入）。
 
-`DxfData` 中混合存储两类实体：
+POINT 的模式语义固定为：
+
+- `entityCount()`：包含 POINT；
+- `sketchEntityCount()`：不包含 POINT，Sketch 转换不创建点对象；
+- `feEntityCount()`：包含 POINT，FE 转换创建独立节点但不创建 Truss；
+- `DxfEntityStats::points` 和导入摘要：记录过滤及块展开后的 POINT 来源数量。
+
+`DxfData` 中混合存储三类实体：
 
 1. **原始实体**：从 DXF 直接解析的模型空间实体；
 2. **展开实体**：从 Block 通过 INSERT 展开后的模型空间实体；

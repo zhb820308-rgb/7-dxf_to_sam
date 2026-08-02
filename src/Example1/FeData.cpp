@@ -1,5 +1,7 @@
 #include "FeData.h"
+#include "DxfNumeric.h"
 #include <cmath>
+#include <limits>
 #include <unordered_map>
 
 // ========================================================================
@@ -14,9 +16,20 @@ FeData::SpatialKey FeData::makeKey(double x, double y, double z,
         key.cx = 0; key.cy = 0; key.cz = 0;
         return key;
     }
-    key.cx = static_cast<int>(std::floor(x / cellSize));
-    key.cy = static_cast<int>(std::floor(y / cellSize));
-    key.cz = static_cast<int>(std::floor(z / cellSize));
+    const auto coordinate = [cellSize](double value) {
+        using Coordinate = std::int64_t;
+        const Coordinate lower = std::numeric_limits<Coordinate>::min() + 1;
+        const Coordinate upper = std::numeric_limits<Coordinate>::max() - 1;
+        const double scaled = std::floor(value / cellSize);
+        if (!DxfNumeric::isFinite(scaled))
+            return std::signbit(scaled) ? lower : upper;
+        if (scaled <= static_cast<double>(lower)) return lower;
+        if (scaled >= static_cast<double>(upper)) return upper;
+        return static_cast<Coordinate>(scaled);
+    };
+    key.cx = coordinate(x);
+    key.cy = coordinate(y);
+    key.cz = coordinate(z);
     return key;
 }
 

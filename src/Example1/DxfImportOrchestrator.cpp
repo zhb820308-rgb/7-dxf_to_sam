@@ -141,9 +141,11 @@ DxfImportOutcome importFiniteElement(
 	{
 		session.logger()->info(
 			"[import={}] fe_conversion_completed nodes={} trusses={}"
+			" points_processed={}"
 			" merged={} skipped_zero_length={} skipped_dup_truss={}"
 			" curve_tolerance={} node_merge_tolerance={} duration_ms={}",
 			session.importId(), feData.nodes().size(), feData.trusses().size(),
+			stats.pointsProcessed,
 			stats.mergedNodes, stats.skippedZeroLength,
 			stats.skippedDuplicateTruss, request.curveTolerance,
 			request.nodeMergeTolerance, stageTimer.elapsed());

@@ -1,5 +1,6 @@
 #include "FeConversionEngine.h"
 #include "DxfImportValidation.h"
+#include "DxfNumeric.h"
 #include "GeometryUtils.h"
 #include <QDebug>
 #include <algorithm>
@@ -84,25 +85,24 @@ bool FeConversionEngine::convert(const DxfData& dxfData,
     const auto startedAt = std::chrono::steady_clock::now();
     outData.clear();
 
-    if (!std::isfinite(curveTolerance)
-        || curveTolerance < DxfImportValidation::kMinimumCurveTolerance
-        || curveTolerance > DxfImportValidation::kMaximumCurveTolerance) {
+    if (!DxfNumeric::isWithinInclusive(
+            curveTolerance,
+            DxfImportValidation::kMinimumCurveTolerance,
+            DxfImportValidation::kMaximumCurveTolerance)) {
         outData.setError(DxfImportErrorCode::InvalidArgument,
                          QStringLiteral("invalid curve tolerance"));
         qWarning() << "[FeConversionEngine] invalid curve tolerance:"
                     << curveTolerance;
         return false;
     }
-    if (!std::isfinite(nodeMergeTolerance) || nodeMergeTolerance < 0.0) {
+    if (!DxfNumeric::isNonNegativeFinite(nodeMergeTolerance)) {
         outData.setError(DxfImportErrorCode::InvalidArgument,
                          QStringLiteral("invalid node merge tolerance"));
         qWarning() << "[FeConversionEngine] invalid node merge tolerance:"
                     << nodeMergeTolerance;
         return false;
     }
-    if (!std::isfinite(baseX) ||
-        !std::isfinite(baseY) ||
-        !std::isfinite(baseZ)) {
+    if (!DxfNumeric::areFinite(baseX, baseY, baseZ)) {
         outData.setError(DxfImportErrorCode::InvalidArgument,
                          QStringLiteral("base coordinates must be finite"));
         qWarning() << "[FeConversionEngine] base coordinates must be finite:"

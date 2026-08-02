@@ -202,3 +202,46 @@ TEST(FeData, clear_resets_node_and_truss_indexes)
     EXPECT_EQ(data.nodes().size(), 1u);
     EXPECT_EQ(data.trusses().size(), 1u);
 }
+
+TEST(FeData, merge_tolerance_boundary_is_inclusive)
+{
+    constexpr double tolerance = 1.0;
+    const double inside = std::nextafter(tolerance, 0.0);
+    const double outside = std::nextafter(
+        tolerance, std::numeric_limits<double>::infinity());
+
+    FeData insideData;
+    const int insideBase = insideData.addOrGetNode(0.0, 0.0, 0.0, tolerance);
+    EXPECT_EQ(
+        insideData.addOrGetNode(inside, 0.0, 0.0, tolerance),
+        insideBase);
+
+    FeData boundaryData;
+    const int boundaryBase = boundaryData.addOrGetNode(
+        0.0, 0.0, 0.0, tolerance);
+    EXPECT_EQ(
+        boundaryData.addOrGetNode(tolerance, 0.0, 0.0, tolerance),
+        boundaryBase);
+
+    FeData outsideData;
+    const int outsideBase = outsideData.addOrGetNode(
+        0.0, 0.0, 0.0, tolerance);
+    EXPECT_NE(
+        outsideData.addOrGetNode(outside, 0.0, 0.0, tolerance),
+        outsideBase);
+}
+
+TEST(FeData, largeCoordinatesWithTinyToleranceRemainStable)
+{
+    constexpr double coordinate = 1.0e150;
+    constexpr double tolerance = 1.0e-12;
+
+    FeData data;
+    const int first = data.addOrGetNode(
+        coordinate, -coordinate, coordinate, tolerance);
+    EXPECT_EQ(data.addOrGetNode(
+        coordinate, -coordinate, coordinate, tolerance), first);
+    EXPECT_NE(data.addOrGetNode(
+        -coordinate, coordinate, -coordinate, tolerance), first);
+    EXPECT_EQ(data.nodes().size(), 2u);
+}

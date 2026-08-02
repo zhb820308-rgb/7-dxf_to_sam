@@ -2,6 +2,7 @@
 #define FeData_h
 
 #include <cstddef>
+#include <cstdint>
 #include <QString>
 #include "DxfImportError.h"
 #include <unordered_map>
@@ -85,7 +86,7 @@ private:
     // 3-D spatial hash for O(1) approximate look-up of nearby nodes.
     // Cell size = tolerance × 2 (conservative).
     struct SpatialKey {
-        int cx = 0, cy = 0, cz = 0;
+        std::int64_t cx = 0, cy = 0, cz = 0;
         bool operator==(const SpatialKey& o) const {
             return cx == o.cx && cy == o.cy && cz == o.cz;
         }

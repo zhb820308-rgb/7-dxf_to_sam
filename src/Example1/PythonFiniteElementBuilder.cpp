@@ -1,4 +1,5 @@
 #include "PythonFiniteElementBuilder.h"
+#include "DxfNumeric.h"
 #include "FeData.h"
 
 #include <QCoreApplication>
@@ -12,7 +13,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cmath>
 
 PythonFiniteElementBuilder::~PythonFiniteElementBuilder()
 {
@@ -203,7 +203,7 @@ ImportBuildResult PythonFiniteElementBuilder::createNodes(
 
     const int total = static_cast<int>(nodes.size());
     for (const FeNode& node : nodes) {
-        if (!std::isfinite(node.x) || !std::isfinite(node.y) || !std::isfinite(node.z)) {
+        if (!DxfNumeric::areFinite(node.x, node.y, node.z)) {
             m_lastError = QString("createNodes: invalid coordinate for node %1").arg(node.id);
             return ImportBuildResult::failure(
                 ImportBuildStatus::CreateFailed, m_lastError,

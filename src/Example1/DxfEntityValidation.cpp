@@ -1,4 +1,5 @@
 #include "DxfEntityValidation.h"
+#include "DxfNumeric.h"
 
 #include <drw_entities.h>
 
@@ -31,14 +32,14 @@ std::optional<DxfArc> makeArc(const DRW_Arc& source)
 {
     const DRW_Coord center = source.basePoint;
     const double radius = source.radious;
-    if (!std::isfinite(center.x) || !std::isfinite(center.y)
-        || !std::isfinite(center.z)) {
+    if (!DxfNumeric::areFinite(center.x, center.y, center.z)) {
         return std::nullopt;
     }
-    if (!std::isfinite(radius) || radius <= 0.0) {
+    if (!DxfNumeric::isPositiveFinite(radius)) {
         return std::nullopt;
     }
-    if (!std::isfinite(source.staangle) || !std::isfinite(source.endangle)) {
+    if (!DxfNumeric::isFinite(source.staangle)
+        || !DxfNumeric::isFinite(source.endangle)) {
         return std::nullopt;
     }
 
@@ -57,7 +58,7 @@ std::optional<DxfEllipse> makeEllipse(const DRW_Ellipse& source)
     if (majorLength <= 0.0) {
         return std::nullopt;
     }
-    if (!std::isfinite(source.ratio) || source.ratio <= 0.0) {
+    if (!DxfNumeric::isPositiveFinite(source.ratio)) {
         return std::nullopt;
     }
 
@@ -124,7 +125,8 @@ std::optional<DxfSpline> makeSpline(const DRW_Spline& source)
         knots.reserve(expectedKnotCount);
         for (int i = 0; i < expectedKnotCount; ++i) {
             const double knot = source.knotslist[i];
-            if (!std::isfinite(knot) || (i > 0 && knot < knots.back())) {
+            if (!DxfNumeric::isFinite(knot)
+                || (i > 0 && knot < knots.back())) {
                 return std::nullopt;
             }
             knots.push_back(knot);
@@ -133,8 +135,8 @@ std::optional<DxfSpline> makeSpline(const DRW_Spline& source)
         controlPoints.reserve(controlCount);
         for (int i = 0; i < controlCount; ++i) {
             const auto& point = source.controllist[i];
-            if (!point || !std::isfinite(point->x)
-                || !std::isfinite(point->y) || !std::isfinite(point->z)) {
+            if (!point
+                || !DxfNumeric::areFinite(point->x, point->y, point->z)) {
                 return std::nullopt;
             }
             controlPoints.push_back(DxfPoint(point->x, point->y, point->z));
@@ -147,7 +149,7 @@ std::optional<DxfSpline> makeSpline(const DRW_Spline& source)
             weights.reserve(controlCount);
             for (int i = 0; i < controlCount; ++i) {
                 const double weight = source.weightlist[i];
-                if (!std::isfinite(weight) || weight <= 0.0) {
+                if (!DxfNumeric::isPositiveFinite(weight)) {
                     return std::nullopt;
                 }
                 weights.push_back(weight);
@@ -159,8 +161,8 @@ std::optional<DxfSpline> makeSpline(const DRW_Spline& source)
     fitPoints.reserve(source.nfit);
     for (int i = 0; i < source.nfit; ++i) {
         const auto& point = source.fitlist[i];
-        if (point && std::isfinite(point->x) && std::isfinite(point->y)
-            && std::isfinite(point->z)) {
+        if (point
+            && DxfNumeric::areFinite(point->x, point->y, point->z)) {
             fitPoints.push_back(DxfPoint(point->x, point->y, point->z));
         }
     }

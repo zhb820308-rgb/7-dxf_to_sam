@@ -1,8 +1,8 @@
 #include "ConversionEngine.h"
 #include "DxfImportValidation.h"
+#include "DxfNumeric.h"
 #include "GeometryUtils.h"
 #include <QDebug>
-#include <cmath>
 
 // ========================================================================
 //  convert
@@ -16,9 +16,10 @@ bool ConversionEngine::convert(const DxfData& dxfData,
 {
     outData.clear();
 
-    if (!std::isfinite(tolerance)
-        || tolerance < DxfImportValidation::kMinimumCurveTolerance
-        || tolerance > DxfImportValidation::kMaximumCurveTolerance) {
+    if (!DxfNumeric::isWithinInclusive(
+            tolerance,
+            DxfImportValidation::kMinimumCurveTolerance,
+            DxfImportValidation::kMaximumCurveTolerance)) {
         outData.setError(DxfImportErrorCode::InvalidArgument,
                          QStringLiteral("invalid curve tolerance"));
         qWarning() << "[ConversionEngine] invalid curve tolerance:" << tolerance;
@@ -29,9 +30,7 @@ bool ConversionEngine::convert(const DxfData& dxfData,
                          QStringLiteral("maxOutputEntities must be greater than zero"));
         return false;
     }
-    if (!std::isfinite(baseX) ||
-        !std::isfinite(baseY) ||
-        !std::isfinite(baseZ)) {
+    if (!DxfNumeric::areFinite(baseX, baseY, baseZ)) {
         outData.setError(DxfImportErrorCode::InvalidArgument,
                          QStringLiteral("base coordinates must be finite"));
         qWarning() << "[ConversionEngine] base coordinates must be finite:"

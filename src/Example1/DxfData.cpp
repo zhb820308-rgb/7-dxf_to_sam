@@ -1,7 +1,7 @@
 #include "DxfData.h"
+#include "DxfNumeric.h"
 #include <atomic>
 #include <cmath>
-#include <limits>
 
 // ========================================================================
 //  DxfEntity
@@ -57,7 +57,7 @@ DxfPoint::DxfPoint(double ix, double iy, double iz)
 
 bool DxfPoint::isValid() const
 {
-    return std::isfinite(m_x) && std::isfinite(m_y) && std::isfinite(m_z);
+    return DxfNumeric::areFinite(m_x, m_y, m_z);
 }
 
 // ========================================================================
@@ -104,7 +104,7 @@ DxfCircle::DxfCircle(const DxfPoint& center, double radius)
 
 bool DxfCircle::isValid() const
 {
-    return m_center.isValid() && std::isfinite(m_radius) && m_radius > 0.0;
+    return m_center.isValid() && DxfNumeric::isPositiveFinite(m_radius);
 }
 
 // ========================================================================
@@ -130,9 +130,9 @@ DxfArc::DxfArc(const DxfPoint& center, double radius,
 bool DxfArc::isValid() const
 {
     return m_center.isValid()
-        && std::isfinite(m_radius) && m_radius > 0.0
-        && std::isfinite(m_startAngle)
-        && std::isfinite(m_endAngle)
+        && DxfNumeric::isPositiveFinite(m_radius)
+        && DxfNumeric::isFinite(m_startAngle)
+        && DxfNumeric::isFinite(m_endAngle)
         && (m_startAngle != m_endAngle);
 }
 
@@ -163,10 +163,10 @@ bool DxfEllipse::isValid() const
         m_majorAxisEnd.x(), m_majorAxisEnd.y());
     return m_center.isValid()
         && m_majorAxisEnd.isValid()
-        && std::isfinite(majorLen) && majorLen > 0.0
-        && std::isfinite(m_ratio) && m_ratio > 0.0
-        && std::isfinite(m_startParam)
-        && std::isfinite(m_endParam)
+        && DxfNumeric::isPositiveFinite(majorLen)
+        && DxfNumeric::isPositiveFinite(m_ratio)
+        && DxfNumeric::isFinite(m_startParam)
+        && DxfNumeric::isFinite(m_endParam)
         && (m_startParam != m_endParam);
 }
 
@@ -205,9 +205,9 @@ bool DxfLWPolyline::isValid() const
             return false;
     }
     for (double b : m_bulges) {
-        if (!std::isfinite(b)) return false;
+        if (!DxfNumeric::isFinite(b)) return false;
     }
-    return std::isfinite(m_constZ);
+    return DxfNumeric::isFinite(m_constZ);
 }
 
 // ========================================================================
@@ -262,6 +262,7 @@ void DxfData::addPoint(const DxfPoint& pt)
         return;
     }
     m_points.push_back(pt);
+    ++m_entityStats.points;
     recordAccepted();
 }
 
@@ -435,6 +436,9 @@ void DxfData::recordGeneratedEntity(EntityType sourceType)
 {
     ++m_entityStats.sourceEntities;
     switch (sourceType) {
+    case EntityType::Point:
+        ++m_entityStats.points;
+        break;
     case EntityType::Line:
         ++m_entityStats.lines;
         break;
@@ -536,11 +540,11 @@ bool DxfSpline::isValid() const
     for (const DxfPoint& point : m_fitPts)
         if (!point.isValid()) return false;
     for (std::size_t i = 0; i < m_knots.size(); ++i) {
-        if (!std::isfinite(m_knots[i])) return false;
+        if (!DxfNumeric::isFinite(m_knots[i])) return false;
         if (i > 0 && m_knots[i] < m_knots[i - 1]) return false;
     }
     for (double weight : m_weights)
-        if (!std::isfinite(weight) || weight <= 0.0) return false;
+        if (!DxfNumeric::isPositiveFinite(weight)) return false;
 
     const bool hasCtrl = m_ctrlPts.size() > static_cast<std::size_t>(m_degree);
     const bool hasFit = m_fitPts.size() >= 2;
@@ -573,9 +577,9 @@ bool DxfSpline::isValid() const
     }
 
     // Validate tangents are finite
-    if (!std::isfinite(m_tgStartX) || !std::isfinite(m_tgStartY) || !std::isfinite(m_tgStartZ))
+    if (!DxfNumeric::areFinite(m_tgStartX, m_tgStartY, m_tgStartZ))
         return false;
-    if (!std::isfinite(m_tgEndX) || !std::isfinite(m_tgEndY) || !std::isfinite(m_tgEndZ))
+    if (!DxfNumeric::areFinite(m_tgEndX, m_tgEndY, m_tgEndZ))
         return false;
 
     return true;
