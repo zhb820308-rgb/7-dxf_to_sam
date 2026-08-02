@@ -10,7 +10,11 @@ enum class DxfImportErrorCode {
     ConversionLimit,
     NoSupportedEntities,
     ConversionFailed,
-    Canceled
+    Canceled,
+    BeginFailed,
+    CreateFailed,
+    CommitFailed,
+    RollbackFailed
 };
 
 #endif

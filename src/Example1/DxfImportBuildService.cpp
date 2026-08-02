@@ -1,8 +1,6 @@
 #include "DxfImportBuildService.h"
 
 #include "FeData.h"
-#include "PythonFiniteElementBuilder.h"
-#include "SamBuilder.h"
 #include "SamData.h"
 
 namespace {
@@ -15,16 +13,8 @@ ImportBuildResult rollbackAfterFailure(
 {
 	failure.createdCount += previouslyCreated;
 	const ImportBuildResult cleanup = builder.rollback();
-	if (cleanup.succeeded())
-		return failure;
-
-	const QString combined = failure.message.isEmpty()
-		? cleanup.message
-		: failure.message + QStringLiteral("; ") + cleanup.message;
-	return ImportBuildResult::failure(
-		ImportBuildStatus::RollbackFailed,
-		combined,
-		failure.createdCount);
+	failure.recordRollback(cleanup);
+	return failure;
 }
 
 } // namespace
@@ -33,7 +23,7 @@ namespace DxfImportBuildService {
 
 ImportBuildResult buildSamSketch(
 	const SamData& samData,
-	SamBuilder& builder)
+	ISamImportBuilder& builder)
 {
 	ImportBuildResult result = builder.beginImport();
 	if (!result.succeeded())
@@ -61,7 +51,7 @@ ImportBuildResult buildFePart(
 	FeData& feData,
 	const QString& modelName,
 	const QString& partName,
-	PythonFiniteElementBuilder& builder)
+	IFeImportBuilder& builder)
 {
 	ImportBuildResult result = builder.beginImport(modelName, partName);
 	if (!result.succeeded())

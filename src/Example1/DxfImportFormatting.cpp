@@ -37,6 +37,10 @@ QString errorCodeText(DxfImportErrorCode code)
 	case DxfImportErrorCode::NoSupportedEntities: return QStringLiteral("NO_SUPPORTED_ENTITIES");
 	case DxfImportErrorCode::ConversionFailed: return QStringLiteral("CONVERSION_FAILED");
 	case DxfImportErrorCode::Canceled: return QStringLiteral("CANCELED");
+	case DxfImportErrorCode::BeginFailed: return QStringLiteral("BEGIN_FAILED");
+	case DxfImportErrorCode::CreateFailed: return QStringLiteral("CREATE_FAILED");
+	case DxfImportErrorCode::CommitFailed: return QStringLiteral("COMMIT_FAILED");
+	case DxfImportErrorCode::RollbackFailed: return QStringLiteral("ROLLBACK_FAILED");
 	case DxfImportErrorCode::None: break;
 	}
 	return QStringLiteral("NONE");

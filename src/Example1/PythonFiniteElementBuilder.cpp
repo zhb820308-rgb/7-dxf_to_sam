@@ -166,26 +166,23 @@ ImportBuildResult PythonFiniteElementBuilder::beginImport(
     m_transaction.markResourceOwned();
     if (!runCommand(command, QStringLiteral("create Part"))) {
         const QString createError = m_lastError;
+        ImportBuildResult failure = ImportBuildResult::failure(
+            ImportBuildStatus::BeginFailed, createError);
         const ImportBuildResult cleanup = rollback();
-        if (!cleanup.succeeded()) {
-            m_lastError = createError + QStringLiteral("; ") + cleanup.message;
-            return ImportBuildResult::failure(
-                ImportBuildStatus::RollbackFailed, m_lastError);
-        }
+        failure.recordRollback(cleanup);
         m_lastError = createError;
-        return ImportBuildResult::failure(
-            ImportBuildStatus::BeginFailed, m_lastError);
+        return failure;
     }
 
     if (!m_transaction.startWriting()) {
         m_lastError = QStringLiteral("create Part succeeded but transaction transition failed");
         const QString transitionError = m_lastError;
+        ImportBuildResult failure = ImportBuildResult::failure(
+            ImportBuildStatus::BeginFailed, transitionError);
         const ImportBuildResult cleanup = rollback();
-        if (!cleanup.succeeded())
-            return cleanup;
+        failure.recordRollback(cleanup);
         m_lastError = transitionError;
-        return ImportBuildResult::failure(
-            ImportBuildStatus::BeginFailed, m_lastError);
+        return failure;
     }
     qInfo().noquote() << "[PythonFiniteElementBuilder] beginImport completed in"
                       << std::chrono::duration_cast<std::chrono::milliseconds>(

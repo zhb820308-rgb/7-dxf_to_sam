@@ -139,23 +139,23 @@ ImportBuildResult SamBuilder::beginImport(const QString& modelName) {
         if (!m_transaction.startWriting()) {
             m_lastError = "failed to enter writing state";
             const QString beginError = m_lastError;
+            ImportBuildResult failure = ImportBuildResult::failure(
+                ImportBuildStatus::BeginFailed, beginError);
             const ImportBuildResult cleanup = rollback();
-            if (!cleanup.succeeded())
-                return cleanup;
+            failure.recordRollback(cleanup);
             m_lastError = beginError;
-            return ImportBuildResult::failure(
-                ImportBuildStatus::BeginFailed, m_lastError);
+            return failure;
         }
         return ImportBuildResult::success();
     } catch (...) {
         m_lastError = "failed to prepare sketch import";
         const QString beginError = m_lastError;
+        ImportBuildResult failure = ImportBuildResult::failure(
+            ImportBuildStatus::BeginFailed, beginError);
         const ImportBuildResult cleanup = rollback();
-        if (!cleanup.succeeded())
-            return cleanup;
+        failure.recordRollback(cleanup);
         m_lastError = beginError;
-        return ImportBuildResult::failure(
-            ImportBuildStatus::BeginFailed, m_lastError);
+        return failure;
     }
 }
 

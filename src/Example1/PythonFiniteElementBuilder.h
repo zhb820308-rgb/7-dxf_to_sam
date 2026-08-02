@@ -1,6 +1,7 @@
 #ifndef PythonFiniteElementBuilder_h
 #define PythonFiniteElementBuilder_h
 
+#include "DxfImportBuilder.h"
 #include "ImportTransaction.h"
 #include "ImportBuildResult.h"
 
@@ -14,18 +15,21 @@ struct FeTruss;
 // Builds an FE Part through SAMCAE's official Python API:
 //   mdl.Part() -> createNode() -> Element(TRUSS) -> displayedObject -> fitView.
 // This route is verified to update SAM's Part Manager and standard GUI lifecycle.
-class PythonFiniteElementBuilder {
+class PythonFiniteElementBuilder : public IFeImportBuilder {
 public:
     using ProgressCallback =
         std::function<bool(const QString& stage, int current, int total)>;
 
-    ~PythonFiniteElementBuilder();
+    ~PythonFiniteElementBuilder() override;
 
-    ImportBuildResult beginImport(const QString& modelName, const QString& partName);
-    ImportBuildResult createNodes(const std::vector<FeNode>& nodes);
-    ImportBuildResult createTrusses(const std::vector<FeTruss>& trusses);
-    ImportBuildResult commit();
-    ImportBuildResult rollback();
+    ImportBuildResult beginImport(
+        const QString& modelName, const QString& partName) override;
+    ImportBuildResult createNodes(
+        const std::vector<FeNode>& nodes) override;
+    ImportBuildResult createTrusses(
+        const std::vector<FeTruss>& trusses) override;
+    ImportBuildResult commit() override;
+    ImportBuildResult rollback() override;
 
     void setProgressCallback(const ProgressCallback& callback)
     {

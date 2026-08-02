@@ -98,11 +98,7 @@ add_executable(test_import_transaction test_import_transaction.cpp)
 target_include_directories(test_import_transaction PRIVATE
     ${CMAKE_SOURCE_DIR}/src/Example1
 )
-target_link_libraries(test_import_transaction PRIVATE
-    GTest::gtest_main
-    Qt5::Core
-    ExampleProjectOptions
-)
+target_link_libraries(test_import_transaction PRIVATE ${TEST_COMMON_LIBS})
 add_test(NAME ImportTransaction COMMAND test_import_transaction)
 set_tests_properties(ImportTransaction PROPERTIES
     ENVIRONMENT "PATH=$<TARGET_FILE_DIR:Qt5::Core>\;$ENV{PATH}"
@@ -152,4 +148,14 @@ target_compile_definitions(test_dxf_block_expansion PRIVATE
 add_test(NAME DxfBlockExpansion COMMAND test_dxf_block_expansion)
 set_tests_properties(DxfBlockExpansion PROPERTIES
     ENVIRONMENT "PATH=$<TARGET_FILE_DIR:Qt5::Core>\;${LIBDXFRW_ROOT}/build/Release\;${SAM_OCCT_BIN_DIR}\;$ENV{PATH}"
+)
+
+# Test 13: builder orchestration failure, cancellation and compensation
+add_executable(test_import_build_service
+    test_import_build_service.cpp
+)
+target_link_libraries(test_import_build_service PRIVATE ${TEST_COMMON_LIBS})
+add_test(NAME ImportBuildService COMMAND test_import_build_service)
+set_tests_properties(ImportBuildService PROPERTIES
+    ENVIRONMENT "PATH=$<TARGET_FILE_DIR:Qt5::Core>\;${SAM_OCCT_BIN_DIR}\;$ENV{PATH}"
 )

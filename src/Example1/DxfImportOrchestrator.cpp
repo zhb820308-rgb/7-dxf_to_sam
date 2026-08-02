@@ -24,15 +24,45 @@ namespace {
 
 DxfImportOutcome failedImport(
 	DxfImportSession& session,
+	DxfImportOutcomeStatus status,
+	DxfImportErrorCode errorCode,
 	const std::string& stage,
 	const std::string& detail,
-	const QString& warning,
-	DxfImportOutcomeStatus status = DxfImportOutcomeStatus::Failed)
+	const QString& warning)
 {
 	failImport(
 		session.logger(), session.errorLogger(), session.importId(),
 		session.pathText(), stage, detail, session.elapsed(), warning);
-	return {status, 0};
+	return DxfImportOutcome::failure(
+		status, errorCode, QString::fromStdString(stage), warning);
+}
+
+DxfImportOutcome failedBuildImport(
+	DxfImportSession& session,
+	const ImportBuildResult& buildResult,
+	const std::string& stage,
+	std::string detail,
+	QString warning)
+{
+	if (buildResult.rollbackAttempted)
+	{
+		detail += buildResult.rollbackSucceeded
+			? " rollback_succeeded=true"
+			: " rollback_succeeded=false";
+		if (!buildResult.rollbackSucceeded)
+		{
+			const std::string rollbackError =
+				buildResult.rollbackMessage.toLocal8Bit().toStdString();
+			detail += " rollback_error=\"" + rollbackError + "\"";
+			warning += QStringLiteral("; rollback failed: ") +
+				buildResult.rollbackMessage;
+		}
+	}
+	failImport(
+		session.logger(), session.errorLogger(), session.importId(),
+		session.pathText(), stage, detail, session.elapsed(), warning);
+	return DxfImportOutcome::fromBuildFailure(
+		buildResult, QString::fromStdString(stage), warning);
 }
 
 DxfImportOutcome canceledImport(
@@ -56,7 +86,11 @@ DxfImportOutcome canceledImport(
 		.arg(progress.canceledCurrent())
 		.arg(progress.canceledTotal());
 	session.finish();
-	return {DxfImportOutcomeStatus::Canceled, 0};
+	return DxfImportOutcome::failure(
+		DxfImportOutcomeStatus::Canceled,
+		DxfImportErrorCode::Canceled,
+		progress.canceledStage(),
+		QStringLiteral("import canceled"));
 }
 
 DxfImportOutcome importFiniteElement(
@@ -89,7 +123,10 @@ DxfImportOutcome importFiniteElement(
 		DxfImportFeedback::showBudgetError(
 			feData.errorCode(), request.maxOutputEntities);
 		return failedImport(
-			session, "fe_conversion",
+			session,
+			DxfImportOutcomeStatus::ConvertFailed,
+			feData.errorCode(),
+			"fe_conversion",
 			" error_code=" + errorCode.toStdString() +
 			" error=\"" + errorMessage.toLocal8Bit().toStdString() + "\"",
 			QString("[importDxf] ERROR [%1]: %2")
@@ -143,11 +180,8 @@ DxfImportOutcome importFiniteElement(
 				.arg(progress.canceledTotal())
 			: QString("[importDxf] ERROR: FE build failed, rolling back - %1")
 				.arg(buildResult.message);
-		return failedImport(
-			session, stage, detail, warning,
-			canceled
-				? DxfImportOutcomeStatus::Canceled
-				: DxfImportOutcomeStatus::Failed);
+		return failedBuildImport(
+			session, buildResult, stage, detail, warning);
 	}
 
 	progress.complete();
@@ -164,7 +198,7 @@ DxfImportOutcome importFiniteElement(
 			buildResult.createdCount, stageTimer.elapsed(), session.elapsed());
 	}
 	session.finish();
-	return {DxfImportOutcomeStatus::Succeeded, buildResult.createdCount};
+	return DxfImportOutcome::success(buildResult.createdCount);
 }
 
 DxfImportOutcome importSketch(
@@ -190,7 +224,10 @@ DxfImportOutcome importSketch(
 		DxfImportFeedback::showBudgetError(
 			samData.errorCode(), request.maxOutputEntities);
 		return failedImport(
-			session, "conversion",
+			session,
+			DxfImportOutcomeStatus::ConvertFailed,
+			samData.errorCode(),
+			"conversion",
 			" error_code=" + errorCode.toStdString() +
 			" error=\"" + errorMessage.toLocal8Bit().toStdString() + "\"",
 			QString("[importDxf] ERROR [%1]: %2")
@@ -222,10 +259,11 @@ DxfImportOutcome importSketch(
 		});
 	const ImportBuildResult buildResult =
 		DxfImportBuildService::buildSamSketch(samData, builder);
-	if (buildResult.status == ImportBuildStatus::Canceled)
-		return canceledImport(session, progress, QChar(0x2014));
 	if (!buildResult.succeeded())
 	{
+		progress.close();
+		const bool canceled =
+			buildResult.status == ImportBuildStatus::Canceled;
 		const std::string stage =
 			DxfImportFormatting::buildStage(buildResult.status);
 		std::string detail =
@@ -235,10 +273,15 @@ DxfImportOutcome importSketch(
 			detail = " sketch=\"" +
 				builder.sketchName().toLocal8Bit().toStdString() + "\"" + detail;
 		}
-		return failedImport(
-			session, stage, detail,
-			QString("[importDxf] ERROR: build failed, rolling back — %1")
-				.arg(buildResult.message));
+		const QString warning = canceled
+			? QString("[importDxf] IMPORT CANCELED — %1 %2/%3")
+				.arg(progress.canceledStage())
+				.arg(progress.canceledCurrent())
+				.arg(progress.canceledTotal())
+			: QString("[importDxf] ERROR: build failed, rolling back — %1")
+				.arg(buildResult.message);
+		return failedBuildImport(
+			session, buildResult, stage, detail, warning);
 	}
 
 	progress.complete();
@@ -254,7 +297,7 @@ DxfImportOutcome importSketch(
 			buildResult.createdCount, stageTimer.elapsed(), session.elapsed());
 	}
 	session.finish();
-	return {DxfImportOutcomeStatus::Succeeded, buildResult.createdCount};
+	return DxfImportOutcome::success(buildResult.createdCount);
 }
 
 } // namespace
@@ -275,7 +318,10 @@ DxfImportOutcome runDxfImport(const DxfImportRequest& request)
 	if (!validation.valid)
 	{
 		return failedImport(
-			session, "validate_params", validation.detail, validation.message);
+			session,
+			DxfImportOutcomeStatus::ValidationFailed,
+			DxfImportErrorCode::InvalidArgument,
+			"validate_params", validation.detail, validation.message);
 	}
 
 	QElapsedTimer stageTimer;
@@ -292,7 +338,10 @@ DxfImportOutcome runDxfImport(const DxfImportRequest& request)
 		DxfImportFeedback::showBudgetError(
 			dxfData.errorCode(), request.maxOutputEntities);
 		return failedImport(
-			session, "parse",
+			session,
+			DxfImportOutcomeStatus::ParseFailed,
+			dxfData.errorCode(),
+			"parse",
 			" error_code=" + errorCode.toStdString() +
 			" error=\"" + errorMessage.toLocal8Bit().toStdString() + "\"",
 			QString("[importDxf] ERROR [%1]: DXF parse failed - %2")
@@ -317,7 +366,10 @@ DxfImportOutcome runDxfImport(const DxfImportRequest& request)
 	if (!mode.valid)
 	{
 		return failedImport(
-			session, mode.stage, mode.detail, mode.message);
+			session,
+			DxfImportOutcomeStatus::ValidationFailed,
+			DxfImportErrorCode::InvalidArgument,
+			mode.stage, mode.detail, mode.message);
 	}
 	if (mode.mode == DxfImportMode::FiniteElement)
 	{

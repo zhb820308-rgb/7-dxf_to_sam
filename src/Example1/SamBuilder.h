@@ -1,6 +1,7 @@
 #ifndef SamBuilder_h
 #define SamBuilder_h
 
+#include "DxfImportBuilder.h"
 #include "ImportTransaction.h"
 #include "ImportBuildResult.h"
 #include "SamData.h"
@@ -15,25 +16,26 @@ class skcGeomFactory;
 ///
 /// Creates lines and circles in the SAM modeling database, manages
 /// sketch lifecycle (begin/commit/rollback), and reports progress.
-class SamBuilder {
+class SamBuilder : public ISamImportBuilder {
 public:
     using ProgressCallback = std::function<bool(const QString& stage, int current, int total)>;
 
     SamBuilder();
-    ~SamBuilder();
+    ~SamBuilder() override;
 
     /// @brief Begin an import session. Creates sketch and geometry factory.
     /// @param modelName SAM model name (default "Model-1").
     /// @return Structured begin status and diagnostic message.
-    ImportBuildResult beginImport(const QString& modelName = "Model-1");
+    ImportBuildResult beginImport(
+        const QString& modelName = QStringLiteral("Model-1")) override;
 
     /// @brief Insert the sketch into the repository and set up scene display.
     /// @return Structured commit status and created entity count.
-    ImportBuildResult commit();
+    ImportBuildResult commit() override;
 
     /// @brief Discard the current import without committing.
     /// @return Success or RollbackFailed with a diagnostic message.
-    ImportBuildResult rollback();
+    ImportBuildResult rollback() override;
 
     /// @brief Set a progress callback invoked during geometry creation.
     /// Return false from the callback to cancel the import.
@@ -41,11 +43,13 @@ public:
 
     /// @brief Create line entities from DXF line data.
     /// @return Structured create/cancel status and number created.
-    ImportBuildResult createLines(const std::vector<DxfLine>& lines);
+    ImportBuildResult createLines(
+        const std::vector<DxfLine>& lines) override;
 
     /// @brief Create circle entities from DXF circle data.
     /// @return Structured create/cancel status and number created.
-    ImportBuildResult createCircles(const std::vector<DxfCircle>& circles);
+    ImportBuildResult createCircles(
+        const std::vector<DxfCircle>& circles) override;
 
     /// @brief Total number of entities created in the current session.
     int   createdCount() const { return m_createdCount; }

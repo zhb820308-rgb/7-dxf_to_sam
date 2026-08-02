@@ -1,5 +1,7 @@
 #pragma once
 
+#include "DxfImportOutcome.h"
+
 #include <QString>
 
 struct DxfImportRequest
@@ -15,24 +17,6 @@ struct DxfImportRequest
 	QString partName;
 	double nodeMergeTolerance = 0.0;
 	int maxOutputEntities = 100000;
-};
-
-enum class DxfImportOutcomeStatus
-{
-	Succeeded,
-	Failed,
-	Canceled
-};
-
-struct DxfImportOutcome
-{
-	DxfImportOutcomeStatus status = DxfImportOutcomeStatus::Failed;
-	int createdCount = 0;
-
-	bool succeeded() const
-	{
-		return status == DxfImportOutcomeStatus::Succeeded;
-	}
 };
 
 DxfImportOutcome runDxfImport(const DxfImportRequest& request);

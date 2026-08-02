@@ -3,6 +3,12 @@ set(EXAMPLE1_CORE_SOURCES
     DxfData.cpp
     DxfData.h
     DxfImportError.h
+    DxfImportOutcome.cpp
+    DxfImportOutcome.h
+    ImportBuildResult.h
+    DxfImportBuilder.h
+    DxfImportBuildService.cpp
+    DxfImportBuildService.h
     GeometryUtils.cpp
     GeometryUtils.h
     ConversionEngine.cpp
@@ -40,8 +46,6 @@ set(EXAMPLE1_DXF_INPUT_SOURCES
     DxfInputFile.h
 )
 set(EXAMPLE1_PLUGIN_SOURCES
-    DxfImportBuildService.cpp
-    DxfImportBuildService.h
     DxfImportFeedback.cpp
     DxfImportFeedback.h
     DxfImportFormatting.cpp
@@ -54,7 +58,6 @@ set(EXAMPLE1_PLUGIN_SOURCES
     Example1PytModule.h
     Example1Utils.cpp
     Example1Utils.h
-    ImportBuildResult.h
     ImportTransaction.h
     kefKLine.cpp
     kefKLine.h
