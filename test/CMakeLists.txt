@@ -137,3 +137,19 @@ add_test(NAME DxfImportLayers COMMAND test_dxf_import_layers)
 set_tests_properties(DxfImportLayers PROPERTIES
     ENVIRONMENT "PATH=$<TARGET_FILE_DIR:Qt5::Core>\;$ENV{PATH}"
 )
+
+# Test 12: BLOCK/INSERT recursion, depth and cumulative budget boundaries
+add_executable(test_dxf_block_expansion
+    test_dxf_block_expansion.cpp
+)
+target_link_libraries(test_dxf_block_expansion PRIVATE
+    ${TEST_COMMON_LIBS}
+    Example1DxfParser
+)
+target_compile_definitions(test_dxf_block_expansion PRIVATE
+    DXF_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
+)
+add_test(NAME DxfBlockExpansion COMMAND test_dxf_block_expansion)
+set_tests_properties(DxfBlockExpansion PROPERTIES
+    ENVIRONMENT "PATH=$<TARGET_FILE_DIR:Qt5::Core>\;${LIBDXFRW_ROOT}/build/Release\;${SAM_OCCT_BIN_DIR}\;$ENV{PATH}"
+)
