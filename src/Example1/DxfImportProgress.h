@@ -18,6 +18,10 @@ public:
 		DxfImportProgressMode mode,
 		std::size_t sketchLineCount = 0,
 		std::size_t sketchCircleCount = 0);
+	~DxfImportProgress();
+
+	DxfImportProgress(const DxfImportProgress&) = delete;
+	DxfImportProgress& operator=(const DxfImportProgress&) = delete;
 
 	bool update(const QString& stage, int current, int total);
 	void complete();
@@ -35,4 +39,6 @@ private:
 	QString m_canceledStage;
 	int m_canceledCurrent = 0;
 	int m_canceledTotal = 0;
+	bool m_canceled = false;
+	bool m_closed = false;
 };

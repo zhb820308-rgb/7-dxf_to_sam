@@ -1,6 +1,19 @@
 #include "DxfImportProgress.h"
 
 #include <QCoreApplication>
+#include <QEventLoop>
+
+namespace {
+
+const int kMaxEventProcessingTimeMs = 25;
+
+void processPendingUiEvents()
+{
+	QCoreApplication::processEvents(
+		QEventLoop::AllEvents, kMaxEventProcessingTimeMs);
+}
+
+} // namespace
 
 DxfImportProgress::DxfImportProgress(
 	DxfImportProgressMode mode,
@@ -23,7 +36,12 @@ DxfImportProgress::DxfImportProgress(
 	m_dialog.setWindowModality(Qt::ApplicationModal);
 	m_dialog.setMinimumDuration(0);
 	m_dialog.show();
-	QCoreApplication::processEvents();
+	processPendingUiEvents();
+}
+
+DxfImportProgress::~DxfImportProgress()
+{
+	close();
 }
 
 bool DxfImportProgress::update(
@@ -31,6 +49,9 @@ bool DxfImportProgress::update(
 	int current,
 	int total)
 {
+	if (m_canceled || m_closed)
+		return false;
+
 	int value = 20;
 	if (m_mode == DxfImportProgressMode::FiniteElement)
 	{
@@ -77,22 +98,30 @@ bool DxfImportProgress::update(
 	m_dialog.setLabelText(
 		QStringLiteral("%1: %2 / %3").arg(stage).arg(current).arg(total));
 	m_dialog.setValue(value);
-	QCoreApplication::processEvents();
+	processPendingUiEvents();
 	if (!m_dialog.wasCanceled())
 		return true;
 
 	m_canceledStage = stage;
 	m_canceledCurrent = current;
 	m_canceledTotal = total;
+	m_canceled = true;
+	close();
 	return false;
 }
 
 void DxfImportProgress::complete()
 {
+	if (m_closed)
+		return;
 	m_dialog.setValue(100);
+	close();
 }
 
 void DxfImportProgress::close()
 {
+	if (m_closed)
+		return;
 	m_dialog.close();
+	m_closed = true;
 }

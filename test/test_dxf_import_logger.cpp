@@ -16,6 +16,7 @@
 #include <QTextStream>
 #include <chrono>
 #include <fstream>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <cmath>
@@ -124,10 +125,32 @@ TEST(DxfImportSessionTest, preservesUnicodePathAndFinishesOnce)
 
     const std::string importId = session.importId();
     const QString logPath = perImportLogPath(importId);
+    std::weak_ptr<spdlog::logger> loggerLifetime = session.logger();
     session.finish();
+    EXPECT_EQ(session.logger(), nullptr);
+    EXPECT_TRUE(loggerLifetime.expired());
     EXPECT_EQ(spdlog::get("dxf_import_" + importId), nullptr);
     EXPECT_NO_THROW(session.finish());
 
+    const std::string content = readFileContent(logPath);
+    EXPECT_NE(content.find("started file="), std::string::npos) << content;
+    QFile::remove(logPath);
+}
+
+TEST(DxfImportSessionTest, scopeExitFinishesAndReleasesLogger)
+{
+    std::weak_ptr<spdlog::logger> loggerLifetime;
+    QString logPath;
+    {
+        DxfImportSession session(
+            QStringLiteral("C:/scope-exit.dxf"),
+            0.0, 0.0, 0.0, 0.01, 100000);
+        ASSERT_NE(session.logger(), nullptr);
+        loggerLifetime = session.logger();
+        logPath = perImportLogPath(session.importId());
+    }
+
+    EXPECT_TRUE(loggerLifetime.expired());
     const std::string content = readFileContent(logPath);
     EXPECT_NE(content.find("started file="), std::string::npos) << content;
     QFile::remove(logPath);

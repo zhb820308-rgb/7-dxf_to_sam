@@ -20,6 +20,10 @@ public:
 		double baseZ,
 		double curveTolerance,
 		int maxOutputEntities);
+	~DxfImportSession() noexcept;
+
+	DxfImportSession(const DxfImportSession&) = delete;
+	DxfImportSession& operator=(const DxfImportSession&) = delete;
 
 	const std::string& importId() const { return m_importId; }
 	const std::string& pathText() const { return m_pathText; }
@@ -30,7 +34,7 @@ public:
 	}
 	long long elapsed() const { return m_totalTimer.elapsed(); }
 
-	void finish();
+	void finish() noexcept;
 
 private:
 	std::string m_importId;

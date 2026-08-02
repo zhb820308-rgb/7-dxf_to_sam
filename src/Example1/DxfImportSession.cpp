@@ -5,6 +5,8 @@
 #include <QDateTime>
 #include <QDebug>
 
+#include <exception>
+
 DxfImportSession::DxfImportSession(
 	const QString& filePath,
 	double baseX,
@@ -43,12 +45,36 @@ DxfImportSession::DxfImportSession(
 	}
 }
 
-void DxfImportSession::finish()
+DxfImportSession::~DxfImportSession() noexcept
+{
+	finish();
+}
+
+void DxfImportSession::finish() noexcept
 {
 	if (m_finished)
 		return;
-	if (m_logger)
-		m_logger->flush();
-	dropDxfImportLogger(m_importId);
 	m_finished = true;
+	if (m_logger)
+	{
+		try
+		{
+			m_logger->flush();
+		}
+		catch (const std::exception& error)
+		{
+			qWarning() << "[importDxf] Failed to flush import log:"
+				<< error.what();
+		}
+	}
+	try
+	{
+		dropDxfImportLogger(m_importId);
+	}
+	catch (const std::exception& error)
+	{
+		qWarning() << "[importDxf] Failed to release import logger:"
+			<< error.what();
+	}
+	m_logger.reset();
 }
