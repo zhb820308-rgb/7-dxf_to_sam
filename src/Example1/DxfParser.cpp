@@ -68,18 +68,23 @@ bool DxfParser::parseFile(
     }
 
     outData = reader.takeData();
-    QString expansionError;
-    if (!expandDxfBlocks(
-            outData, reader.blocks(), reader.modelSpaceInserts(),
-            ignoredLayers, curveTolerance, initialEntities,
-            maxOutputEntities, expansionError)) {
-        if (expansionError.isEmpty()) {
-            expansionError = QStringLiteral("INSERT expansion failed");
+    const DxfBlockExpansionResult expansion = expandDxfBlocks({
+        outData,
+        reader.blocks(),
+        reader.modelSpaceInserts(),
+        ignoredLayers,
+        curveTolerance,
+        initialEntities,
+        maxOutputEntities});
+    if (!expansion.succeeded()) {
+        QString message = expansion.message;
+        if (message.isEmpty()) {
+            message = QStringLiteral("INSERT expansion failed");
         }
         outData.clear();
         outData.setError(
             DxfImportErrorCode::ExpansionLimit,
-            expansionError);
+            message);
         return false;
     }
 

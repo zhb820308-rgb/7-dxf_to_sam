@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "DxfBlockExpansion.h"
+#include "DxfImportDefaults.h"
 #include "DxfParser.h"
 
 #ifndef DXF_TEST_FIXTURE_DIR
@@ -49,16 +50,21 @@ InsertInfo insertOf(
     return insert;
 }
 
-bool expand(
+DxfBlockExpansionResult expand(
     DxfData& output,
     const BlockMap& blocks,
     const std::vector<InsertInfo>& inserts,
-    std::size_t maxOutputEntities,
-    QString& error)
+    std::size_t maxOutputEntities)
 {
-    return expandDxfBlocks(
-        output, blocks, inserts, {}, 0.01, 0,
-        maxOutputEntities, error);
+    const std::set<std::string> ignoredLayers;
+    return expandDxfBlocks({
+        output,
+        blocks,
+        inserts,
+        ignoredLayers,
+        DxfImportDefaults::kCurveTolerance,
+        0,
+        maxOutputEntities});
 }
 
 bool writeBlockChain(
@@ -112,10 +118,10 @@ TEST(DxfBlockExpansion, MutualCycleStopsAtFirstRepeatedBlock)
     blocks.emplace("B", blockB);
 
     DxfData output;
-    QString error;
-    ASSERT_TRUE(expand(
-        output, blocks, {insertOf("A", 1.0)}, 100, error));
-    EXPECT_TRUE(error.isEmpty());
+    const DxfBlockExpansionResult result = expand(
+        output, blocks, {insertOf("A", 1.0)}, 100);
+    ASSERT_TRUE(result.succeeded()) << result.message.toStdString();
+    EXPECT_TRUE(result.message.isEmpty());
     ASSERT_EQ(output.lines().size(), 2u);
     EXPECT_NEAR(output.lines()[0].start().x(), 1.0, kCoordinateTolerance);
     EXPECT_NEAR(output.lines()[0].end().x(), 2.0, kCoordinateTolerance);
@@ -132,12 +138,12 @@ TEST(DxfBlockExpansion, UnknownReferencesAreSkippedWithoutExpandingScope)
     blocks.emplace("KNOWN", known);
 
     DxfData output;
-    QString error;
-    ASSERT_TRUE(expand(
+    const DxfBlockExpansionResult result = expand(
         output, blocks,
         {insertOf("MISSING_TOP"), insertOf("KNOWN", 3.0)},
-        100, error));
-    EXPECT_TRUE(error.isEmpty());
+        100);
+    ASSERT_TRUE(result.succeeded()) << result.message.toStdString();
+    EXPECT_TRUE(result.message.isEmpty());
     ASSERT_EQ(output.lines().size(), 1u);
     EXPECT_NEAR(output.lines()[0].start().x(), 3.0, kCoordinateTolerance);
     EXPECT_NEAR(output.lines()[0].end().x(), 4.0, kCoordinateTolerance);
@@ -154,13 +160,57 @@ TEST(DxfBlockExpansion, NestedArraysShareTheGlobalInstanceBudget)
     blocks.emplace("LEAF", lineBlock("LEAF"));
 
     DxfData output;
-    QString error;
-    EXPECT_FALSE(expand(
+    const DxfBlockExpansionResult result = expand(
         output, blocks, {insertOf("BRANCH", 0.0, 99999)},
-        std::numeric_limits<std::size_t>::max(), error));
+        std::numeric_limits<std::size_t>::max());
+    EXPECT_FALSE(result.succeeded());
+    EXPECT_EQ(
+        result.status,
+        DxfBlockExpansionStatus::BlockInstanceLimit);
     EXPECT_EQ(output.entityCount(), 0u);
-    EXPECT_TRUE(error.contains("block instances", Qt::CaseInsensitive))
-        << error.toStdString();
+    EXPECT_TRUE(result.message.contains(
+        "block instances", Qt::CaseInsensitive))
+        << result.message.toStdString();
+}
+
+TEST(DxfBlockExpansion, SingleArrayReportsItsOwnInstanceLimit)
+{
+    BlockMap blocks;
+    blocks.emplace("LEAF", lineBlock("LEAF"));
+
+    DxfData output;
+    const DxfBlockExpansionResult result = expand(
+        output, blocks, {insertOf("LEAF", 0.0, 100001)},
+        std::numeric_limits<std::size_t>::max());
+
+    EXPECT_FALSE(result.succeeded());
+    EXPECT_EQ(
+        result.status,
+        DxfBlockExpansionStatus::ArrayInstanceLimit);
+    EXPECT_EQ(output.entityCount(), 0u);
+}
+
+TEST(DxfBlockExpansion, DirectExpansionReportsDepthLimit)
+{
+    BlockMap blocks;
+    for (int depth = 0; depth <= kDocumentedMaxExpandDepth + 1; ++depth) {
+        const std::string name = "DEPTH_" + std::to_string(depth);
+        DxfBlock block;
+        block.setName(name);
+        if (depth <= kDocumentedMaxExpandDepth) {
+            block.addInsert(insertOf(
+                "DEPTH_" + std::to_string(depth + 1)));
+        }
+        blocks.emplace(name, block);
+    }
+
+    DxfData output;
+    const DxfBlockExpansionResult result = expand(
+        output, blocks, {insertOf("DEPTH_0")}, 100);
+
+    EXPECT_FALSE(result.succeeded());
+    EXPECT_EQ(result.status, DxfBlockExpansionStatus::DepthLimit);
+    EXPECT_TRUE(result.message.contains("depth", Qt::CaseInsensitive));
 }
 
 TEST(DxfBlockExpansion, NestedBlocksShareTheOutputEntityBudget)
@@ -176,19 +226,23 @@ TEST(DxfBlockExpansion, NestedBlocksShareTheOutputEntityBudget)
     blocks.emplace("LEAF", leaf);
 
     DxfData exactOutput;
-    QString exactError;
-    ASSERT_TRUE(expand(
-        exactOutput, blocks, {insertOf("BRANCH")}, 3, exactError));
-    EXPECT_TRUE(exactError.isEmpty());
+    const DxfBlockExpansionResult exact = expand(
+        exactOutput, blocks, {insertOf("BRANCH")}, 3);
+    ASSERT_TRUE(exact.succeeded()) << exact.message.toStdString();
+    EXPECT_TRUE(exact.message.isEmpty());
     EXPECT_EQ(exactOutput.lines().size(), 3u);
 
     DxfData limitedOutput;
-    QString limitedError;
-    EXPECT_FALSE(expand(
-        limitedOutput, blocks, {insertOf("BRANCH")}, 2, limitedError));
+    const DxfBlockExpansionResult limited = expand(
+        limitedOutput, blocks, {insertOf("BRANCH")}, 2);
+    EXPECT_FALSE(limited.succeeded());
+    EXPECT_EQ(
+        limited.status,
+        DxfBlockExpansionStatus::OutputEntityLimit);
     EXPECT_EQ(limitedOutput.lines().size(), 2u);
-    EXPECT_TRUE(limitedError.contains("output entities", Qt::CaseInsensitive))
-        << limitedError.toStdString();
+    EXPECT_TRUE(limited.message.contains(
+        "output entities", Qt::CaseInsensitive))
+        << limited.message.toStdString();
 }
 
 TEST(DxfBlockExpansion, DocumentedDepthBoundaryProducesExactCoordinates)

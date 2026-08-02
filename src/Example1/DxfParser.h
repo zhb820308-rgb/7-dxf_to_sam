@@ -3,6 +3,7 @@
 #define DxfParser_h
 
 #include "DxfData.h"
+#include "DxfImportDefaults.h"
 #include <QString>
 #include <cstddef>
 #include <set>
@@ -23,9 +24,10 @@ public:
     /// @param  ignoredLayers  layers to filter after resolving INSERT layer inheritance
     /// @return true on success; on failure outData.errorMessage() is set
     bool parseFile(const QString& filePath, DxfData& outData,
-                   double curveTolerance = 0.01,
+                   double curveTolerance = DxfImportDefaults::kCurveTolerance,
                    const std::set<std::string>& ignoredLayers = {},
-                   std::size_t maxOutputEntities = 100000);
+                   std::size_t maxOutputEntities =
+                       DxfImportDefaults::kDefaultMaxOutputEntities);
 };
 
 #endif

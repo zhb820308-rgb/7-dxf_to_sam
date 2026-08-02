@@ -150,7 +150,20 @@ set_tests_properties(DxfBlockExpansion PROPERTIES
     ENVIRONMENT "PATH=$<TARGET_FILE_DIR:Qt5::Core>\;${LIBDXFRW_ROOT}/build/Release\;${SAM_OCCT_BIN_DIR}\;$ENV{PATH}"
 )
 
-# Test 13: builder orchestration failure, cancellation and compensation
+# Test 13: transformed BLOCK curves and Sketch/FE geometry parity
+add_executable(test_dxf_transformed_curves
+    test_dxf_transformed_curves.cpp
+)
+target_link_libraries(test_dxf_transformed_curves PRIVATE
+    ${TEST_COMMON_LIBS}
+    Example1DxfParser
+)
+add_test(NAME DxfTransformedCurves COMMAND test_dxf_transformed_curves)
+set_tests_properties(DxfTransformedCurves PROPERTIES
+    ENVIRONMENT "PATH=$<TARGET_FILE_DIR:Qt5::Core>\;${LIBDXFRW_ROOT}/build/Release\;${SAM_OCCT_BIN_DIR}\;$ENV{PATH}"
+)
+
+# Test 14: builder orchestration failure, cancellation and compensation
 add_executable(test_import_build_service
     test_import_build_service.cpp
 )

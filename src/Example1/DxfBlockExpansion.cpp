@@ -1,5 +1,6 @@
 #include "DxfBlockExpansion.h"
 
+#include "DxfImportDefaults.h"
 #include "DxfTransform.h"
 #include "GeometryUtils.h"
 
@@ -15,19 +16,21 @@ namespace {
 
 constexpr std::uint64_t kMaxArrayInstancesPerInsert = 100000;
 constexpr std::uint64_t kMaxExpandedBlockInstances = 100000;
-constexpr std::size_t kDefaultMaxOutputEntities = 100000;
 constexpr std::size_t kMaxReserveEntities = 500000;
 
 struct ExpansionBudget
 {
     std::uint64_t blockInstances = 0;
     std::size_t entities = 0;
-    std::size_t maxOutputEntities = kDefaultMaxOutputEntities;
+    std::size_t maxOutputEntities =
+        DxfImportDefaults::kDefaultMaxOutputEntities;
+    DxfBlockExpansionStatus status = DxfBlockExpansionStatus::Success;
     QString error;
 
     explicit ExpansionBudget(
         std::size_t initialEntities = 0,
-        std::size_t outputLimit = kDefaultMaxOutputEntities)
+        std::size_t outputLimit =
+            DxfImportDefaults::kDefaultMaxOutputEntities)
         : entities(initialEntities), maxOutputEntities(outputLimit)
     {
     }
@@ -39,6 +42,7 @@ struct ExpansionBudget
         const std::uint64_t columnCount = static_cast<std::uint64_t>(
             std::max(1, columns));
         if (rowCount > kMaxArrayInstancesPerInsert / columnCount) {
+            status = DxfBlockExpansionStatus::ArrayInstanceLimit;
             error = QStringLiteral(
                 "INSERT expansion limit exceeded for block '%1': %2 rows x %3 columns")
                 .arg(QString::fromStdString(blockName))
@@ -48,6 +52,7 @@ struct ExpansionBudget
         }
         const std::uint64_t count = rowCount * columnCount;
         if (blockInstances > kMaxExpandedBlockInstances - count) {
+            status = DxfBlockExpansionStatus::BlockInstanceLimit;
             error = QStringLiteral(
                 "INSERT expansion limit exceeded: more than %1 block instances")
                 .arg(kMaxExpandedBlockInstances);
@@ -61,6 +66,7 @@ struct ExpansionBudget
     {
         if (count > maxOutputEntities
             || entities > maxOutputEntities - count) {
+            status = DxfBlockExpansionStatus::OutputEntityLimit;
             error = QStringLiteral(
                 "INSERT expansion limit exceeded: more than %1 output entities")
                 .arg(static_cast<qulonglong>(maxOutputEntities));
@@ -256,6 +262,7 @@ bool expandSingleBlock(
     if (depth > kMaxExpandDepth) {
         qWarning() << "[BlockExpand] max depth" << kMaxExpandDepth
                    << "exceeded at block:" << block.name().c_str();
+        budget.status = DxfBlockExpansionStatus::DepthLimit;
         budget.error = QStringLiteral(
             "INSERT expansion depth limit exceeded at block '%1'")
             .arg(QString::fromStdString(block.name()));
@@ -474,19 +481,20 @@ bool expandBlocks(
 
 } // namespace
 
-bool expandDxfBlocks(
-    DxfData& output,
-    const std::unordered_map<std::string, DxfBlock>& blocks,
-    const std::vector<InsertInfo>& inserts,
-    const std::set<std::string>& ignoredLayers,
-    double tolerance,
-    std::size_t initialEntities,
-    std::size_t maxOutputEntities,
-    QString& error)
+DxfBlockExpansionResult expandDxfBlocks(
+    const DxfBlockExpansionRequest& request)
 {
-    ExpansionBudget budget(initialEntities, maxOutputEntities);
+    ExpansionBudget budget(
+        request.initialEntities, request.maxOutputEntities);
     const bool expanded = expandBlocks(
-        output, blocks, inserts, ignoredLayers, tolerance, budget);
-    error = budget.error;
-    return expanded;
+        request.output,
+        request.blocks,
+        request.inserts,
+        request.ignoredLayers,
+        request.curveTolerance,
+        budget);
+    if (expanded) {
+        return DxfBlockExpansionResult{};
+    }
+    return DxfBlockExpansionResult{budget.status, budget.error};
 }
