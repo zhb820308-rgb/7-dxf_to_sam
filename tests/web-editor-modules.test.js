@@ -174,6 +174,8 @@ const scripts = [
   "selection.js",
   "import-controller.js",
   "agent-controller.js",
+  "ui-controller.js",
+  "editor-controller.js",
   "app.js"
 ];
 scripts.forEach((file) => {
