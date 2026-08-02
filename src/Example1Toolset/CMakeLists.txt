@@ -25,7 +25,6 @@ target_include_directories(Example1Toolset PRIVATE
     ${LIBS_OC_ROOT}/include
     ${LIBS_SAMSDK_ROOT}/include
     ${LIBS_SAMSDK_ROOT}/include/guiProject
-    ${LIBDXFRW_INCLUDE_DIR}
 )
 target_link_directories(Example1Toolset PRIVATE
     ${LIBS_QTITAN_ROOT}/lib
@@ -63,6 +62,6 @@ target_link_libraries(Example1Toolset
     SAMIngQtSAM
     SAMGui
     libtcmalloc_minimal
-    "${LIBDXFRW_LIBRARY}"
+    libdxfrw::dxfrw
 )
 

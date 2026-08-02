@@ -117,15 +117,13 @@ set_target_properties(Example1DxfInput PROPERTIES
 add_library(Example1DxfParser STATIC ${EXAMPLE1_PARSER_SOURCES})
 target_include_directories(Example1DxfParser
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
-    PRIVATE
-    ${LIBDXFRW_INCLUDE_DIR}
 )
 target_link_libraries(Example1DxfParser PUBLIC
     ExampleProjectOptions
     Example1Core
     Example1DxfInput
     Qt5::Core
-    "${LIBDXFRW_LIBRARY}"
+    libdxfrw::dxfrw
 )
 set_target_properties(Example1DxfParser PROPERTIES
     CXX_STANDARD 17
@@ -229,7 +227,7 @@ target_link_libraries(Example1
 # Copy third-party runtime DLLs beside Example1.pyd after build.
 add_custom_command(TARGET Example1 POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${LIBDXFRW_RUNTIME}"
+        "$<TARGET_FILE:libdxfrw::dxfrw>"
         "$<TARGET_FILE_DIR:Example1>"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "$<TARGET_FILE:spdlog::spdlog>"

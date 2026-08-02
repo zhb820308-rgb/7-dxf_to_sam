@@ -17,7 +17,7 @@ project(Example)
 #   CMAKE_SOURCE_DIR/../../SAM
 #   CMAKE_SOURCE_DIR/../../OpenOLTranSim-main/SAMSDK
 #   CMAKE_SOURCE_DIR/../env/libdxfrw
-#   (spdlog has no sensible relative path — falls back to env or old default)
+#   (spdlog has no project-relative default and must come from cache or env)
 
 # -- LIBS_SAM_ROOT --
 if(NOT LIBS_SAM_ROOT)
@@ -61,9 +61,15 @@ if(NOT SPDLOG_ROOT)
         set(SPDLOG_ROOT "$ENV{VCPKG_ROOT}/installed/x64-windows" CACHE PATH
             "Root directory containing the installed spdlog package")
     else()
-        set(SPDLOG_ROOT "D:/vcpkg/installed/x64-windows" CACHE PATH
+        set(SPDLOG_ROOT "" CACHE PATH
             "Root directory containing the installed spdlog package")
     endif()
+endif()
+if(NOT SPDLOG_ROOT)
+    message(FATAL_ERROR
+        "SPDLOG_ROOT is required. Set -DSPDLOG_ROOT=<installed-prefix>, "
+        "or define the SPDLOG_ROOT/VCPKG_ROOT environment variable."
+    )
 endif()
 
 # FE libraries are included in the local SAMSDK distribution.
@@ -113,6 +119,12 @@ endif()
 if(NOT EXISTS "${LIBDXFRW_RUNTIME}")
     message(FATAL_ERROR "dxfrw.dll not found: ${LIBDXFRW_RUNTIME}")
 endif()
+add_library(libdxfrw::dxfrw SHARED IMPORTED GLOBAL)
+set_target_properties(libdxfrw::dxfrw PROPERTIES
+    IMPORTED_IMPLIB "${LIBDXFRW_LIBRARY}"
+    IMPORTED_LOCATION "${LIBDXFRW_RUNTIME}"
+    INTERFACE_INCLUDE_DIRECTORIES "${LIBDXFRW_INCLUDE_DIR}"
+)
 if(NOT EXISTS "${spdlog_DIR}/spdlogConfig.cmake")
     message(FATAL_ERROR
         "spdlogConfig.cmake not found: ${spdlog_DIR}. "
