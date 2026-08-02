@@ -1,6 +1,7 @@
 #include <Example1DXFImportDialog.h>
 #include <Example1Form.h>
 #include <DxfLayerReader.h>
+#include <DxfImportDefaults.h>
 #include <MultiSelectComboBox.h>
 
 #include <QValidator>
@@ -82,11 +83,14 @@ Example1DXFImportDialog::Example1DXFImportDialog(Example1Form* form)
 		new QGroupBox(tr("Drawing Size"), this);
 	m_drawingSizeCombo = new QComboBox(drawingSizeGroup);
 	m_drawingSizeCombo->addItem(
-		tr("Small drawing (100,000 entities)"), 100000);
+		tr("Small drawing (100,000 entities)"),
+		DxfImportDefaults::kDefaultMaxOutputEntities);
 	m_drawingSizeCombo->addItem(
-		tr("Large drawing (500,000 entities)"), 500000);
+		tr("Large drawing (500,000 entities)"),
+		DxfImportDefaults::kLargeDrawingEntityLimit);
 	m_drawingSizeCombo->addItem(
-		tr("Unlimited (no final output limit)"), -1);
+		tr("Unlimited (no final output limit)"),
+		DxfImportDefaults::kUnlimitedOutputEntities);
 	m_drawingSizeCombo->setToolTip(
 		tr("Unlimited removes the final output limit but keeps INSERT safety limits."));
 	connect(m_drawingSizeCombo, SIGNAL(currentIndexChanged(int)),
@@ -100,13 +104,19 @@ Example1DXFImportDialog::Example1DXFImportDialog(Example1Form* form)
 		new QGroupBox(tr("Curve Discretization"), this);
 
 	m_toleranceValidator =
-		new QDoubleValidator(0.000000000001, 1000.0, 12, discretizationGroup);
+		new QDoubleValidator(
+			DxfImportDefaults::kMinimumCurveTolerance,
+			DxfImportDefaults::kMaximumCurveTolerance,
+			12,
+			discretizationGroup);
 	m_toleranceValidator->setNotation(QDoubleValidator::StandardNotation);
 
 	m_toleranceEdit = new QLineEdit(discretizationGroup);
-	m_toleranceEdit->setText("0.01");
+	m_toleranceEdit->setText(QString::number(
+		DxfImportDefaults::kCurveTolerance, 'g', 12));
 	m_toleranceEdit->setValidator(m_toleranceValidator);
-	m_toleranceEdit->setPlaceholderText("0.01");
+	m_toleranceEdit->setPlaceholderText(QString::number(
+		DxfImportDefaults::kCurveTolerance, 'g', 12));
 	m_toleranceEdit->setToolTip(
 		tr("Maximum deviation between a curve and its line segments."));
 
@@ -175,9 +185,14 @@ void Example1DXFImportDialog::onImportModeChanged(int index)
 void Example1DXFImportDialog::onDrawingSizeChanged(int index)
 {
 	const int profileLimit = m_drawingSizeCombo->itemData(index).toInt();
-	const bool large = profileLimit > 100000 || profileLimit < 0;
-	m_toleranceEdit->setText(large ? QStringLiteral("0.05")
-	                               : QStringLiteral("0.01"));
+	const bool large =
+		profileLimit > DxfImportDefaults::kDefaultMaxOutputEntities ||
+		profileLimit == DxfImportDefaults::kUnlimitedOutputEntities;
+	m_toleranceEdit->setText(QString::number(
+		large
+			? DxfImportDefaults::kLargeDrawingCurveTolerance
+			: DxfImportDefaults::kCurveTolerance,
+		'g', 12));
 }
 
 
@@ -270,11 +285,15 @@ void Example1DXFImportDialog::onCmdOk(int id)
 		return;
 	}
 
-	if (!toleranceOk || tolerance <= 0.0) {
+	if (!toleranceOk ||
+		tolerance < DxfImportDefaults::kMinimumCurveTolerance ||
+		tolerance > DxfImportDefaults::kMaximumCurveTolerance) {
 		QMessageBox::warning(
 			this,
 			tr("Warning"),
-			tr("Please enter a curve tolerance greater than zero.")
+			tr("Please enter a curve tolerance between %1 and %2.")
+				.arg(DxfImportDefaults::kMinimumCurveTolerance)
+				.arg(DxfImportDefaults::kMaximumCurveTolerance)
 		);
 		return;
 	}

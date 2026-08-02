@@ -2,6 +2,7 @@
 
 #include "DxfBlockExpansion.h"
 #include "DxfInputFile.h"
+#include "DxfImportValidation.h"
 #include "DxfReaderCallbacks.h"
 
 #include <libdxfrw.h>
@@ -22,11 +23,13 @@ bool DxfParser::parseFile(
             QStringLiteral("DXF file is empty"));
         return false;
     }
-    if (!std::isfinite(curveTolerance) || curveTolerance <= 0.0) {
+    if (!std::isfinite(curveTolerance)
+        || curveTolerance < DxfImportValidation::kMinimumCurveTolerance
+        || curveTolerance > DxfImportValidation::kMaximumCurveTolerance) {
         outData.setError(
             DxfImportErrorCode::InvalidArgument,
             QStringLiteral(
-                "curveTolerance must be finite and greater than zero"));
+                "curveTolerance is outside the supported range"));
         return false;
     }
     if (maxOutputEntities == 0) {

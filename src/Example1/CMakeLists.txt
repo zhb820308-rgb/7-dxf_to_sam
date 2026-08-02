@@ -3,8 +3,12 @@ set(EXAMPLE1_CORE_SOURCES
     DxfData.cpp
     DxfData.h
     DxfImportError.h
+    DxfImportDefaults.h
     DxfImportOutcome.cpp
     DxfImportOutcome.h
+    DxfImportPreflight.cpp
+    DxfImportPreflight.h
+    DxfImportRequest.h
     ImportBuildResult.h
     DxfImportBuilder.h
     DxfImportBuildService.cpp

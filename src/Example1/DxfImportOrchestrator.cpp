@@ -6,10 +6,9 @@
 #include "DxfImportFormatting.h"
 #include "DxfImportLayers.h"
 #include "DxfImportLogger.h"
-#include "DxfImportMode.h"
+#include "DxfImportPreflight.h"
 #include "DxfImportProgress.h"
 #include "DxfImportSession.h"
-#include "DxfImportValidation.h"
 #include "DxfParser.h"
 #include "FeConversionEngine.h"
 #include "FeData.h"
@@ -304,25 +303,22 @@ DxfImportOutcome importSketch(
 
 DxfImportOutcome runDxfImport(const DxfImportRequest& request)
 {
-	const std::set<std::string> ignoredLayers =
-		parseIgnoredDxfLayers(request.ignoredLayers);
 	DxfImportSession session(
 		request.filePath, request.baseX, request.baseY, request.baseZ,
 		request.curveTolerance, request.maxOutputEntities);
 
-	const DxfImportValidation::Result validation =
-		DxfImportValidation::validate(
-			request.baseX, request.baseY, request.baseZ,
-			request.curveTolerance, request.nodeMergeTolerance,
-			request.maxOutputEntities);
-	if (!validation.valid)
+	const DxfImportPreflightResult preflight =
+		validateDxfImportRequest(request);
+	if (!preflight.valid)
 	{
 		return failedImport(
 			session,
 			DxfImportOutcomeStatus::ValidationFailed,
 			DxfImportErrorCode::InvalidArgument,
-			"validate_params", validation.detail, validation.message);
+			preflight.stage, preflight.detail, preflight.message);
 	}
+	const std::set<std::string> ignoredLayers =
+		parseIgnoredDxfLayers(request.ignoredLayers);
 
 	QElapsedTimer stageTimer;
 	stageTimer.start();
@@ -330,7 +326,7 @@ DxfImportOutcome runDxfImport(const DxfImportRequest& request)
 	DxfParser parser;
 	if (!parser.parseFile(
 			request.filePath, dxfData, request.curveTolerance,
-			ignoredLayers, validation.outputLimit))
+			ignoredLayers, preflight.outputLimit))
 	{
 		const QString errorCode =
 			DxfImportFormatting::errorCodeText(dxfData.errorCode());
@@ -361,22 +357,12 @@ DxfImportOutcome runDxfImport(const DxfImportRequest& request)
 	logRawDxfData(session.logger(), session.importId(), dxfData);
 	const DxfEntityStats entityStats = dxfData.entityStats();
 
-	const DxfImportModeResult mode = selectDxfImportMode(
-		request.importMode, request.modelName, request.partName);
-	if (!mode.valid)
-	{
-		return failedImport(
-			session,
-			DxfImportOutcomeStatus::ValidationFailed,
-			DxfImportErrorCode::InvalidArgument,
-			mode.stage, mode.detail, mode.message);
-	}
-	if (mode.mode == DxfImportMode::FiniteElement)
+	if (preflight.mode == DxfImportMode::FiniteElement)
 	{
 		return importFiniteElement(
-			request, dxfData, validation.outputLimit, session, stageTimer);
+			request, dxfData, preflight.outputLimit, session, stageTimer);
 	}
 	return importSketch(
 		request, dxfData, entityStats,
-		validation.outputLimit, session, stageTimer);
+		preflight.outputLimit, session, stageTimer);
 }

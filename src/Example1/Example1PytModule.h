@@ -11,10 +11,11 @@
 
 // Class definition
 
-/// @brief Python-callable module that imports DXF geometry as SAM sketches.
+/// @brief Python-callable adapter for Sketch and finite-element DXF imports.
 ///
-/// Pipeline: DxfParser -> ConversionEngine -> SamBuilder.
-/// All accessible from Python via the importDxf() method.
+/// Parses Python arguments, delegates the request to the shared import
+/// orchestrator, and converts its structured outcome to the legacy Python
+/// return contract.
 class Example1PytModule : public pyoModule
 {
 public:
@@ -28,7 +29,8 @@ public:
 	/// @brief Import a DXF file as a SAM sketch or finite-element part.
 	/// @param args Arguments: filePath (str), baseX/Y/Z (float),
 	///             curveTolerance, ignoreLayers, importMode, modelName,
-	///             partName and nodeMergeTolerance (all optional).
+	///             partName, nodeMergeTolerance and maxOutputEntities
+	///             (all optional after baseX/Y/Z).
 	/// @return Number of created entities, or nullptr on failure.
 	omuPrimitive* importDxf(omuArguments& args);
 

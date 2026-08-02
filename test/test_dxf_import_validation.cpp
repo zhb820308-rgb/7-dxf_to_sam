@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <limits>
 
 namespace {
@@ -55,6 +56,36 @@ TEST(DxfImportValidation, RejectsInvalidCurveTolerance)
         0.0, 100000);
     EXPECT_FALSE(nan.valid);
     EXPECT_EQ(nan.detail, " invalid_curveTolerance");
+
+    const auto belowMinimum = DxfImportValidation::validate(
+        0.0, 0.0, 0.0,
+        std::nextafter(
+            DxfImportValidation::kMinimumCurveTolerance, 0.0),
+        0.0, 100000);
+    EXPECT_FALSE(belowMinimum.valid);
+
+    const auto aboveMaximum = DxfImportValidation::validate(
+        0.0, 0.0, 0.0,
+        std::nextafter(
+            DxfImportValidation::kMaximumCurveTolerance,
+            std::numeric_limits<double>::infinity()),
+        0.0, 100000);
+    EXPECT_FALSE(aboveMaximum.valid);
+}
+
+TEST(DxfImportValidation, AcceptsCurveToleranceEndpoints)
+{
+    const auto minimum = DxfImportValidation::validate(
+        0.0, 0.0, 0.0,
+        DxfImportValidation::kMinimumCurveTolerance,
+        0.0, 100000);
+    const auto maximum = DxfImportValidation::validate(
+        0.0, 0.0, 0.0,
+        DxfImportValidation::kMaximumCurveTolerance,
+        0.0, 100000);
+
+    EXPECT_TRUE(minimum.valid);
+    EXPECT_TRUE(maximum.valid);
 }
 
 TEST(DxfImportValidation, RejectsInvalidNodeMergeTolerance)

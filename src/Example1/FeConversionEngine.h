@@ -2,6 +2,7 @@
 #define FeConversionEngine_h
 
 #include "DxfData.h"
+#include "DxfImportDefaults.h"
 #include "FeData.h"
 #include <cstddef>
 #include <functional>
@@ -51,7 +52,10 @@ public:
                   std::size_t maxOutputEntities = 100000) const;
 
     // Convenience default node-merge tolerance (1e-6).
-    static double defaultNodeMergeTolerance() { return 1e-6; }
+    static double defaultNodeMergeTolerance()
+    {
+        return DxfImportDefaults::kNodeMergeTolerance;
+    }
 
 private:
     bool reportProgress(

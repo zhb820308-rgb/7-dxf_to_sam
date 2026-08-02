@@ -24,14 +24,18 @@ Result validate(
 			QStringLiteral(
 				"[importDxf] ERROR: base coordinates must be finite")};
 	}
-	if (!std::isfinite(curveTolerance) || curveTolerance <= 0.0)
+	if (!std::isfinite(curveTolerance)
+		|| curveTolerance < kMinimumCurveTolerance
+		|| curveTolerance > kMaximumCurveTolerance)
 	{
 		return Result{
 			false,
 			0,
 			" invalid_curveTolerance",
-			QString("[importDxf] ERROR: invalid curveTolerance %1")
-				.arg(curveTolerance)};
+			QString("[importDxf] ERROR: curveTolerance %1 is outside [%2, %3]")
+				.arg(curveTolerance)
+				.arg(kMinimumCurveTolerance)
+				.arg(kMaximumCurveTolerance)};
 	}
 	if (!std::isfinite(nodeMergeTolerance) || nodeMergeTolerance < 0.0)
 	{

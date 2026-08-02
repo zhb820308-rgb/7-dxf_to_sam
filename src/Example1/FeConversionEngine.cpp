@@ -1,4 +1,5 @@
 #include "FeConversionEngine.h"
+#include "DxfImportValidation.h"
 #include "GeometryUtils.h"
 #include <QDebug>
 #include <algorithm>
@@ -83,7 +84,9 @@ bool FeConversionEngine::convert(const DxfData& dxfData,
     const auto startedAt = std::chrono::steady_clock::now();
     outData.clear();
 
-    if (!std::isfinite(curveTolerance) || curveTolerance <= 0.0) {
+    if (!std::isfinite(curveTolerance)
+        || curveTolerance < DxfImportValidation::kMinimumCurveTolerance
+        || curveTolerance > DxfImportValidation::kMaximumCurveTolerance) {
         outData.setError(DxfImportErrorCode::InvalidArgument,
                          QStringLiteral("invalid curve tolerance"));
         qWarning() << "[FeConversionEngine] invalid curve tolerance:"

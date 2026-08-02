@@ -1,9 +1,7 @@
 #include <omuArguments.h>
 #include <omuPrimNumber.h>
 
-#include "ConversionEngine.h"
 #include "DxfImportOrchestrator.h"
-#include "FeConversionEngine.h"
 
 #include <Example1PytModule.h>
 
@@ -29,9 +27,6 @@ void Example1PytModule::DefineConstants()
 omuPrimitive* Example1PytModule::importDxf(omuArguments& args)
 {
 	DxfImportRequest request;
-	request.curveTolerance = ConversionEngine::defaultBulgeTolerance();
-	request.nodeMergeTolerance =
-		FeConversionEngine::defaultNodeMergeTolerance();
 
 	args.Begin();
 	args.Get(request.filePath);

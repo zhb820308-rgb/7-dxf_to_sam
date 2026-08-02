@@ -1,4 +1,5 @@
 #include "ConversionEngine.h"
+#include "DxfImportValidation.h"
 #include "GeometryUtils.h"
 #include <QDebug>
 #include <cmath>
@@ -15,7 +16,9 @@ bool ConversionEngine::convert(const DxfData& dxfData,
 {
     outData.clear();
 
-    if (!std::isfinite(tolerance) || tolerance <= 0.0) {
+    if (!std::isfinite(tolerance)
+        || tolerance < DxfImportValidation::kMinimumCurveTolerance
+        || tolerance > DxfImportValidation::kMaximumCurveTolerance) {
         outData.setError(DxfImportErrorCode::InvalidArgument,
                          QStringLiteral("invalid curve tolerance"));
         qWarning() << "[ConversionEngine] invalid curve tolerance:" << tolerance;

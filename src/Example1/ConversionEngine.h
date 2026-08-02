@@ -2,6 +2,7 @@
 #define ConversionEngine_h
 
 #include "DxfData.h"
+#include "DxfImportDefaults.h"
 #include "SamData.h"
 #include <cstddef>
 
@@ -30,7 +31,10 @@ public:
                  std::size_t maxOutputEntities = 100000) const;
 
     /// @brief Default bulge/chord-height tolerance for curve tessellation.
-    static double defaultBulgeTolerance() { return 0.01; }
+    static double defaultBulgeTolerance()
+    {
+        return DxfImportDefaults::kCurveTolerance;
+    }
 
 private:
     /// @brief Translate a point by the given offsets.

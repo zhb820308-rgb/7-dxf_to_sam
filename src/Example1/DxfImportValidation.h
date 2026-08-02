@@ -1,5 +1,7 @@
 #pragma once
 
+#include "DxfImportDefaults.h"
+
 #include <QString>
 
 #include <cstddef>
@@ -7,8 +9,14 @@
 
 namespace DxfImportValidation {
 
-constexpr std::size_t kSmallDrawingEntityLimit = 100000;
-constexpr int kLargeDrawingEntityLimit = 500000;
+constexpr std::size_t kSmallDrawingEntityLimit =
+	DxfImportDefaults::kSmallDrawingEntityLimit;
+constexpr int kLargeDrawingEntityLimit =
+	DxfImportDefaults::kLargeDrawingEntityLimit;
+constexpr double kMinimumCurveTolerance =
+	DxfImportDefaults::kMinimumCurveTolerance;
+constexpr double kMaximumCurveTolerance =
+	DxfImportDefaults::kMaximumCurveTolerance;
 
 struct Result
 {
