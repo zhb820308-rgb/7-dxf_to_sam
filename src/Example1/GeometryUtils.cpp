@@ -1,5 +1,5 @@
 #include "GeometryUtils.h"
-#include "DxfNumeric.h"
+#include "DxfData.h"
 
 #include <Geom_BSplineCurve.hxx>
 #include <GeomAdaptor_Curve.hxx>
@@ -420,6 +420,8 @@ bool discretizeByDeflection(
 
 std::vector<DxfLine> tessellateSpline(const DxfSpline& spline, double tolerance)
 {
+    // 样条是最复杂的曲线入口：优先用控制点/节点/权重精确构造 OCCT B-spline；若 DXF
+    // 只有拟合点，则让 OCCT 通过拟合点建曲线。所有 OCCT 异常都在此边界转为空结果。
     std::vector<DxfLine> result;
     if (!spline.isValid()) return result;
 
@@ -458,7 +460,8 @@ std::vector<DxfLine> tessellateSpline(const DxfSpline& spline, double tolerance)
         return result;
     }
 
-    // Chord-height adaptive discretization
+    // 按弦高误差自适应离散：弯曲剧烈处自动取更多点，平直处取更少点；tolerance 是
+    // 曲线与折线允许的最大偏差，不是固定线段长度。
     std::vector<DxfPoint> sampledPoints;
     const double deflection = DxfNumeric::isPositiveFinite(tolerance)
         ? tolerance
@@ -469,7 +472,8 @@ std::vector<DxfLine> tessellateSpline(const DxfSpline& spline, double tolerance)
     if (sampledPoints.size() < 2)
         return result;
 
-    // Closure: snap endpoints
+    // 浮点计算会使理论闭合曲线首尾差一个极小量；足够近时把末点直接吸附到首点，
+    // 防止后续 FE 转换产生肉眼不可见的缝隙或额外节点。
     if (sampledPoints.size() >= 2) {
         const DxfPoint& first = sampledPoints.front();
         const DxfPoint& last  = sampledPoints.back();

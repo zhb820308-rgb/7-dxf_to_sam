@@ -1,10 +1,37 @@
+#pragma once
+
+// ============================================================================
+// Sketch 路线入口
+// ============================================================================
+
+#include "DxfData.h"
+
+#include <cstddef>
+
+class DxfImportSession;
+class QElapsedTimer;
+
+/**
+ * @brief Sketch 路线入口：DxfData -> SamData -> SAM Sketch。
+ *
+ * 公共编排器只负责解析和模式分流，所有 Sketch 专属转换、日志和写入都从这里进入。
+ */
+DxfImportOutcome runSketchImport(
+    const DxfImportRequest& request,
+    DxfData& dxfData,
+    const DxfEntityStats& entityStats,
+    std::size_t outputLimit,
+    DxfImportSession& session,
+    QElapsedTimer& stageTimer);
+
+// ============================================================================
+// SAM Sketch 具体 Builder
+// ============================================================================
 #ifndef SamBuilder_h
 #define SamBuilder_h
 
-#include "DxfImportBuilder.h"
-#include "ImportTransaction.h"
-#include "ImportBuildResult.h"
-#include "SamData.h"
+#include "SketchConversion.h"
+#include "DxfImportRuntime.h"
 #include <QString>
 #include <functional>
 #include <vector>
@@ -12,12 +39,16 @@
 class skcSketch;
 class skcGeomFactory;
 
-/// @brief SAM SDK adapter for building sketches from DXF geometry.
-///
-/// Creates lines and circles in the SAM modeling database, manages
-/// sketch lifecycle (begin/commit/rollback), and reports progress.
+/**
+ * @brief 用 SAM C++ SDK 把 `SamData` 写成 Sketch 的适配器。
+ *
+ * 这是项目中 SDK 耦合最重的边界之一。它实现 ISamImportBuilder，所以编排层只看见
+ * begin/create/commit/rollback；内部才使用 skcSketch、skcGeomFactory、basMdb 等
+ * SAM 类型。阅读时先看四个 public 阶段，private 的场景刷新可放到第二遍。
+ */
 class SamBuilder : public ISamImportBuilder {
 public:
+    // std::function 可保存普通函数、lambda 或可调用对象。回调返回 false 表示取消。
     using ProgressCallback = std::function<bool(const QString& stage, int current, int total)>;
 
     SamBuilder();
@@ -72,6 +103,8 @@ private:
     QString m_sketchPath;
     QString m_lastError;
 
+    // SDK 使用裸指针。本类通过 ImportTransaction 明确所有权：提交前拥有并负责清理；
+    // 插入 Repository 后所有权语义转交给 SAM，m_sketch 只作为非拥有观察指针使用。
     skcSketch*      m_sketch  = nullptr;
     skcGeomFactory* m_factory = nullptr;
     int m_createdCount = 0;

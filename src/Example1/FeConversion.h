@@ -1,10 +1,15 @@
+#pragma once
+
+// ============================================================================
+// FE 中间数据 FeData
+// ============================================================================
 #ifndef FeData_h
 #define FeData_h
 
 #include <cstddef>
 #include <cstdint>
 #include <QString>
-#include "DxfImportError.h"
+#include "DxfData.h"
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -39,11 +44,13 @@ struct FeConversionStats {
     std::size_t skippedDuplicateTruss = 0;  // trusses identical to an existing one
 };
 
-// Container that holds nodes and truss elements produced by
-// FeConversionEngine.  Owns node merging (incremental 3-D spatial hash +
-// merge tolerance), element deduplication, and ID assignment.
-//
-// No SAM SDK dependency — suitable for unit testing.
+/**
+ * @brief FE 转换结果及其节点合并/Truss 去重索引。
+ *
+ * 它不依赖 SAM SDK，可独立测试。节点用三维空间哈希避免每加入一点都扫描全部旧节点；
+ * Truss 用无序集合按“无方向节点对”去重。ID 始终是从 0 开始的连续 vector 下标，正好
+ * 对应 Python Builder 后续用 `part.nodes[id]` 引用节点。
+ */
 class FeData {
 public:
     FeData() = default;
@@ -83,8 +90,8 @@ public:
     }
 
 private:
-    // 3-D spatial hash for O(1) approximate look-up of nearby nodes.
-    // Cell size = tolerance × 2 (conservative).
+    // 把连续三维坐标量化成整数网格坐标，作为 unordered_map 的键。
+    // 平均查找接近 O(1)，但最终仍用真实欧氏距离确认，网格本身不决定合并。
     struct SpatialKey {
         std::int64_t cx = 0, cy = 0, cz = 0;
         bool operator==(const SpatialKey& o) const {
@@ -138,3 +145,101 @@ private:
 };
 
 #endif // FeData_h
+
+// ============================================================================
+// FE 纯转换器
+// ============================================================================
+#ifndef FeConversionEngine_h
+#define FeConversionEngine_h
+
+#include <functional>
+
+// Converts DxfData (parsed DXF geometry) into FeData (nodes + truss
+// elements).  No SAM SDK dependency.
+//
+//   - POINT       → FeNode (no connectivity)
+//   - LINE        → 2 nodes + 1 truss
+//   - CIRCLE      → closed tessellation chain → trusses
+//   - ARC         → tessellated → trusses
+//   - LWPolyline  → tessellated → trusses
+//   - Ellipse     → tessellated → trusses
+//   - Spline      → tessellated → trusses
+//
+// All coordinates are offset by (baseX, baseY, baseZ) before node
+// insertion, matching the convention used by ConversionEngine
+// (output = DXF + base).
+class FeConversionEngine {
+public:
+    using ProgressCallback = std::function<bool(
+        const QString& stage, int current, int total)>;
+
+    FeConversionEngine() = default;
+
+    void setProgressCallback(const ProgressCallback& callback) {
+        m_progressCallback = callback;
+    }
+
+    // Convert a parsed DXF dataset into nodes and truss elements.
+    //
+    // @param dxfData              parsed, expanded DXF data
+    // @param baseX/Y/Z            coordinate offset
+    // @param curveTolerance       chord-height tolerance for curve
+    //                             tessellation
+    // @param nodeMergeTolerance   maximum Euclidean distance for
+    //                             merging distinct nodes into one
+    // @param outData              output container (cleared first)
+    //
+    // @return true when at least one node was produced; false
+    //         otherwise (empty or invalid input).
+    bool convert(const DxfData& dxfData,
+                 double baseX, double baseY, double baseZ,
+                  double curveTolerance,
+                  double nodeMergeTolerance,
+                  FeData& outData,
+                  std::size_t maxOutputEntities = 100000) const;
+
+    // Convenience default node-merge tolerance (1e-6).
+    static double defaultNodeMergeTolerance()
+    {
+        return DxfImportDefaults::kNodeMergeTolerance;
+    }
+
+private:
+    bool reportProgress(
+        const QString& stage, int current, int total) const;
+
+    static DxfPoint translate(const DxfPoint& pt,
+                              double bx, double by, double bz);
+
+    ProgressCallback m_progressCallback;
+};
+
+#endif // FeConversionEngine_h
+
+// ============================================================================
+// FE Builder 抽象接口
+// ============================================================================
+class IFeImportBuilder
+{
+public:
+    virtual ~IFeImportBuilder() = default;
+
+    virtual ImportBuildResult beginImport(
+        const QString& modelName, const QString& partName) = 0;
+    virtual ImportBuildResult createNodes(
+        const std::vector<FeNode>& nodes) = 0;
+    virtual ImportBuildResult createTrusses(
+        const std::vector<FeTruss>& trusses) = 0;
+    virtual ImportBuildResult commit() = 0;
+    virtual ImportBuildResult rollback() = 0;
+};
+
+namespace DxfImportBuildService {
+
+ImportBuildResult buildFePart(
+    FeData& feData,
+    const QString& modelName,
+    const QString& partName,
+    IFeImportBuilder& builder);
+
+} // namespace DxfImportBuildService

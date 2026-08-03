@@ -1,80 +1,45 @@
 # Production and tests share these implementations through stable targets.
-set(EXAMPLE1_CORE_SOURCES
+# 文件分组反映架构边界，不只是为了整理列表：Core 不直接依赖 SAM GUI，Parser 把
+# libdxfrw 隔离出来，Plugin 才链接庞大的 SAM SDK。测试可以只链接前两层。
+set(EXAMPLE1_COMMON_CORE_SOURCES
     DxfData.cpp
     DxfData.h
-    DxfImportError.h
-    DxfImportDefaults.h
-    DxfNumeric.h
-    DxfImportOutcome.cpp
-    DxfImportOutcome.h
-    DxfImportPreflight.cpp
-    DxfImportPreflight.h
-    DxfImportRequest.h
-    ImportBuildResult.h
-    DxfImportBuilder.h
-    DxfImportBuildService.cpp
-    DxfImportBuildService.h
     GeometryUtils.cpp
     GeometryUtils.h
-    ConversionEngine.cpp
-    ConversionEngine.h
-    SamData.h
-    FeData.cpp
-    FeData.h
-    FeConversionEngine.cpp
-    FeConversionEngine.h
-    DxfImportLogger.cpp
-    DxfImportLogger.h
-    DxfImportLayers.cpp
-    DxfImportLayers.h
-    DxfImportMode.cpp
-    DxfImportMode.h
-    DxfImportSession.cpp
-    DxfImportSession.h
-    DxfImportValidation.cpp
-    DxfImportValidation.h
+    DxfImportRuntime.cpp
+    DxfImportRuntime.h
+)
+set(EXAMPLE1_SKETCH_CORE_SOURCES
+    SketchConversion.cpp
+    SketchConversion.h
+)
+set(EXAMPLE1_FE_CORE_SOURCES
+    FeConversion.cpp
+    FeConversion.h
 )
 set(EXAMPLE1_PARSER_SOURCES
     DxfBlockExpansion.cpp
     DxfBlockExpansion.h
-    DxfEntityValidation.cpp
-    DxfEntityValidation.h
     DxfParser.cpp
     DxfParser.h
-    DxfReaderCallbacks.cpp
-    DxfReaderCallbacks.h
-    DxfTransform.cpp
-    DxfTransform.h
 )
 set(EXAMPLE1_DXF_INPUT_SOURCES
     DxfInputFile.cpp
     DxfInputFile.h
 )
 set(EXAMPLE1_PLUGIN_SOURCES
-    DxfImportFeedback.cpp
-    DxfImportFeedback.h
-    DxfImportFormatting.cpp
-    DxfImportFormatting.h
-    DxfImportOrchestrator.cpp
-    DxfImportOrchestrator.h
-    DxfImportProgress.cpp
-    DxfImportProgress.h
-    Example1PytModule.cpp
-    Example1PytModule.h
-    Example1Utils.cpp
-    Example1Utils.h
-    ImportTransaction.h
-    kefKLine.cpp
-    kefKLine.h
-    PythonFiniteElementBuilder.cpp
-    PythonFiniteElementBuilder.h
-    SamBuilder.cpp
-    SamBuilder.h
-    SAMExample1Fragment.cpp
-    SAMExample1Fragment.h
+    DxfImportApplication.cpp
+    DxfImportApplication.h
+    SketchImport.cpp
+    SketchImport.h
+    FeImport.cpp
+    FeImport.h
+    Example1Module.cpp
+    Example1Module.h
 )
 
-add_library(Example1Core STATIC ${EXAMPLE1_CORE_SOURCES})
+# STATIC 生成只供链接的静态库，不会被 SAM 单独加载。
+add_library(Example1Core STATIC ${EXAMPLE1_COMMON_CORE_SOURCES})
 target_include_directories(Example1Core
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
     PRIVATE
@@ -93,6 +58,26 @@ target_link_libraries(Example1Core PUBLIC
     TKGeomAlgo
 )
 set_target_properties(Example1Core PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
+# Sketch 和 FE 各自拥有独立、可单测的纯转换库。二者只共享 DXF 数据与几何工具，
+# 不互相包含对方的中间数据，也不在这里链接庞大的 SAM SDK。
+add_library(Example1SketchCore STATIC ${EXAMPLE1_SKETCH_CORE_SOURCES})
+target_include_directories(Example1SketchCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(Example1SketchCore PUBLIC Example1Core)
+set_target_properties(Example1SketchCore PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
+add_library(Example1FeCore STATIC ${EXAMPLE1_FE_CORE_SOURCES})
+target_include_directories(Example1FeCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(Example1FeCore PUBLIC Example1Core)
+set_target_properties(Example1FeCore PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON
     CXX_EXTENSIONS OFF
@@ -131,7 +116,8 @@ set_target_properties(Example1DxfParser PROPERTIES
     CXX_EXTENSIONS OFF
 )
 
-# dynamic library
+# SHARED 先生成 Windows 动态库；下面把后缀改成 .pyd，使 SAM 内嵌 Python 把它
+# 当作原生扩展模块加载。它本质仍是符合 Windows PE/COFF 格式的动态链接库。
 add_library(Example1 SHARED ${EXAMPLE1_PLUGIN_SOURCES})
 target_include_directories(Example1 PRIVATE
     ${LIBS_PYTHON_ROOT}/include
@@ -154,6 +140,8 @@ target_compile_definitions(Example1 PRIVATE
 )
 
 set_target_properties(Example1 PROPERTIES
+	# AUTOMOC 让 CMake 自动运行 Qt 元对象编译器；CXX_STANDARD 固定 C++17；
+	# SUFFIX 决定最后文件名为 Example1.pyd 而不是 Example1.dll。
     AUTOMOC ON
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON
@@ -164,6 +152,8 @@ set_target_properties(Example1 PROPERTIES
 target_link_libraries(Example1
     ExampleProjectOptions
     Example1Core
+    Example1SketchCore
+    Example1FeCore
     Example1DxfParser
     Qt5::Core
     Qt5::Gui

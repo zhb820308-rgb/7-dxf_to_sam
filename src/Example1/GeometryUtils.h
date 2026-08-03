@@ -2,7 +2,6 @@
 #define GeometryUtils_h
 
 #include "DxfData.h"
-#include "DxfImportDefaults.h"
 #include <vector>
 
 #ifndef M_PI

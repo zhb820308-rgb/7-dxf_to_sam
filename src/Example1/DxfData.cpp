@@ -1,5 +1,7 @@
+// ============================================================================
+// 公共 DXF 领域数据
+// ============================================================================
 #include "DxfData.h"
-#include "DxfNumeric.h"
 #include <atomic>
 #include <cmath>
 
@@ -583,4 +585,284 @@ bool DxfSpline::isValid() const
         return false;
 
     return true;
+}
+
+// ============================================================================
+// 导入配置
+// ============================================================================
+
+#include <QStringList>
+
+std::set<std::string> parseIgnoredDxfLayers(const QString& layerText)
+{
+    std::set<std::string> ignoredLayers;
+    if (layerText.isEmpty())
+        return ignoredLayers;
+
+    // SkipEmptyParts 跳过连续逗号产生的空项；trimmed() 再去掉图层名前后的空格。
+    const QStringList parts = layerText.split(',', QString::SkipEmptyParts);
+    for (const QString& part : parts)
+    {
+        const std::string layer = part.trimmed().toStdString();
+        if (!layer.empty())
+            ignoredLayers.insert(layer);
+    }
+    return ignoredLayers;
+}
+
+// ============================================================================
+// 导入结果
+// ============================================================================
+
+namespace {
+
+DxfImportOutcomeStatus outcomeStatus(ImportBuildStatus status)
+{
+    switch (status)
+    {
+    case ImportBuildStatus::Canceled:
+        return DxfImportOutcomeStatus::Canceled;
+    case ImportBuildStatus::BeginFailed:
+        return DxfImportOutcomeStatus::BeginFailed;
+    case ImportBuildStatus::CreateFailed:
+        return DxfImportOutcomeStatus::CreateFailed;
+    case ImportBuildStatus::CommitFailed:
+        return DxfImportOutcomeStatus::CommitFailed;
+    case ImportBuildStatus::RollbackFailed:
+        return DxfImportOutcomeStatus::RollbackFailed;
+    case ImportBuildStatus::Success:
+        break;
+    }
+    return DxfImportOutcomeStatus::Succeeded;
+}
+
+DxfImportErrorCode outcomeErrorCode(ImportBuildStatus status)
+{
+    switch (status)
+    {
+    case ImportBuildStatus::Canceled:
+        return DxfImportErrorCode::Canceled;
+    case ImportBuildStatus::BeginFailed:
+        return DxfImportErrorCode::BeginFailed;
+    case ImportBuildStatus::CreateFailed:
+        return DxfImportErrorCode::CreateFailed;
+    case ImportBuildStatus::CommitFailed:
+        return DxfImportErrorCode::CommitFailed;
+    case ImportBuildStatus::RollbackFailed:
+        return DxfImportErrorCode::RollbackFailed;
+    case ImportBuildStatus::Success:
+        break;
+    }
+    return DxfImportErrorCode::None;
+}
+
+} // namespace
+
+DxfImportOutcome DxfImportOutcome::success(int created)
+{
+    DxfImportOutcome result;
+    result.status = DxfImportOutcomeStatus::Succeeded;
+    result.createdCount = created;
+    return result;
+}
+
+DxfImportOutcome DxfImportOutcome::failure(
+    DxfImportOutcomeStatus failureStatus,
+    DxfImportErrorCode failureCode,
+    const QString& failureStage,
+    const QString& failureMessage,
+    int created)
+{
+    DxfImportOutcome result;
+    result.status = failureStatus;
+    result.errorCode = failureCode;
+    result.stage = failureStage;
+    result.message = failureMessage;
+    result.createdCount = created;
+    return result;
+}
+
+DxfImportOutcome DxfImportOutcome::fromBuildFailure(
+    const ImportBuildResult& buildResult,
+    const QString& failureStage,
+    const QString& failureMessage)
+{
+    DxfImportOutcome result = failure(
+        outcomeStatus(buildResult.status),
+        outcomeErrorCode(buildResult.status),
+        failureStage,
+        failureMessage,
+        buildResult.createdCount);
+    if (buildResult.rollbackAttempted)
+    {
+        result.rollbackStatus = buildResult.rollbackSucceeded
+            ? DxfImportRollbackStatus::Succeeded
+            : DxfImportRollbackStatus::Failed;
+        result.rollbackMessage = buildResult.rollbackMessage;
+    }
+    else if (buildResult.status == ImportBuildStatus::RollbackFailed)
+    {
+        result.rollbackStatus = DxfImportRollbackStatus::Failed;
+        result.rollbackMessage = buildResult.message;
+    }
+    return result;
+}
+
+// ============================================================================
+// 公共参数校验
+// ============================================================================
+
+
+#include <limits>
+
+namespace DxfImportValidation {
+
+Result validate(
+    double baseX,
+    double baseY,
+    double baseZ,
+    double curveTolerance,
+    double nodeMergeTolerance,
+    int maxOutputEntities)
+{
+    if (!DxfNumeric::areFinite(baseX, baseY, baseZ))
+    {
+        return Result{
+            false,
+            0,
+            " invalid_base_coordinates",
+            QStringLiteral(
+                "[importDxf] ERROR: base coordinates must be finite")};
+    }
+    if (!DxfNumeric::isWithinInclusive(
+            curveTolerance, kMinimumCurveTolerance, kMaximumCurveTolerance))
+    {
+        return Result{
+            false,
+            0,
+            " invalid_curveTolerance",
+            QString("[importDxf] ERROR: curveTolerance %1 is outside [%2, %3]")
+                .arg(curveTolerance)
+                .arg(kMinimumCurveTolerance)
+                .arg(kMaximumCurveTolerance)};
+    }
+    if (!DxfNumeric::isNonNegativeFinite(nodeMergeTolerance))
+    {
+        return Result{
+            false,
+            0,
+            " invalid_nodeMergeTolerance",
+            QString("[importDxf] ERROR: invalid nodeMergeTolerance %1")
+                .arg(nodeMergeTolerance)};
+    }
+    if (maxOutputEntities != static_cast<int>(kSmallDrawingEntityLimit)
+        && maxOutputEntities != kLargeDrawingEntityLimit
+        && maxOutputEntities != DxfImportDefaults::kUnlimitedOutputEntities)
+    {
+        return Result{
+            false,
+            0,
+            " error_code=INVALID_ARGUMENT invalid_maxOutputEntities",
+            QStringLiteral(
+                "[importDxf] ERROR [INVALID_ARGUMENT]: invalid maxOutputEntities")};
+    }
+
+    const std::size_t outputLimit = maxOutputEntities < 0
+        ? std::numeric_limits<std::size_t>::max()
+        : static_cast<std::size_t>(maxOutputEntities);
+    return Result{true, outputLimit, std::string(), QString()};
+}
+
+} // namespace DxfImportValidation
+
+DxfImportModeResult selectDxfImportMode(
+    const QString& importMode,
+    const QString& modelName,
+    const QString& partName)
+{
+    const bool finiteElement = importMode.compare(
+        QStringLiteral("FiniteElement"), Qt::CaseInsensitive) == 0;
+    const bool sketch = importMode.isEmpty() || importMode.compare(
+        QStringLiteral("Sketch"), Qt::CaseInsensitive) == 0;
+    if (!sketch && !finiteElement)
+    {
+        return DxfImportModeResult{
+            false,
+            DxfImportMode::Sketch,
+            "validate_mode",
+            " mode=\"" + importMode.toLocal8Bit().toStdString() + "\"",
+            QString("[importDxf] ERROR: unsupported importMode '%1'")
+                .arg(importMode)};
+    }
+
+    if (!finiteElement)
+    {
+        return DxfImportModeResult{
+            true, DxfImportMode::Sketch, "validate_mode",
+            std::string(), QString()};
+    }
+
+    if (modelName.isEmpty() || partName.isEmpty())
+    {
+        const QString missingName = modelName.isEmpty()
+            ? QStringLiteral("modelName")
+            : QStringLiteral("partName");
+        return DxfImportModeResult{
+            false,
+            DxfImportMode::FiniteElement,
+            "validate_params",
+            " missing=\"" + missingName.toLocal8Bit().toStdString() + "\"",
+            QString("[importDxf] ERROR: FE mode requires '%1'")
+                .arg(missingName)};
+    }
+
+    return DxfImportModeResult{
+        true, DxfImportMode::FiniteElement, "validate_mode",
+        std::string(), QString()};
+}
+
+DxfImportPreflightResult validateDxfImportRequest(
+    const DxfImportRequest& request)
+{
+    // 第一步只验证数值范围，并把 -1（不限最终输出）转换为 size_t 最大值。
+    const DxfImportValidation::Result parameters =
+        DxfImportValidation::validate(
+            request.baseX,
+            request.baseY,
+            request.baseZ,
+            request.curveTolerance,
+            request.nodeMergeTolerance,
+            request.maxOutputEntities);
+    if (!parameters.valid)
+    {
+        return DxfImportPreflightResult{
+            false,
+            DxfImportMode::Sketch,
+            0,
+            "validate_params",
+            parameters.detail,
+            parameters.message};
+    }
+
+    // 第二步判断走 Sketch 还是 FE，并在 FE 模式下检查模型名、部件名。
+    const DxfImportModeResult mode = selectDxfImportMode(
+        request.importMode, request.modelName, request.partName);
+    if (!mode.valid)
+    {
+        return DxfImportPreflightResult{
+            false,
+            mode.mode,
+            0,
+            mode.stage,
+            mode.detail,
+            mode.message};
+    }
+
+    return DxfImportPreflightResult{
+        true,
+        mode.mode,
+        parameters.outputLimit,
+        std::string(),
+        std::string(),
+        QString()};
 }

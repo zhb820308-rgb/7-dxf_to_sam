@@ -1,8 +1,199 @@
-#include "SamBuilder.h"
+// ============================================================================
+// Sketch 路线用例
+// ============================================================================
+#include "DxfImportApplication.h"
+
+#include "SketchConversion.h"
+#include "DxfData.h"
+#include "DxfImportRuntime.h"
+#include "SketchImport.h"
+
+#include <QDebug>
+#include <QElapsedTimer>
+
+namespace {
+
+// 匿名 namespace 内的辅助函数只服务本编排器，不暴露为整个项目的公共 API。
+
+DxfImportOutcome failedImport(
+	DxfImportSession& session,
+	DxfImportOutcomeStatus status,
+	DxfImportErrorCode errorCode,
+	const std::string& stage,
+	const std::string& detail,
+	const QString& warning)
+{
+	failImport(
+		session.logger(), session.errorLogger(), session.importId(),
+		session.pathText(), stage, detail, session.elapsed(), warning);
+	return DxfImportOutcome::failure(
+		status, errorCode, QString::fromStdString(stage), warning);
+}
+
+DxfImportOutcome failedBuildImport(
+	DxfImportSession& session,
+	const ImportBuildResult& buildResult,
+	const std::string& stage,
+	std::string detail,
+	QString warning)
+{
+	if (buildResult.rollbackAttempted)
+	{
+		detail += buildResult.rollbackSucceeded
+			? " rollback_succeeded=true"
+			: " rollback_succeeded=false";
+		if (!buildResult.rollbackSucceeded)
+		{
+			const std::string rollbackError =
+				buildResult.rollbackMessage.toLocal8Bit().toStdString();
+			detail += " rollback_error=\"" + rollbackError + "\"";
+			warning += QStringLiteral("; rollback failed: ") +
+				buildResult.rollbackMessage;
+		}
+	}
+	failImport(
+		session.logger(), session.errorLogger(), session.importId(),
+		session.pathText(), stage, detail, session.elapsed(), warning);
+	return DxfImportOutcome::fromBuildFailure(
+		buildResult, QString::fromStdString(stage), warning);
+}
+
+DxfImportOutcome canceledImport(
+	DxfImportSession& session,
+	DxfImportProgress& progress,
+	const QChar& separator)
+{
+	progress.close();
+	if (session.logger())
+	{
+		session.logger()->warn(
+			"[import={}] canceled stage=\"{}\" progress={}/{} total_elapsed_ms={}",
+			session.importId(),
+			progress.canceledStage().toLocal8Bit().toStdString(),
+			progress.canceledCurrent(), progress.canceledTotal(),
+			session.elapsed());
+	}
+	qWarning().noquote() << QString("[importDxf] IMPORT CANCELED %1 %2 %3/%4")
+		.arg(separator)
+		.arg(progress.canceledStage())
+		.arg(progress.canceledCurrent())
+		.arg(progress.canceledTotal());
+	session.finish();
+	return DxfImportOutcome::failure(
+		DxfImportOutcomeStatus::Canceled,
+		DxfImportErrorCode::Canceled,
+		progress.canceledStage(),
+		QStringLiteral("import canceled"));
+}
+
+} // namespace
+
+DxfImportOutcome runSketchImport(
+	const DxfImportRequest& request,
+	DxfData& dxfData,
+	const DxfEntityStats& entityStats,
+	std::size_t outputLimit,
+	DxfImportSession& session,
+	QElapsedTimer& stageTimer)
+{
+	// Sketch 分支的数据逐级变换：DxfData -> SamData(lines/circles) -> SAM Sketch。
+	stageTimer.restart();
+	SamData samData;
+	ConversionEngine converter;
+	if (!converter.convert(
+			dxfData, request.baseX, request.baseY, request.baseZ,
+			request.curveTolerance, samData, outputLimit))
+	{
+		const QString errorCode =
+			DxfImportFormatting::errorCodeText(samData.errorCode());
+		const QString errorMessage = samData.errorMessage().isEmpty()
+			? QStringLiteral("no valid entities to import")
+			: samData.errorMessage();
+		DxfImportFeedback::showBudgetError(
+			samData.errorCode(), request.maxOutputEntities);
+		return failedImport(
+			session,
+			DxfImportOutcomeStatus::ConvertFailed,
+			samData.errorCode(),
+			"conversion",
+			" error_code=" + errorCode.toStdString() +
+			" error=\"" + errorMessage.toLocal8Bit().toStdString() + "\"",
+			QString("[importDxf] ERROR [%1]: %2")
+				.arg(errorCode, errorMessage));
+	}
+
+	DxfImportFeedback::showSmallDrawingRecommendation(
+		samData.lines().size() + samData.circles().size(),
+		request.maxOutputEntities);
+	dxfData.clear();
+	if (session.logger())
+	{
+		session.logger()->info(
+			"[import={}] conversion_completed lines={} circles={}"
+			" curve_tolerance={} duration_ms={}",
+			session.importId(), samData.lines().size(), samData.circles().size(),
+			request.curveTolerance, stageTimer.elapsed());
+	}
+	logConvertedSamData(session.logger(), session.importId(), samData);
+
+	stageTimer.restart();
+	DxfImportProgress progress(
+		DxfImportProgressMode::Sketch,
+		samData.lines().size(), samData.circles().size());
+	SamBuilder builder;
+	builder.setProgressCallback(
+		[&progress](const QString& stage, int current, int total) {
+			return progress.update(stage, current, total);
+		});
+	const ImportBuildResult buildResult =
+		DxfImportBuildService::buildSamSketch(samData, builder);
+	if (!buildResult.succeeded())
+	{
+		progress.close();
+		const bool canceled =
+			buildResult.status == ImportBuildStatus::Canceled;
+		const std::string stage =
+			DxfImportFormatting::buildStage(buildResult.status);
+		std::string detail =
+			" error=\"" + buildResult.message.toLocal8Bit().toStdString() + "\"";
+		if (buildResult.status != ImportBuildStatus::BeginFailed)
+		{
+			detail = " sketch=\"" +
+				builder.sketchName().toLocal8Bit().toStdString() + "\"" + detail;
+		}
+		const QString warning = canceled
+			? QString("[importDxf] IMPORT CANCELED — %1 %2/%3")
+				.arg(progress.canceledStage())
+				.arg(progress.canceledCurrent())
+				.arg(progress.canceledTotal())
+			: QString("[importDxf] ERROR: build failed, rolling back — %1")
+				.arg(buildResult.message);
+		return failedBuildImport(
+			session, buildResult, stage, detail, warning);
+	}
+
+	progress.complete();
+	qDebug().noquote() << DxfImportFormatting::summaryText(
+		buildResult.createdCount, entityStats);
+	if (session.logger())
+	{
+		session.logger()->info(
+			"[import={}] succeeded sketch=\"{}\" submitted={}"
+			" build_duration_ms={} total_duration_ms={}",
+			session.importId(),
+			builder.sketchName().toLocal8Bit().toStdString(),
+			buildResult.createdCount, stageTimer.elapsed(), session.elapsed());
+	}
+	session.finish();
+	return DxfImportOutcome::success(buildResult.createdCount);
+}
+
+// ============================================================================
+// SAM Sketch 写入
+// ============================================================================
 
 #include <QCoreApplication>
 #include <QDateTime>
-#include <QDebug>
 
 #include <gslPoint.h>
 #include <gslMatrix.h>
@@ -33,10 +224,13 @@
 // ========================================================================
 
 static QString bracket(const QString& name) {
+    // QString::arg 用参数替换 %1，例如 Model-1 -> [Model-1]。
     return QString("[%1]").arg(name);
 }
 
 static gcuScene* currentScene(bool force) {
+    // 基类 API 返回较通用的场景指针，这里显式向下转换为实际 gcuScene 类型。
+    // static_cast 不做运行时检查，因此依赖 SAM SDK 对返回类型的约定。
     return static_cast<gcuScene*>(gdyScene::GetCurrentScene(force));
 }
 
@@ -62,6 +256,8 @@ void SamBuilder::extendBounds(double x, double y) {
 SamBuilder::SamBuilder() {}
 
 SamBuilder::~SamBuilder() {
+    // RAII 最后保险：对象离开作用域时，若仍持有未提交资源就自动回滚。
+    // 正常成功路径已 markCommitted，此时不会误删已提交 Sketch。
     if (m_transaction.ownsResource())
         rollback();
     else {
@@ -116,10 +312,14 @@ ImportBuildResult SamBuilder::beginImport(const QString& modelName) {
             ImportBuildStatus::BeginFailed, m_lastError);
     }
 
+    // SAM SDK 部分接口会抛异常，但没有在公共类型中暴露稳定异常类，因此边界处
+    // catch (...) 统一转成项目自己的 ImportBuildResult，避免异常穿过 Python/Qt ABI。
     try {
+        // Fetch 取得当前模型数据库的工作副本；此处只用来确认仓库并分配对象。
         basMdb mdb = basBasis::Instance()->Fetch();
         gmlSketchRepository& sketches = skcKGetSketchRepos(mdb, m_modelName);
 
+        // 创建位于 XY 平面的 Sketch；transform 由 SDK 填充/使用。
         gslMatrix transform;
         skcSketch* sketch = skcCreateSketchWithXYAxis(&transform);
         if (!sketch) {
@@ -135,6 +335,7 @@ ImportBuildResult SamBuilder::beginImport(const QString& modelName) {
 
         m_sketch = sketch;
         m_transaction.markResourceOwned();
+        // Factory 是 SAM 创建 Sketch 几何的专用接口。只有 sketch 成功后才创建。
         m_factory = new skcGeomFactory(sketch);
         if (!m_transaction.startWriting()) {
             m_lastError = "failed to enter writing state";
@@ -176,6 +377,7 @@ ImportBuildResult SamBuilder::createLines(const std::vector<DxfLine>& lines) {
 
     int count = 0;
     for (const DxfLine& line : lines) {
+        // 将项目自己的 DxfPoint 适配为 SAM SDK 的 gslPoint，再让几何工厂创建线。
         gslPoint p1(line.start().x(), line.start().y(), line.start().z());
         gslPoint p2(line.end().x(),   line.end().y(),   line.end().z());
         m_factory->CreateLine(p1, p2, skc_FOREGROUND, false);
@@ -187,6 +389,8 @@ ImportBuildResult SamBuilder::createLines(const std::vector<DxfLine>& lines) {
             if (!reportProgress(QStringLiteral("Creating lines"), count, total))
                 return ImportBuildResult::failure(
                     ImportBuildStatus::Canceled, m_lastError, count);
+            // 长循环主动让 Qt 处理一次事件，进度条才能重绘、取消按钮才能响应；
+            // 不能每条线都调用，否则事件分发开销会压垮大图导入。
             QCoreApplication::processEvents();
         }
     }
@@ -215,6 +419,7 @@ ImportBuildResult SamBuilder::createCircles(const std::vector<DxfCircle>& circle
         double r = circle.radius();
         gslPoint ptCenter(c.x(), c.y(), c.z());
         gslPoint ptOnCircle(c.x() + r, c.y(), c.z());
+        // SAM 的圆接口用“圆心 + 圆周上一点”确定圆，因此构造 (cx+r, cy, cz)。
         m_factory->CreateCircle(ptCenter, ptOnCircle, skc_FOREGROUND, false);
         extendBounds(c.x() + r, c.y() + r);
         extendBounds(c.x() - r, c.y() - r);
@@ -272,10 +477,14 @@ ImportBuildResult SamBuilder::commit() {
 
         // Fetch again so a long geometry build cannot replace unrelated model
         // changes with the snapshot taken at beginImport().
+        // 再次 Fetch 很重要：创建几何可能很久，若复用 beginImport 时的旧快照，
+        // Replace 可能覆盖其他操作在这段时间写入的模型变化。
         basMdb mdb = basBasis::Instance()->Fetch();
         gmlSketchRepository& sketches = skcKGetSketchRepos(mdb, m_modelName);
         m_sketch->SetID(sketches.NextID());
 
+        // Repository 接受 Wrapper 而不是裸 sketch。Insert 成功并 Replace 后才是持久化
+        // 提交边界；后面的视图刷新失败只能告警，不能撤销已经保存的正确模型。
         gmlSketchWrapper wrapper(m_sketch);
         m_sketchWrapped = true;
         if (!sketches.Insert(m_sketchName, wrapper)) {
@@ -307,6 +516,8 @@ ImportBuildResult SamBuilder::commit() {
 }
 
 void SamBuilder::refreshSceneAfterCommit() {
+    // 以下都是“显示层”工作：清撤销栈、切换 Part 视口、重建 PDO、正视图、当前路径。
+    // 它们不参与几何持久化，因此与上面的 Repository commit 分开。
     skcUndoRedoStack::Instance().ClearUndoStates();
 
     smgSceneManagerRole& role = smgSceneManagerRole::TheSceneManagerRole();
@@ -374,6 +585,7 @@ bool SamBuilder::removePublishedSketch() {
 
 ImportBuildResult SamBuilder::rollback() {
     const int createdBeforeRollback = m_createdCount;
+    // `[this]` 捕获当前对象指针，使无参数 lambda 能调用成员清理函数。
     const bool cleaned = m_transaction.rollback([this]() {
         return removePublishedSketch();
     });

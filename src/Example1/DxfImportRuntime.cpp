@@ -1,7 +1,9 @@
-#include "DxfImportLogger.h"
+// ============================================================================
+// 通用导入日志（不含 Sketch/FE 算法）
+// ============================================================================
+#include "DxfImportRuntime.h"
 
 #include "DxfData.h"
-#include "SamData.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
@@ -315,80 +317,6 @@ void logRawDxfData(
 		});
 }
 
-void logConvertedSamData(
-	const std::shared_ptr<spdlog::logger>& logger,
-	const std::string& importId,
-	const SamData& data)
-{
-	if (!logger)
-		return;
-
-	// Lines produced by curve tessellation are logged below with their parent
-	// entity ID. Keep ordinary converted DXF lines in the original trace form.
-	std::vector<bool> isCurveSegment(data.lines().size(), false);
-	for (const CurveSegmentSource& source : data.curveSegments())
-	{
-		if (source.lineIndex < isCurveSegment.size())
-			isCurveSegment[source.lineIndex] = true;
-	}
-	for (size_t i = 0; i < data.lines().size(); ++i)
-	{
-		if (isCurveSegment[i])
-			continue;
-		const DxfLine& line = data.lines()[i];
-		logger->trace(
-			"[import={}] converted LINE id={} start=({}, {}, {}) end=({}, {}, {})",
-			importId, line.getId(),
-			line.start().x(), line.start().y(), line.start().z(),
-			line.end().x(), line.end().y(), line.end().z());
-	}
-
-	// Each original curve gets one INFO summary. Its individual generated
-	// segments remain TRACE and can be expanded by filtering parent_id.
-	const std::vector<CurveSegmentSource>& curveSegments = data.curveSegments();
-	for (size_t i = 0; i < curveSegments.size();)
-	{
-		const CurveSegmentSource& first = curveSegments[i];
-		size_t end = i + 1;
-		while (end < curveSegments.size() &&
-			curveSegments[end].parentType == first.parentType &&
-			curveSegments[end].parentId == first.parentId)
-		{
-			++end;
-		}
-
-		logger->info(
-			"[import={}] converted_curve type={} parent_id={} segment_count={}",
-			importId, entityTypeName(first.parentType), first.parentId, end - i);
-
-		for (size_t j = i; j < end; ++j)
-		{
-			const CurveSegmentSource& source = curveSegments[j];
-			if (source.lineIndex >= data.lines().size())
-				continue;
-			const DxfLine& line = data.lines()[source.lineIndex];
-			logger->trace(
-				"[import={}] curve_segment type={} parent_id={} segment_index={} line_id={} start=({}, {}, {}) end=({}, {}, {})",
-				importId, entityTypeName(source.parentType), source.parentId,
-				source.segmentIndex, line.getId(),
-				line.start().x(), line.start().y(), line.start().z(),
-				line.end().x(), line.end().y(), line.end().z());
-		}
-
-		i = end;
-	}
-
-	logEntities(logger, importId, "converted", data.circles(),
-		[](const std::shared_ptr<spdlog::logger>& log, const std::string& id,
-		   const std::string& tag, size_t, const DxfCircle& circle) {
-			log->trace(
-				"[import={}] {} CIRCLE id={} center=({}, {}, {}) radius={}",
-				id, tag, circle.getId(),
-				circle.center().x(), circle.center().y(), circle.center().z(),
-				circle.radius());
-		});
-}
-
 // ============================================================================
 // Error-reporting helper
 // ============================================================================
@@ -435,4 +363,84 @@ omuPrimitive* failImport(
 	qWarning() << qWarningMsg;
 	dropDxfImportLogger(importId);
 	return nullptr;
+}
+
+// ============================================================================
+// RAII 导入会话
+// ============================================================================
+
+
+
+#include <exception>
+
+DxfImportSession::DxfImportSession(
+	const QString& filePath,
+	double baseX,
+	double baseY,
+	double baseZ,
+	double curveTolerance,
+	int maxOutputEntities)
+	: m_importId(QDateTime::currentDateTimeUtc()
+		.toString("yyyyMMdd_HHmmss_zzz")
+		.toStdString()),
+	  m_logger(createDxfImportLogger(m_importId)),
+	  m_errorLogger(dxfErrorLogger())
+{
+	m_totalTimer.start();
+
+	// Keep paths in UTF-8 so diagnostics preserve the original Unicode path.
+	m_pathText = filePath.toUtf8().toStdString();
+	if (!m_logger && m_errorLogger)
+	{
+		m_errorLogger->error(
+			"[import={}] import_log_initialization_failed file=\"{}\"",
+			m_importId, m_pathText);
+	}
+	if (!m_logger && !m_errorLogger)
+	{
+		qWarning() << "[importDxf] ERROR: log system unavailable for import"
+			<< QString::fromStdString(m_importId);
+	}
+
+	if (m_logger)
+	{
+		m_logger->info(
+			"[import={}] started file=\"{}\" base=({}, {}, {}) curve_tolerance={} max_output_entities={}",
+			m_importId, m_pathText, baseX, baseY, baseZ, curveTolerance,
+			maxOutputEntities);
+	}
+}
+
+DxfImportSession::~DxfImportSession() noexcept
+{
+	finish();
+}
+
+void DxfImportSession::finish() noexcept
+{
+	if (m_finished)
+		return;
+	m_finished = true;
+	if (m_logger)
+	{
+		try
+		{
+			m_logger->flush();
+		}
+		catch (const std::exception& error)
+		{
+			qWarning() << "[importDxf] Failed to flush import log:"
+				<< error.what();
+		}
+	}
+	try
+	{
+		dropDxfImportLogger(m_importId);
+	}
+	catch (const std::exception& error)
+	{
+		qWarning() << "[importDxf] Failed to release import logger:"
+			<< error.what();
+	}
+	m_logger.reset();
 }

@@ -1,7 +1,7 @@
 #include "DxfBlockExpansion.h"
 
-#include "DxfImportDefaults.h"
-#include "DxfTransform.h"
+#include "DxfData.h"
+#include "DxfParser.h"
 #include "GeometryUtils.h"
 
 #include <QDebug>
@@ -20,6 +20,7 @@ constexpr std::size_t kMaxReserveEntities = 500000;
 
 struct ExpansionBudget
 {
+    // 三种预算各防一种“展开爆炸”：单个阵列过大、累计块实例过多、最终实体过多。
     std::uint64_t blockInstances = 0;
     std::size_t entities = 0;
     std::size_t maxOutputEntities =
@@ -41,6 +42,7 @@ struct ExpansionBudget
             std::max(1, rows));
         const std::uint64_t columnCount = static_cast<std::uint64_t>(
             std::max(1, columns));
+        // 用除法形式预先检查乘法溢出；不能先算 rowCount*columnCount 再判断。
         if (rowCount > kMaxArrayInstancesPerInsert / columnCount) {
             status = DxfBlockExpansionStatus::ArrayInstanceLimit;
             error = QStringLiteral(
@@ -81,6 +83,7 @@ const std::string& resolveEffectiveLayer(
     const std::string& sourceLayer,
     const std::string& inheritedLayer)
 {
+    // DXF 规则：块内实体位于 layer 0 时继承 INSERT 的图层；显式非 0 图层保持自身。
     static const std::string defaultLayer("0");
     if (sourceLayer.empty() || sourceLayer == "0") {
         return inheritedLayer.empty() ? defaultLayer : inheritedLayer;
@@ -139,6 +142,8 @@ bool expandCurveGroup(
     Tessellate tessellate,
     Preserve preserve)
 {
+    // 这是泛型“曲线组”算法。Entity 可为 Arc/Polyline/Ellipse/Spline；调用者分别传入
+    // tessellate 和 preserve 两个策略 lambda，公共的图层、过滤、统计、预算只写一次。
     for (const Entity& entity : entities) {
         if (!entity.isValid()) continue;
         const std::string& effectiveLayer = resolveEffectiveLayer(
@@ -189,6 +194,7 @@ bool expandInsertArray(
     const int rowCount = std::max(1, insert.rowCount);
     if (!budget.consumeArray(rowCount, columnCount, block.name())) return false;
 
+    // 阵列行列间距定义在 INSERT 的局部方向上，因此先按插入角旋转成父坐标增量。
     const double cosAngle = std::cos(insert.angle);
     const double sinAngle = std::sin(insert.angle);
     const double columnDx = cosAngle * insert.colSpace;
@@ -198,6 +204,8 @@ bool expandInsertArray(
 
     const std::size_t instances = static_cast<std::size_t>(columnCount)
         * rowCount;
+    // reserve 是性能优化，不是业务数量承诺。预留容量也必须封顶，否则恶意阵列即使随后
+    // 被预算拒绝，也可能先申请巨量内存。lambda 捕获实例数和值、budget 引用。
     const auto clampReserve = [instances, &budget](
         std::size_t current, std::size_t perInstance) {
         const std::size_t limit = std::min(
@@ -226,6 +234,8 @@ bool expandInsertArray(
         for (int column = 0; column < columnCount; ++column) {
             currentInsert.insertX = currentX;
             currentInsert.insertY = currentY;
+            // 局部矩阵包含块基点平移、缩放、旋转和插入平移；与父矩阵相乘得到世界
+            // 变换。嵌套时必须做矩阵组合，不能把角度/缩放简单相加。
             const Transform2D localTransform = Transform2D::fromInsert(
                 currentInsert,
                 block.baseX(), block.baseY(), block.baseZ());
@@ -269,12 +279,15 @@ bool expandSingleBlock(
         return false;
     }
 
+    // visiting 保存当前递归调用栈中的块名。若 A→B→A，再遇到 A 就是环；它与“同一个
+    // 块在图中合法插入多次”不同，后者在返回上一层时会从 visiting 移除。
     if (visiting.count(block.name())) {
         qWarning() << "[BlockExpand] cycle detected for block:"
                    << block.name().c_str() << "- skipping recursion";
         return true;
     }
     visiting.insert(block.name());
+    // 局部 RAII Guard 确保任何 return 路径都会移除当前块名，避免手写多处 erase。
     struct VisitingGuard
     {
         std::unordered_set<std::string>& names;
@@ -282,6 +295,8 @@ bool expandSingleBlock(
         ~VisitingGuard() { names.erase(name); }
     } guard{visiting, block.name()};
 
+    // 只有平面相似变换（旋转/平移/等比缩放/镜像）仍把圆映射成圆。非均匀缩放会把
+    // 圆变成椭圆，所以必须先在局部坐标按公差离散，再逐点应用完整矩阵。
     const bool preserveRoundCurves = transform.isPlanarSimilarity();
 
     for (const DxfPoint& point : block.points()) {
@@ -367,6 +382,7 @@ bool expandSingleBlock(
                     vertices.push_back(current.apply(vertex));
                 }
                 std::vector<double> bulges = polyline.bulges();
+                // 镜像会改变顺/逆时针方向；bulge 符号也必须反转，否则圆弧凸向错误。
                 if (current.reversesOrientation()) {
                     for (double& bulge : bulges) bulge = -bulge;
                 }
@@ -416,6 +432,7 @@ bool expandSingleBlock(
                 for (const DxfPoint& point : spline.fitPoints()) {
                     fitPoints.push_back(current.apply(point));
                 }
+                // 切向量表示方向，不是位置，所以只能应用线性部分，不能附加平移。
                 const DxfPoint startTangent = current.applyVector(
                     spline.tgStartX(), spline.tgStartY(), spline.tgStartZ());
                 const DxfPoint endTangent = current.applyVector(
