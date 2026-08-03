@@ -7,8 +7,11 @@ const jitter = 2.0e-7;
 const outputPath = path.resolve(
   __dirname,
   "..",
-  "example",
-  "many_merge_points_lines.dxf",
+  "tests",
+  "fixtures",
+  "dxf",
+  "function",
+  "merge_points_stress.dxf",
 );
 
 const pairs = [];

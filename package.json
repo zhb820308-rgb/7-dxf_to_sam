@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "check": "node --check server.js && node --check provider-request.js && node --check server/http-utils.js && node --check server/security.js && node --check server/geometry-tools.js && node --check server/provider-controller.js && node --check server/static-server.js && node --check server/router.js && node --check page/dxf.js && node --check page/agent-settings.js && node --check page/state.js && node --check page/viewport.js && node --check page/renderer.js && node --check page/selection.js && node --check page/import-controller.js && node --check page/agent-controller.js && node --check page/ui-controller.js && node --check page/editor-controller.js && node --check page/app.js",
-    "test": "node tests/agent-tools.test.js && node tests/dxf-annotations.test.js && node tests/dxf-layer-semantics.test.js && node tests/server-security.test.js && node tests/server-routes.test.js && node tests/server-module-boundaries.test.js && node tests/agent-boundaries.test.js && node tests/dxf-expansion-limits.test.js && node tests/web-editor-modules.test.js && npm run test:geometry-baseline",
+    "test": "node tests/node/agent-tools.test.js && node tests/node/dxf-annotations.test.js && node tests/node/dxf-layer-semantics.test.js && node tests/node/server-security.test.js && node tests/node/server-routes.test.js && node tests/node/server-module-boundaries.test.js && node tests/node/agent-boundaries.test.js && node tests/node/dxf-expansion-limits.test.js && node tests/node/web-editor-modules.test.js && npm run test:geometry-baseline",
     "test:geometry-baseline": "node scripts/verify-geometry-baseline.js"
   },
   "engines": {

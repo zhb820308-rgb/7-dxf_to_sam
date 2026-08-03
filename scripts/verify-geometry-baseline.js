@@ -8,10 +8,10 @@ const path = require("node:path");
 global.window = global;
 require("../page/dxf.js");
 
-const EXAMPLE_ROOT = path.join(__dirname, "..", "example");
+const DXF_FIXTURE_ROOT = path.join(__dirname, "..", "tests", "fixtures", "dxf");
 const BASELINES = [
   {
-    file: "block_test_minimal.dxf",
+    file: "block/minimal_block_insert.dxf",
     inputHash: "963B8A90BE8014B2AD8F5AF69C5AF4C0872AD83AF612D54EFE9081249446656F",
     points: 0,
     lines: 3,
@@ -19,7 +19,7 @@ const BASELINES = [
     geometryHash: "E9E68AA652D2A17D2365B559FEA2F6B2027784686C3689471E72D3B53EEDAB19"
   },
   {
-    file: "slock_spline_zhenlie.dxf",
+    file: "function/spline_profile_array_stress.dxf",
     inputHash: "A8D43AA0F4926CD7E7CD04ED8088E3D8EF0F774B21B93CF79B04C5E245428922",
     points: 0,
     lines: 49512,
@@ -32,7 +32,7 @@ const BASELINES = [
     geometryHash: "143835F9F0EB5EC2770626D8669C81CFBCD36D2EFAF76CA2F21FD5928F62B9AD"
   },
   {
-    file: "ship2_block_test.dxf",
+    file: "block/ship_block_expansion_stress.dxf",
     inputHash: "8CA7FB11D9B8A958E8D3BEDFB8E579737014EA0D94C347AADC1A3289E4FD8BC3",
     points: 92,
     lines: 47611,
@@ -96,7 +96,7 @@ function assertBounds(actual, expected, file) {
 }
 
 for (const baseline of BASELINES) {
-  const filePath = path.join(EXAMPLE_ROOT, baseline.file);
+  const filePath = path.join(DXF_FIXTURE_ROOT, baseline.file);
   const source = fs.readFileSync(filePath);
   assert.equal(sha256(source), baseline.inputHash, `${baseline.file} input hash`);
 
