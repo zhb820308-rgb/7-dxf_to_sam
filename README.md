@@ -10,16 +10,18 @@ DXF to SAM 是一个面向船舶 CAD 图纸的 DXF 导入与检查项目，包�
 
 ## 从这里开始
 
-| 想了解的内容 | 文档 |
-|---|---|
-| 项目组成和模块关系 | [系统架构](docs/01-系统架构.md) |
-| DXF 如何变成 Sketch/FE 几何 | [DXF 解析与转换流程](docs/02-DXF解析与转换流程.md) |
-| SAM GUI、Python 入口和事务 | [SAM 插件与 FE 导入](docs/03-SAM插件与FE导入.md) |
-| 浏览器编辑器和图形 Agent | [Web 编辑器与图形 Agent](docs/04-Web编辑器与图形Agent.md) |
-| 配置、编译、部署和测试 | [构建部署与测试](docs/05-构建部署与测试.md) |
-| 资源限制、安全边界和排错 | [安全限制与故障排查](docs/06-安全限制与故障排查.md) |
-| 当前完成情况和主要变更 | [当前状态与主要变更](docs/07-当前状态与主要变更.md) |
-| 55 个完整测试样例 | [样例与测试数据](docs/08-样例与测试数据.md) |
+| 想了解的内容                | 文档                                                     |
+| --------------------------- | -------------------------------------------------------- |
+| C++/Qt 初学者如何读和重写   | [初学者代码导读](docs/09-初学者代码导读.md)               |
+| 逐文件查询类和函数作用      | [C++ 文件、类与函数总索引](docs/10-C++文件类与函数总索引.md) |
+| 项目组成和模块关系          | [系统架构](docs/01-系统架构.md)                           |
+| DXF 如何变成 Sketch/FE 几何 | [DXF 解析与转换流程](docs/02-DXF解析与转换流程.md)        |
+| SAM GUI、Python 入口和事务  | [SAM 插件与 FE 导入](docs/03-SAM插件与FE导入.md)          |
+| 浏览器编辑器和图形 Agent    | [Web 编辑器与图形 Agent](docs/04-Web编辑器与图形Agent.md) |
+| 配置、编译、部署和测试      | [构建部署与测试](docs/05-构建部署与测试.md)               |
+| 资源限制、安全边界和排错    | [安全限制与故障排查](docs/06-安全限制与故障排查.md)       |
+| 当前完成情况和主要变更      | [当前状态与主要变更](docs/07-当前状态与主要变更.md)       |
+| 55 个完整测试样例           | [样例与测试数据](docs/08-样例与测试数据.md)               |
 
 完整目录见 [docs/README.md](docs/README.md)。
 
@@ -48,6 +50,8 @@ Web 链路独立于 SAM 插件：
 
 项目面向 Windows x64，并依赖 SAM SDK 的既有 ABI。已验证的生成器是 Visual Studio
 2017。需要 CMake 4.4、SAM/SAMSDK、libdxfrw、spdlog，以及仓库内配置的 OCCT。
+根 CMake 会优先从 `3rdParty/<依赖名>/` 使用实际三方库内容；也可以继续通过下面的
+`-D` 参数或环境变量引用仓库外安装目录。
 
 ```powershell
 cmake -S . -B build -G "Visual Studio 15 2017" -A x64 `
@@ -106,12 +110,12 @@ npm.cmd start
 ## 目录
 
 ```text
+3rdParty/             项目本地的实际第三方库内容（按库名分目录）
 src/Example1/          C++ 解析、转换、Sketch/FE 构建和 Python 绑定
 src/Example1Toolset/   Qt 导入对话框、菜单和日志查看器
 page/                  浏览器 DXF Studio
 server/                本地 Agent HTTP 服务
-test/                  C++ Google Test 与最小 DXF 夹具
-tests/                 Node 回归测试
-example/               项目内稳定样例和几何基线输入
+tests/                 C++/Node 测试与唯一的分层 DXF 数据源
+example/               DXF 样例选择入口（不保存数据副本）
 docs/                  当前项目文档
 ```
