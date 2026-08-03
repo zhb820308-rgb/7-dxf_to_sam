@@ -1,8 +1,12 @@
-# 编译产物
-bin/
+# 根目录编译产物
+/bin/
+/build*/
+/lib/
 build/
-build_new/
-lib/
+
+# 仓库内 OCCT 开发包的本地运行库（不提交）
+/example/OCCT/win64/*/bin/
+/example/OCCT/win64/*/lib/
 
 # Visual Studio
 *.user
@@ -25,3 +29,7 @@ __pycache__/
 .DS_Store
 .vscode/
 .env
+/.claude/
+/.codex-worktrees/
+/tmp/
+*.bak
