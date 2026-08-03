@@ -1,25 +1,26 @@
-#ifndef Example1DXFImportDialog_h
-#define Example1DXFImportDialog_h
+#pragma once
 
 #include <SAMDataDialog.h>
+#include <QStringList>
 
-class QLineEdit;
-class QPushButton;
 class QComboBox;
 class QDoubleValidator;
-class MultiSelectComboBox;
+class QLineEdit;
+class QPushButton;
 class Example1Form;
+class MultiSelectComboBox;
 
-/// @brief Dialog for configuring DXF import parameters.
-///
-/// Exposes: file path, base point (X/Y/Z), curve tolerance, and layer exclusion.
-/// Validates input before invoking the import command.
+/**
+ * @file DxfImportDialog.h
+ * @brief DXF 参数窗口，以及只读取 DXF 图层名的轻量辅助接口。
+ */
 class Example1DXFImportDialog : public SAMDataDialog
 {
     Q_OBJECT
+
 public:
     explicit Example1DXFImportDialog(Example1Form* form);
-    ~Example1DXFImportDialog();
+    ~Example1DXFImportDialog() override;
 
 private slots:
     void onCmdOk(int id) override;
@@ -45,4 +46,4 @@ private:
     static const int BROWSE_BUTTON_ID = 2;
 };
 
-#endif
+bool collectDxfLayers(const QString& filePath, QStringList& layers);

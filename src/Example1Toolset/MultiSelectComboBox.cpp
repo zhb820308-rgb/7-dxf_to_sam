@@ -1,10 +1,9 @@
-#include "MultiSelectComboBox.h"
+#include <MultiSelectComboBox.h>
 
 #include <QAbstractItemView>
 #include <QApplication>
 #include <QDesktopWidget>
 #include <QFrame>
-#include <QHBoxLayout>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QListWidgetItem>
@@ -99,7 +98,9 @@ void MultiSelectComboBox::showPopup()
 
     m_searchEdit->clear();
     const int popupWidth = qMax(width(), 340);
-    const int popupHeight = qMin(330, QApplication::desktop()->availableGeometry(this).height() - 20);
+    const int popupHeight = qMin(
+        330,
+        QApplication::desktop()->availableGeometry(this).height() - 20);
     m_popup->resize(popupWidth, popupHeight);
 
     QPoint topLeft = mapToGlobal(QPoint(0, height()));

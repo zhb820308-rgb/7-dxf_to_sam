@@ -1,22 +1,19 @@
+# 这个目标只放 Qt/SAM GUI 文件。真正解析与转换代码位于相邻 Example1 目标，
+# GUI 通过 SAM 命令系统调用 Example1.pyd，而不是把核心 .cpp 再编译一份。
 set(EXAMPLE1_TOOLSET_SOURCES
-    DxfLayerReader.cpp
-    DxfLayerReader.h
+    DxfImportDialog.cpp
+    DxfImportDialog.h
     DxfLogViewerDialog.cpp
     DxfLogViewerDialog.h
-    Example1DB.cpp
-    Example1DB.h
-    Example1DXFImportDialog.cpp
-    Example1DXFImportDialog.h
     Example1Form.cpp
     Example1Form.h
-    Example1ToolsetGui.cpp
-    Example1ToolsetGui.h
-    Example1ToolsetPlugin.cpp
-    Example1ToolsetPlugin.h
+    Example1Toolset.cpp
+    Example1Toolset.h
     MultiSelectComboBox.cpp
     MultiSelectComboBox.h
 )
 
+# 生成 SAM 扫描并加载的 Qt 插件 DLL。
 add_library(Example1Toolset SHARED ${EXAMPLE1_TOOLSET_SOURCES})
 target_include_directories(Example1Toolset PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -43,6 +40,8 @@ target_compile_definitions(Example1Toolset PRIVATE
 )
 
 set_target_properties(Example1Toolset PROPERTIES
+    # SAM 约定的部署名是 SAM.Pre.Example1Toolset.dll；OUTPUT_NAME 改主文件名，
+    # SUFFIX 明确 Windows 动态库后缀。它不是可双击运行的 exe。
     AUTOMOC ON
     OUTPUT_NAME "SAM.Pre.Example1Toolset"
     SUFFIX ".dll"
@@ -64,4 +63,3 @@ target_link_libraries(Example1Toolset
     libtcmalloc_minimal
     libdxfrw::dxfrw
 )
-
