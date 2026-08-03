@@ -4,9 +4,13 @@
 /lib/
 build/
 
-# 仓库内 OCCT 开发包的本地运行库（不提交）
-/example/OCCT/win64/*/bin/
-/example/OCCT/win64/*/lib/
+# 3rdParty 的实际三方库只保留在开发机，不上传仓库；仅提交放置说明。
+/3rdParty/*
+!/3rdParty/README.md
+*.pdb
+*.exp
+*.ilk
+*.obj
 
 # Visual Studio
 *.user
@@ -33,3 +37,9 @@ __pycache__/
 /.codex-worktrees/
 /tmp/
 *.bak
+*.dmp
+*.stack
+sam.rpy*
+/crash/
+/logs/
+/scripts/crash/
